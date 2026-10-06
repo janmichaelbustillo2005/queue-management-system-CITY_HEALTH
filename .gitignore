@@ -1,0 +1,7 @@
+backend/.env
+frontend/.env
+*.local.php
+node_modules/
+frontend/.next/
+backend/data/awaiting-accept.json
+backend/query-output.txt

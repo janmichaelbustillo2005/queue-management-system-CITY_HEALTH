@@ -1,0 +1,23 @@
+{
+  "autoRefresh": true,
+  "refreshInterval": 5,
+  "showCompleted": true,
+  "maxQueues": 11,
+  "soundNotifications": true,
+  "voiceAnnouncements": true,
+  "announceDoctorRoom": true,
+  "announceGapSeconds": 3,
+  "noShowWaitMinutes": 10,
+  "recallAttempts": 2,
+  "allowQueueReassignment": true,
+  "preventDuplicateRegistration": true,
+  "doctor1Online": true,
+  "doctor2Online": true,
+  "doctor3Online": true,
+  "autoBackupReminder": true,
+  "exportStatus": "",
+  "exportService": "",
+  "exportDateFilter": "today",
+  "exportFormat": "csv",
+  "lastExportAt": null
+}

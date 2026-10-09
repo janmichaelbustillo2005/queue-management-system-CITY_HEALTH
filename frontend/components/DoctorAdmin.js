@@ -519,62 +519,62 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
           </div>
         ) : null}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border brand-border flex items-center gap-4">
             <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 text-xl">
               <i className="fas fa-user-md" />
             </div>
             <div>
-              <div className="text-sm font-bold text-gray-800">
+              <div className="text-sm font-bold brand-text">
                 {doctorName === "Doctor 1" ? "Consultation, Check-up" : 
                  doctorName === "Doctor 2" ? "Prenatal, Maternity" : 
                  doctorName === "Doctor 3" ? "Family Planning" : "No assignments"}
               </div>
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">My Assignments</div>
+              <div className="text-[10px] brand-text-muted uppercase tracking-wider font-semibold">My Assignments</div>
             </div>
           </div>
-          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border brand-border flex items-center gap-4">
             <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 text-xl">
               <i className="fas fa-clock" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-800">{stats.waiting}</div>
-              <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Matching Waiting</div>
+              <div className="text-2xl font-bold brand-text">{stats.waiting}</div>
+              <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">Matching Waiting</div>
             </div>
           </div>
-          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border brand-border flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600 text-xl">
               <i className="fas fa-user-check" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-800">{stats.serving}</div>
-              <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold">My Serving</div>
+              <div className="text-2xl font-bold brand-text">{stats.serving}</div>
+              <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">My Serving</div>
             </div>
           </div>
-          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border brand-border flex items-center gap-4">
             <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center text-green-600 text-xl">
               <i className="fas fa-check-circle" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-800">{stats.completed}</div>
-              <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold">My Completed</div>
+              <div className="text-2xl font-bold brand-text">{stats.completed}</div>
+              <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">My Completed</div>
             </div>
           </div>
-          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="stat-card bg-white p-4 rounded-xl shadow-sm border brand-border flex items-center gap-4">
             <div className="w-12 h-12 bg-amber-50 rounded-lg flex items-center justify-center text-amber-600 text-xl">
               <i className="fas fa-calendar-day" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-800">{stats.total_patients}</div>
-              <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Total Patients</div>
+              <div className="text-2xl font-bold brand-text">{stats.total_patients}</div>
+              <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">Total Patients</div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+        <div className="bg-white rounded-2xl shadow-sm border brand-border overflow-hidden">
+          <div className="p-4 border-b brand-border bg-gray-50/50 flex justify-between items-center">
             <div className="flex items-center gap-2">
-              <i className="fas fa-tasks text-emerald-600" />
-              <h2 className="font-bold text-gray-800">My Queue Management</h2>
+              <i className="fas fa-tasks brand-text-primary" />
+              <h2 className="font-bold brand-text">My Queue Management</h2>
             </div>
             <div className="flex gap-2">
               <a 
@@ -607,7 +607,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
               </button>
               <button 
                 onClick={refreshAll}
-                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"
+                className="px-3 py-1.5 brand-button rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               >
                 <i className={`fas fa-sync-alt ${loading ? 'animate-spin' : ''}`} />
                 Refresh
@@ -619,18 +619,18 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
             <table className="w-full text-left">
               <thead>
                 <tr className="bg-gray-50/50">
-                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Queue</th>
-                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Patient</th>
-                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Service</th>
-                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Priority</th>
-                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Status</th>
-                  <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Queue</th>
+                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Patient</th>
+                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Service</th>
+                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Priority</th>
+                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Status</th>
+                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-[var(--brand-border)]">
                 {filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="px-6 py-12 text-center text-gray-400">
+                    <td colSpan="6" className="px-6 py-12 text-center brand-text-muted">
                       <i className="fas fa-inbox text-4xl mb-3 block" />
                       No patients in your queue
                     </td>
@@ -639,23 +639,23 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                   filteredRows.map((row) => (
                     <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-6 py-4">
-                        <span className="font-mono font-bold text-emerald-600 text-lg">{row.queue_number}</span>
+                        <span className="font-mono font-bold brand-text-primary text-lg">{row.queue_number}</span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-semibold text-gray-800">{row.id_num}</div>
+                        <div className="font-semibold brand-text">{row.id_num}</div>
                         <div className="flex flex-wrap gap-2 mt-1">
                           {row.sex && (
-                            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                            <span className="text-[10px] brand-bg-subtle brand-text-primary px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
                               {row.sex}
                             </span>
                           )}
                           {row.birthdate && (
-                            <span className="text-[10px] text-gray-500">
+                            <span className="text-[10px] brand-text-muted">
                               <i className="fas fa-birthday-cake me-1" />
                               {new Date(row.birthdate).toLocaleDateString()}
                             </span>
                           )}
-                          <div className="text-[10px] text-gray-500">
+                          <div className="text-[10px] brand-text-muted">
                             <i className="fas fa-phone-alt me-1" /> {row.mobile_number}
                           </div>
                         </div>
@@ -675,7 +675,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                             <i className="fas fa-star" /> {row.priority_score}
                           </span>
                         ) : (
-                          <span className="text-gray-400 text-xs">—</span>
+                          <span className="brand-text-muted text-xs">—</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
@@ -698,7 +698,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                                 onClick={() => handleAccept(row.id)}
                                 title="Accept patient"
                                 aria-label="Accept patient"
-                                className={`${iconButtonClass} bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-300 animate-pulse`}
+                                className={`${iconButtonClass} brand-button ring-2 ring-[var(--brand-primary)] animate-pulse`}
                               >
                                 <i className="fas fa-user-check" />
                               </button>
@@ -796,12 +796,12 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
               fontSize: "1.25rem",
               fontWeight: "bold",
               marginBottom: "1rem",
-              color: "#1f2937"
+              color: "var(--brand-text)"
             }}>
               {modal.title}
             </h3>
             <p style={{
-              color: "#4b5563",
+              color: "var(--brand-muted)",
               marginBottom: "1rem"
             }}>
               {modal.message}
@@ -826,7 +826,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                   marginBottom: "0.5rem",
                   fontSize: "0.875rem",
                   fontWeight: 500,
-                  color: "#374151"
+                  color: "var(--brand-text)"
                 }}>
                   {modal.requireReason ? "Reason for Cancel" : "Reason (optional)"}
                 </label>
@@ -838,10 +838,11 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                     setModal((prev) => ({ ...prev, reason: e.target.value, error: "" }));
                   }}
                   placeholder="Enter reason..."
+                  className="brand-input"
                   style={{
                     width: "100%",
                     padding: "0.75rem",
-                    border: "1px solid #d1d5db",
+                    border: "1px solid var(--brand-input-border)",
                     borderRadius: "0.5rem",
                     resize: "vertical",
                     minHeight: "100px",
@@ -861,10 +862,10 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                 disabled={modal.submitting}
                 style={{
                   padding: "0.5rem 1.5rem",
-                  border: "1px solid #d1d5db",
+                  border: "1px solid var(--brand-input-border)",
                   borderRadius: "0.5rem",
                   backgroundColor: "white",
-                  color: "#374151",
+                  color: "var(--brand-text)",
                   cursor: modal.submitting ? "not-allowed" : "pointer",
                   fontWeight: 500,
                   opacity: modal.submitting ? 0.6 : 1
@@ -876,11 +877,11 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                 type="button"
                 onClick={handleModalConfirm}
                 disabled={modal.submitting}
+                className="brand-button"
                 style={{
                   padding: "0.5rem 1.5rem",
                   border: "none",
                   borderRadius: "0.5rem",
-                  backgroundColor: "#166534",
                   color: "white",
                   cursor: modal.submitting ? "not-allowed" : "pointer",
                   fontWeight: 500,
@@ -905,7 +906,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
               </h3>
             </div>
             <div className="p-5 space-y-4">
-              <p className="text-sm text-gray-600 m-0">
+              <p className="text-sm brand-text-muted m-0">
                 Submit a cancellation request for your doctor account. Your account will stay active until a Super Admin reviews and approves this request.
               </p>
 
@@ -930,7 +931,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
 
               {!pendingCancelRequest && !cancelAccountModal.success ? (
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold brand-text mb-2">
                     Reason for Cancel <span className="text-red-500">*</span>
                   </label>
                   <textarea
@@ -944,7 +945,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                     }
                     placeholder="Explain why you want to cancel this doctor account..."
                     rows={5}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none resize-y"
+                    className="w-full px-3 py-2 brand-input border rounded-lg text-sm outline-none resize-y"
                     disabled={cancelAccountModal.submitting}
                   />
                 </div>
@@ -962,7 +963,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                       success: ""
                     })
                   }
-                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50"
+                  className="px-4 py-2 rounded-lg border brand-border brand-text text-sm font-semibold hover:bg-gray-50"
                   disabled={cancelAccountModal.submitting}
                 >
                   Close

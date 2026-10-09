@@ -333,13 +333,13 @@ export default function FillUpFormPage() {
             <div className="frontdesk-card-header">
               {!isSuccess ? (
                 <>
-                  <h5 className="card-title fw-bold text-dark" style={{fontSize: '1rem'}}><i className="bi bi-person-plus-fill text-csu-primary"></i> Join the Queue</h5>
-                  <p className="text-muted" style={{fontSize: '0.78rem'}}><i className="bi bi-clock-history me-1"></i> {new Date().toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                  <h5 className="card-title fw-bold brand-text" style={{fontSize: '1rem'}}><i className="bi bi-person-plus-fill text-csu-primary"></i> Join the Queue</h5>
+                  <p className="brand-text-muted" style={{fontSize: '0.78rem'}}><i className="bi bi-clock-history me-1"></i> {new Date().toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                 </>
               ) : (
                 <>
                   <h5 className="card-title fw-bold text-success"><i className="bi bi-check-circle-fill me-1"></i> Registration Complete</h5>
-                  <p className="text-muted small"><i className="bi bi-ticket-detailed me-1"></i> Your queue number has been generated.</p>
+                  <p className="brand-text-muted small"><i className="bi bi-ticket-detailed me-1"></i> Your queue number has been generated.</p>
                 </>
               )}
             </div>
@@ -352,7 +352,7 @@ export default function FillUpFormPage() {
                   ) : null}
 
                   <form onSubmit={handleSubmit}>
-                    <div className="frontdesk-demographics-panel bg-light p-3 p-md-4 rounded-3 border border-secondary-subtle mb-3">
+                    <div className="frontdesk-demographics-panel brand-bg-subtle p-3 p-md-4 rounded-3 border brand-border mb-3">
                       <div className="frontdesk-section-title">
                         <i className="bi bi-person-lines-fill"></i>
                         Patient Demographics
@@ -360,10 +360,10 @@ export default function FillUpFormPage() {
                       <div className="frontdesk-form-grid">
                       <div className="grid-full row g-2 mb-3">
                         <div className="col-12 col-md-5">
-                          <label className="form-label fw-semibold small">First Name <span className="text-danger">*</span></label>
+                          <label className="brand-text form-label fw-semibold small">First Name <span className="text-danger">*</span></label>
                           <input
                             type="text"
-                            className="form-control form-control-sm"
+                            className="brand-input form-control form-control-sm"
                             placeholder="e.g. Juan"
                             value={form.firstName}
                             onChange={(e) => setForm({ ...form, firstName: e.target.value })}
@@ -373,10 +373,10 @@ export default function FillUpFormPage() {
                           />
                         </div>
                         <div className="col-12 col-md-2">
-                          <label className="form-label fw-semibold small">Middle Initial (Optional)</label>
+                          <label className="brand-text form-label fw-semibold small">Middle Initial (Optional)</label>
                           <input
                             type="text"
-                            className="form-control form-control-sm"
+                            className="brand-input form-control form-control-sm"
                             placeholder="e.g. D"
                             value={form.middleInitial}
                             onChange={(e) =>
@@ -387,10 +387,10 @@ export default function FillUpFormPage() {
                           />
                         </div>
                         <div className="col-12 col-md-5">
-                          <label className="form-label fw-semibold small">Last Name <span className="text-danger">*</span></label>
+                          <label className="brand-text form-label fw-semibold small">Last Name <span className="text-danger">*</span></label>
                           <input
                             type="text"
-                            className="form-control form-control-sm"
+                            className="brand-input form-control form-control-sm"
                             placeholder="e.g. Dela Cruz"
                             value={form.lastName}
                             onChange={(e) => setForm({ ...form, lastName: e.target.value })}
@@ -402,12 +402,12 @@ export default function FillUpFormPage() {
                       </div>
 
                       <div className="mb-3">
-                        <label className="form-label fw-semibold small">Mobile Number (Optional)</label>
+                        <label className="brand-text form-label fw-semibold small">Mobile Number (Optional)</label>
                         <div className="input-group input-group-sm">
-                          <span className="input-group-text bg-white border-end-0">+63</span>
+                          <span className="input-group-text brand-border bg-white border-end-0">+63</span>
                           <input
                             type="text"
-                            className="form-control border-start-0 ps-1"
+                            className="brand-input form-control border-start-0 ps-1"
                             placeholder="9123456789"
                             value={form.mobileNumber}
                             onChange={handleMobileChange}
@@ -418,10 +418,10 @@ export default function FillUpFormPage() {
                       </div>
 
                       <div className="mb-3">
-                        <label className="form-label fw-semibold small">PhilHealth / YAKAP ID (Optional)</label>
+                        <label className="brand-text form-label fw-semibold small">PhilHealth / YAKAP ID (Optional)</label>
                         <input
                           type="text"
-                          className="form-control form-control-sm"
+                          className="brand-input form-control form-control-sm"
                           placeholder="PhilHealth or YAKAP ID No."
                           value={form.philhealthId}
                           onChange={(e) => setForm({ ...form, philhealthId: e.target.value })}
@@ -430,9 +430,9 @@ export default function FillUpFormPage() {
                       </div>
 
                       <div className="mb-3">
-                        <label className="form-label fw-semibold small">Sex <span className="text-danger">*</span></label>
+                        <label className="brand-text form-label fw-semibold small">Sex <span className="text-danger">*</span></label>
                         <select
-                          className="form-select form-select-sm"
+                          className="brand-input form-select form-select-sm"
                           value={form.sex}
                           onChange={(e) => setForm({ ...form, sex: e.target.value })}
                           required
@@ -445,10 +445,10 @@ export default function FillUpFormPage() {
                       </div>
 
                       <div className="mb-3">
-                        <label className="form-label fw-semibold small">Birthdate <span className="text-danger">*</span></label>
+                        <label className="brand-text form-label fw-semibold small">Birthdate <span className="text-danger">*</span></label>
                         <input
                           type="date"
-                          className="form-control form-control-sm"
+                          className="brand-input form-control form-control-sm"
                           value={form.birthdate}
                           onChange={handleBirthdateChange}
                           required
@@ -457,14 +457,14 @@ export default function FillUpFormPage() {
                       </div>
 
                       <div className="frontdesk-residency mb-3 position-relative">
-                        <label className="form-label fw-semibold small">Residency / Complete Address <span className="text-danger">*</span></label>
+                        <label className="brand-text form-label fw-semibold small">Residency / Complete Address <span className="text-danger">*</span></label>
                         <div className="input-group input-group-sm">
-                          <span className="input-group-text bg-white">
+                          <span className="input-group-text brand-border bg-white">
                             <i className="bi bi-geo-alt-fill text-danger" />
                           </span>
                           <input
                             type="text"
-                            className="form-control"
+                            className="brand-input form-control"
                             placeholder="Search and select barangay / city residency..."
                             value={form.residency}
                             onChange={(e) => handleResidencySearch(e.target.value)}
@@ -476,15 +476,15 @@ export default function FillUpFormPage() {
                         </div>
                         
                         {showSuggestions && residencySuggestions.length > 0 && (
-                          <div className="residency-suggestions position-absolute w-100 mt-1 bg-white border rounded shadow-sm overflow-hidden" style={{ zIndex: 1000 }}>
+                          <div className="residency-suggestions position-absolute w-100 mt-1 bg-white border brand-border rounded shadow-sm overflow-hidden" style={{ zIndex: 1000 }}>
                             {residencySuggestions.map((item, index) => (
                               <div 
                                 key={index}
-                                className="px-3 py-2 small hover-bg-light cursor-pointer border-bottom text-truncate"
+                                className="px-3 py-2 small brand-hover-subtle cursor-pointer border-bottom brand-border text-truncate"
                                 onClick={() => selectResidency(item)}
                                 style={{ cursor: 'pointer' }}
                               >
-                                <i className="bi bi-geo-alt me-2 text-muted" />
+                                <i className="bi bi-geo-alt me-2 brand-text-muted" />
                                 {item.display_name}
                               </div>
                             ))}
@@ -501,9 +501,9 @@ export default function FillUpFormPage() {
                       </div>
                       <div className="frontdesk-wide-split">
                         <div className="mb-3">
-                          <label className="form-label fw-semibold small">Type of Service <span className="text-danger">*</span></label>
+                          <label className="brand-text form-label fw-semibold small">Type of Service <span className="text-danger">*</span></label>
                           <select
-                            className="form-select form-select-sm"
+                            className="brand-input form-select form-select-sm"
                             value={form.serviceType}
                             onChange={(e) => setForm({ ...form, serviceType: e.target.value })}
                             required
@@ -515,15 +515,15 @@ export default function FillUpFormPage() {
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
-                          <div className="form-text text-muted mt-1 small" style={{fontSize: '0.78rem'}}>
+                          <div className="form-text brand-text-muted mt-1 small" style={{fontSize: '0.78rem'}}>
                             <i className="bi bi-info-circle me-1"></i>
                             Assigned to doctor automatically.
                           </div>
                         </div>
 
                         <div className="mb-3">
-                          <label className="form-label fw-semibold small">Vulnerability <span className="text-muted fw-normal">(auto-computed)</span></label>
-                          <div className="frontdesk-vulnerability bg-white p-3 rounded-3 border border-secondary-subtle">
+                          <label className="brand-text form-label fw-semibold small">Vulnerability <span className="brand-text-muted fw-normal">(auto-computed)</span></label>
+                          <div className="frontdesk-vulnerability bg-white p-3 rounded-3 border brand-border">
                             {vulnerabilityOptions.map((opt) => (
                               <div className="form-check form-check-inline mb-1" key={opt.value}>
                                 <input
@@ -536,12 +536,12 @@ export default function FillUpFormPage() {
                                   disabled={isLoading}
                                 />
                                 <label className="form-check-label small" htmlFor={`vuln-${opt.value}`}>
-                                  {opt.label} <span className="text-muted">(+{opt.weight})</span>
+                                  {opt.label} <span className="brand-text-muted">(+{opt.weight})</span>
                                 </label>
                               </div>
                             ))}
                             {form.vulnerabilityFlags.length > 0 && (
-                              <div className="frontdesk-vulnerability-score mt-2 small text-primary fw-semibold">
+                              <div className="frontdesk-vulnerability-score mt-2 small brand-text-primary fw-semibold">
                                 <i className="bi bi-calculator me-1"></i>
                                 Computed Priority Score: {computePreviewScore(form.vulnerabilityFlags)}
                               </div>
@@ -591,26 +591,26 @@ export default function FillUpFormPage() {
                       <div className="display-1 text-success mb-2">
                         <i className="bi bi-check-circle-fill"></i>
                       </div>
-                      <h3 className="fw-bold mb-1 text-dark">Registration Successful!</h3>
-                      <p className="text-muted mb-0">{message.text}</p>
+                      <h3 className="fw-bold mb-1 brand-text">Registration Successful!</h3>
+                      <p className="brand-text-muted mb-0">{message.text}</p>
                     </div>
 
-                    <div className="bg-light p-4 p-md-5 rounded-4 border border-dashed border-success mb-3">
-                      <p className="text-uppercase small fw-bold text-muted mb-2">Your Queue Number</p>
+                    <div className="brand-bg-subtle p-4 p-md-5 rounded-4 border border-dashed border-success mb-3">
+                      <p className="text-uppercase small fw-bold brand-text-muted mb-2">Your Queue Number</p>
                       <div className="display-2 fw-bold text-csu-primary tracking-tighter mb-3">{message.queue}</div>
                       <div className="d-flex align-items-center justify-content-center gap-3 flex-wrap mb-2">
-                        <span className="badge bg-primary fs-6 px-4 py-2">
+                        <span className="badge brand-accent-badge fs-6 px-4 py-2">
                           <i className="bi bi-star-fill me-1"></i>
                           Priority Score: {message.priorityScore}
                         </span>
                         {waitingCount > 0 && (
-                          <span className="badge bg-light text-dark border px-3 py-2 small">
+                          <span className="badge brand-bg-subtle brand-text border px-3 py-2 small">
                             <i className="bi bi-people-fill me-1"></i>
                             {waitingCount - 1} patients ahead
                           </span>
                         )}
                       </div>
-                      <p className="text-muted small mb-0 mt-2">
+                      <p className="brand-text-muted small mb-0 mt-2">
                         <i className="bi bi-hospital me-1"></i>
                         {message.doctorName || 'Assigned Doctor'}
                       </p>
@@ -620,7 +620,7 @@ export default function FillUpFormPage() {
                   <div className="d-grid gap-2 gap-md-3 d-md-flex justify-content-md-center mt-3">
                     <button 
                       onClick={handlePrintTicket}
-                      className="btn btn-success py-2 py-md-3 fw-bold d-flex align-items-center justify-content-center gap-2 px-4 px-md-5"
+                      className="btn btn-csu-primary py-2 py-md-3 fw-bold d-flex align-items-center justify-content-center gap-2 px-4 px-md-5"
                     >
                       <i className="bi bi-printer-fill fs-5"></i>
                       Print Thermal Ticket
@@ -646,7 +646,7 @@ export default function FillUpFormPage() {
           </div>
 
           {!isSuccess && (
-            <p className="frontdesk-disclaimer text-muted small">
+            <p className="frontdesk-disclaimer brand-text-muted small">
               By joining the queue, you agree to receive SMS notifications <br className="d-none d-sm-block" />
               regarding your status. Standard rates may apply.
             </p>

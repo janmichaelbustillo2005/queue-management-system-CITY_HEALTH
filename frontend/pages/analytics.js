@@ -16,7 +16,7 @@ import {
 
 const defaultSettings = defaultQueueSettings;
 
-function drawChart(canvasId, type, labels, data, colors) {
+function drawChart(canvasId, type, labels, data, colors, borderColor) {
   if (typeof window === "undefined" || !window.Chart) {
     return null;
   }
@@ -34,7 +34,7 @@ function drawChart(canvasId, type, labels, data, colors) {
         label: "Patients",
         data,
         backgroundColor: colors,
-        borderColor: Array.isArray(colors) ? colors[0] : colors,
+        borderColor: borderColor || (Array.isArray(colors) ? colors[0] : colors),
         tension: 0.4,
         fill: type === "line"
       }]
@@ -147,21 +147,27 @@ export default function AnalyticsPage() {
       return;
     }
 
+    const theme = getComputedStyle(document.documentElement);
+    const brandColor = (name) => theme.getPropertyValue(`--brand-${name}`).trim();
+    const primary = brandColor("primary");
+    const forest = brandColor("forest");
+    const serviceColors = [primary, forest, brandColor("muted"), brandColor("gold"), brandColor("primary-hover"), brandColor("input-border")];
+    const statusColors = [primary, "#f59e0b", "#ef4444", "#6b7280"];
     const charts = [];
     
     if (activeTab === "all" || activeTab === "distribution") {
-      charts.push(drawChart("serviceTypesChart", "doughnut", data?.charts?.serviceTypes?.labels ?? [], data?.charts?.serviceTypes?.data ?? [], ["#279b61", "#4a6b5d", "#34d399", "#059669", "#6ee7b7", "#065f46"]));
+      charts.push(drawChart("serviceTypesChart", "doughnut", data?.charts?.serviceTypes?.labels ?? [], data?.charts?.serviceTypes?.data ?? [], serviceColors));
       charts.push(drawChart("sexDistributionChart", "pie", data?.charts?.sexDistribution?.labels ?? [], data?.charts?.sexDistribution?.data ?? [], ["#3b82f6", "#ec4899"]));
-      charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], ["#279b61", "#f59e0b", "#ef4444", "#6b7280"]));
+      charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], statusColors));
     }
     if (activeTab === "all" || activeTab === "trends") {
-      charts.push(drawChart("dailyTrendsChart", "line", data?.charts?.dailyTrends?.labels ?? [], data?.charts?.dailyTrends?.data ?? [], "rgba(39, 155, 97, 0.45)"));
+      charts.push(drawChart("dailyTrendsChart", "line", data?.charts?.dailyTrends?.labels ?? [], data?.charts?.dailyTrends?.data ?? [], `rgba(${brandColor("primary-rgb")}, 0.18)`, primary));
     }
     if (activeTab === "all" || activeTab === "hourly") {
-      charts.push(drawChart("hourlyChart", "bar", data?.charts?.hourly?.labels ?? [], data?.charts?.hourly?.data ?? [], "#4a6b5d"));
+      charts.push(drawChart("hourlyChart", "bar", data?.charts?.hourly?.labels ?? [], data?.charts?.hourly?.data ?? [], forest));
     }
     if (activeTab === "all" || activeTab === "status") {
-      charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], ["#279b61", "#f59e0b", "#ef4444", "#6b7280"]));
+      charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], statusColors));
     }
 
     return () => charts.forEach((chart) => chart?.destroy());
@@ -199,18 +205,18 @@ export default function AnalyticsPage() {
         <div className="container mx-auto max-w-6xl px-3 md:px-4">
           <div className="bg-white rounded-lg shadow-md p-3 md:p-4 mb-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-base md:text-lg font-bold text-gray-800"><i className="fas fa-filter mr-2 text-sm" />Filter Options</h2>
+              <h2 className="text-base md:text-lg font-bold brand-text"><i className="fas fa-filter mr-2 text-sm" />Filter Options</h2>
               <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                <input type="date" className="px-2 py-1.5 text-sm border border-gray-300 rounded-md w-full sm:w-auto" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
-                <input type="date" className="px-2 py-1.5 text-sm border border-gray-300 rounded-md w-full sm:w-auto" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
-                <button type="button" onClick={() => loadAnalytics(filters)} className="text-white text-sm px-3 py-1.5 rounded-md hover:opacity-90 transition w-full sm:w-auto" style={{ backgroundColor: "#279b61" }}><i className="fas fa-search mr-1" />Apply</button>
-                <button type="button" onClick={exportData} className="text-white text-sm px-3 py-1.5 rounded-md hover:opacity-90 transition w-full sm:w-auto" style={{ backgroundColor: "#1a6b45" }}><i className="fas fa-download mr-1" />Export</button>
+                <input type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
+                <input type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
+                <button type="button" onClick={() => loadAnalytics(filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-search mr-1" />Apply</button>
+                <button type="button" onClick={exportData} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-download mr-1" />Export</button>
               </div>
             </div>
           </div>
 
           <div className="mb-4 overflow-x-auto">
-            <div className="flex border-b border-gray-200">
+            <div className="flex border-b brand-border">
               <TabButton id="all" active={activeTab} onClick={setActiveTab} label="Detailed Data" icon="fas fa-table" />
               <TabButton id="distribution" active={activeTab} onClick={setActiveTab} label="Distribution" icon="fas fa-chart-pie" />
               <TabButton id="trends" active={activeTab} onClick={setActiveTab} label="Trends" icon="fas fa-chart-line" />
@@ -246,32 +252,32 @@ export default function AnalyticsPage() {
 
             {activeTab === "all" && (
               <div className="bg-white rounded-lg shadow-md p-4 md:p-6 mb-6">
-                <h3 className="text-base md:text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                  <i className="fas fa-table text-emerald-800" />
+                <h3 className="text-base md:text-lg font-bold brand-text mb-4 flex items-center gap-2">
+                  <i className="fas fa-table brand-text-primary" />
                   Detailed Analytics
                 </h3>
-                <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm max-w-full">
+                <div className="overflow-x-auto rounded-xl border brand-border shadow-sm max-w-full">
                   <table className="w-full min-w-[600px] md:min-w-[800px] table-auto border-collapse">
                     <thead>
-                      <tr className="bg-gray-50/80 border-b border-gray-200">
-                        <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-left">Type</th>
-                        <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Total</th>
-                        <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Done</th>
-                        <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Cancel</th>
-                        <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Wait</th>
-                        <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Avg Svc</th>
-                        <th className="px-6 py-4 text-[11px] font-bold text-gray-500 uppercase tracking-wider text-center">Rate</th>
+                      <tr className="brand-bg-subtle border-b brand-border">
+                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-left">Type</th>
+                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Total</th>
+                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Done</th>
+                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Cancel</th>
+                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Wait</th>
+                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Avg Svc</th>
+                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Rate</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {(data?.tableData ?? []).map((row) => (
-                        <tr key={row.service_type} className="hover:bg-emerald-50/30 transition-colors duration-150">
-                          <td className="px-6 py-4 text-sm text-gray-900 font-semibold capitalize">{row.service_type}</td>
-                          <td className="px-6 py-4 text-sm text-gray-700 text-center font-medium">{row.total_patients}</td>
-                          <td className="px-6 py-4 text-sm text-green-600 text-center font-bold">{row.completed}</td>
-                          <td className="px-6 py-4 text-sm text-red-500 text-center font-bold">{row.cancelled}</td>
-                          <td className="px-6 py-4 text-sm text-gray-600 text-center">{row.avg_wait_time}m</td>
-                          <td className="px-6 py-4 text-sm text-gray-600 text-center">{row.avg_service_time}m</td>
+                        <tr key={row.service_type} className="brand-hover-subtle transition-colors duration-150">
+                          <td className="px-6 py-4 text-sm brand-text font-semibold capitalize">{row.service_type}</td>
+                          <td className="px-6 py-4 text-sm brand-text text-center font-medium">{row.total_patients}</td>
+                          <td className="px-6 py-4 text-sm text-green-700 text-center font-bold">{row.completed}</td>
+                          <td className="px-6 py-4 text-sm text-red-600 text-center font-bold">{row.cancelled}</td>
+                          <td className="px-6 py-4 text-sm brand-text-muted text-center">{row.avg_wait_time}m</td>
+                          <td className="px-6 py-4 text-sm brand-text-muted text-center">{row.avg_service_time}m</td>
                           <td className="px-6 py-4 text-sm text-emerald-700 text-center font-semibold bg-emerald-50/20">{row.completion_rate}%</td>
                         </tr>
                       ))}
@@ -289,9 +295,9 @@ export default function AnalyticsPage() {
 
 function MetricCard({ color, icon, value, label }) {
   const palette = {
-    blue: "bg-emerald-100 text-emerald-800",
+    blue: "brand-bg-subtle brand-text-primary",
     green: "bg-teal-100 text-teal-800",
-    purple: "bg-[#4a6b5d]/20 text-[#1a3d2e]",
+    purple: "brand-accent-badge",
     orange: "bg-amber-100 text-amber-900"
   };
 
@@ -302,8 +308,8 @@ function MetricCard({ color, icon, value, label }) {
           <i className={`${icon} text-base md:text-lg`} />
         </div>
         <div className="min-w-0">
-          <p className="text-base md:text-lg font-bold text-gray-800 leading-tight tabular-nums">{value}</p>
-          <p className="text-[11px] md:text-xs text-gray-600 leading-snug">{label}</p>
+          <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{value}</p>
+          <p className="text-[11px] md:text-xs brand-text-muted leading-snug">{label}</p>
         </div>
       </div>
     </div>
@@ -313,8 +319,8 @@ function MetricCard({ color, icon, value, label }) {
 function ChartCard({ title, icon, canvasId, fullWidth = false }) {
   return (
     <div className={`bg-white rounded-lg shadow-md p-3 md:p-4 card-hover ${fullWidth ? "w-full" : ""}`}>
-      <h3 className="text-sm md:text-base font-bold text-gray-800 mb-2 flex items-center gap-1.5">
-        <i className={`${icon} text-emerald-800 text-sm`} />
+      <h3 className="text-sm md:text-base font-bold brand-text mb-2 flex items-center gap-1.5">
+        <i className={`${icon} brand-text-primary text-sm`} />
         <span className="leading-tight">{title}</span>
       </h3>
       <div className={`chart-container ${fullWidth ? "h-[300px] md:h-[400px]" : "h-[250px]"}`}>
@@ -331,8 +337,8 @@ function TabButton({ id, active, onClick, label, icon }) {
       onClick={() => onClick(id)}
       className={`px-4 py-2 text-sm font-medium flex items-center gap-2 border-b-2 transition-colors whitespace-nowrap ${
         isActive
-          ? "border-emerald-600 text-emerald-600 bg-emerald-50/50"
-          : "border-transparent text-gray-500 hover:text-emerald-600 hover:border-emerald-300"
+          ? "brand-tab"
+          : "brand-tab-inactive"
       }`}
     >
       <i className={icon} />

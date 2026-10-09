@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { request } from "../lib/api";
 import { defaultQueueSettings } from "../components/SettingsModal";
 import { mergeQueueSettings, persistLocalQueueSettings } from "../lib/queueSettings";
+import SystemLogo from "../components/SystemLogo";
 
 const ANNOUNCE_GAP_MS_DEFAULT = 3000;
 const DISPLAY_POLL_MS = 1500;
@@ -564,12 +565,10 @@ export default function QueueDisplayPage() {
 
   return (
     <div className="layout-shell display-page min-h-screen flex flex-col font-sans">
-      <header className="px-6 py-4 flex items-center justify-between border-b border-[#2d5a4a] bg-[#0d261e]">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-[#279b61] rounded-full flex items-center justify-center text-white shadow-lg">
-            <i className="fas fa-stethoscope text-2xl" />
-          </div>
-          <div>
+      <header className="queue-display-header px-6 py-4 flex items-center justify-between border-b border-[var(--display-border)] bg-[var(--display-card-header)]">
+        <div className="queue-display-brand flex items-center gap-4">
+          <SystemLogo variant="display" />
+          <div className="queue-display-title">
             <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">
               {display?.settings?.department_name || "CHO & Family Planning Center"} Smart Queuing System
             </h1>
@@ -579,7 +578,7 @@ export default function QueueDisplayPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-8">
+        <div className="queue-display-controls flex items-center">
           <div className="flex flex-col items-end gap-1">
             <button
               type="button"
@@ -589,15 +588,15 @@ export default function QueueDisplayPage() {
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${
                 voiceEnabled
-                  ? "bg-[#279b61] text-white shadow-[0_0_15px_rgba(39,155,97,0.4)]"
-                  : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10"
+                  ? "brand-button text-white shadow-md"
+                  : "bg-white/5 text-white/70 border border-white/10 hover:bg-white/10"
               }`}
             >
               <i className={`fas ${voiceEnabled ? "fa-volume-up" : "fa-volume-mute"}`} />
               {voiceEnabled ? (isSpeaking ? "Announcing…" : "Voice Enabled") : "Voice Disabled"}
             </button>
             {voiceEnabled && voiceStatus ? (
-              <span className="text-[9px] text-white/50 font-bold uppercase tracking-wider max-w-[220px] text-right truncate">
+              <span className="text-[9px] text-white/60 font-bold uppercase tracking-wider max-w-[220px] text-right truncate">
                 {voiceStatus}
               </span>
             ) : null}
@@ -644,24 +643,24 @@ export default function QueueDisplayPage() {
             );
 
             return (
-              <div key={counter.id} className="display-card overflow-hidden border border-[#2d5a4a] flex flex-col shadow-2xl">
-                <div className="bg-[#0d261e] px-5 py-4 flex items-center justify-between border-b border-[#2d5a4a]">
+              <div key={counter.id} className="display-card overflow-hidden border border-[var(--display-border)] flex flex-col shadow-2xl">
+                <div className="bg-[var(--display-card-header)] px-5 py-4 flex items-center justify-between border-b border-[var(--display-border)]">
                   <div>
                     <h3 className="text-lg font-bold text-white">{counter.id_num}</h3>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="bg-[#279b61] text-white text-[10px] font-black px-2 py-0.5 rounded shadow-sm">
+                    <span className="bg-[var(--brand-primary)] text-white text-[10px] font-black px-2 py-0.5 rounded shadow-sm">
                       {info.badge}
                     </span>
-                    <span className="text-[10px] text-white/50 font-black uppercase">{info.room}</span>
+                    <span className="text-[10px] text-white/60 font-black uppercase">{info.room}</span>
                   </div>
                 </div>
 
-                <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#051a12]">
-                  <p className="text-[10px] text-white/40 uppercase font-black tracking-[0.3em] mb-4">Now Serving</p>
-                  <div className="w-full bg-[#0d261e] rounded-2xl py-8 mb-6 border border-[#2d5a4a] flex items-center justify-center min-h-[140px] shadow-inner">
+                <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[var(--display-inner-bg)]">
+                  <p className="text-[10px] text-white/60 uppercase font-black tracking-[0.3em] mb-4">Now Serving</p>
+                  <div className="w-full bg-[var(--display-card-header)] rounded-2xl py-8 mb-6 border border-[var(--display-border)] flex items-center justify-center min-h-[140px] shadow-inner">
                     {servingPatient ? (
-                      <div className="text-5xl md:text-7xl font-black queue-number text-[#f2e600] tracking-tighter flip-in">
+                      <div className="text-5xl md:text-7xl font-black queue-number text-[var(--brand-gold-bright)] tracking-tighter flip-in">
                         {servingPatient.queue_number}
                       </div>
                     ) : (
@@ -679,30 +678,30 @@ export default function QueueDisplayPage() {
                         </p>
                       </>
                     ) : (
-                      <p className="text-xs text-white/20 font-black uppercase tracking-widest">No patient being served</p>
+                      <p className="text-xs text-white/60 font-black uppercase tracking-widest">No patient being served</p>
                     )}
                   </div>
                 </div>
 
-                <div className="px-5 pb-6 flex justify-center bg-[#051a12]">
+                <div className="px-5 pb-6 flex justify-center bg-[var(--display-inner-bg)]">
                   <div className={`
                     flex items-center gap-2 px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border
                     ${isAvailable
-                      ? "bg-[#1a3d31] text-[#279b61] border-[#2d5a4a]"
-                      : "bg-[#279b61] text-white border-transparent shadow-lg"}
+                      ? "bg-[var(--display-card-bg)] text-[var(--display-positive)] border-[var(--display-border)]"
+                      : "bg-[var(--brand-primary)] text-white border-transparent shadow-lg"}
                   `}>
-                    <div className={`w-2 h-2 rounded-full ${isAvailable ? "bg-[#279b61]" : "bg-white"} animate-pulse`} />
+                    <div className={`w-2 h-2 rounded-full ${isAvailable ? "bg-[var(--display-positive)]" : "bg-white"} animate-pulse`} />
                     {isAvailable ? "Available" : "Serving"}
                   </div>
                 </div>
 
-                <div className="bg-[#0d261e] px-5 py-3 flex items-center justify-between text-[10px] font-bold border-t border-[#2d5a4a]">
+                <div className="bg-[var(--display-card-header)] px-5 py-3 flex items-center justify-between text-[10px] font-bold border-t border-[var(--display-border)]">
                   <div className="flex items-center gap-2">
-                    <span className="text-white/40 uppercase tracking-wider">Next</span>
-                    <span className="text-[#279b61] font-black">{nextForCounter?.queue_number || "TBA"}</span>
+                    <span className="text-white/60 uppercase tracking-wider">Next</span>
+                    <span className="text-[var(--display-positive)] font-black">{nextForCounter?.queue_number || "TBA"}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-white/40 uppercase tracking-wider">Waiting</span>
+                    <span className="text-white/60 uppercase tracking-wider">Waiting</span>
                     <span className="text-white font-black">{waitingForCounter}</span>
                   </div>
                 </div>
@@ -712,28 +711,28 @@ export default function QueueDisplayPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
-          <div className="display-card p-5 flex items-center gap-5 border border-[#2d5a4a]">
-            <div className="w-14 h-14 bg-[#f2e600]/10 rounded-2xl flex items-center justify-center text-[#f2e600] border border-[#f2e600]/20 shadow-lg">
+          <div className="display-card p-5 flex items-center gap-5 border border-[var(--display-border)]">
+            <div className="brand-display-accent w-14 h-14 rounded-2xl flex items-center justify-center border shadow-lg">
               <i className="fas fa-hourglass-half text-2xl" />
             </div>
             <div>
-              <p className="text-[10px] text-white/50 uppercase font-black tracking-widest mb-1">Total Waiting</p>
+              <p className="text-[10px] text-white/60 uppercase font-black tracking-widest mb-1">Total Waiting</p>
               <h5 className="text-3xl font-black text-white leading-none">{waitingCount}</h5>
             </div>
           </div>
 
-          <div className="display-card p-5 flex items-center gap-5 border border-[#2d5a4a]">
-            <div className="w-14 h-14 bg-[#279b61]/10 rounded-2xl flex items-center justify-center text-[#279b61] border border-[#279b61]/20 shadow-lg">
+          <div className="display-card p-5 flex items-center gap-5 border border-[var(--display-border)]">
+            <div className="brand-display-positive w-14 h-14 rounded-2xl flex items-center justify-center border shadow-lg">
               <i className="fas fa-stethoscope text-2xl" />
             </div>
             <div>
-              <p className="text-[10px] text-white/50 uppercase font-black tracking-widest mb-1">Currently Serving</p>
+              <p className="text-[10px] text-white/60 uppercase font-black tracking-widest mb-1">Currently Serving</p>
               <h5 className="text-3xl font-black text-white leading-none">{allServing.length}</h5>
             </div>
           </div>
         </div>
 
-        <div className="display-card p-6 border border-[#2d5a4a]">
+        <div className="display-card p-6 border border-[var(--display-border)]">
           <div className="flex items-center gap-3 mb-6">
             <i className="fas fa-history text-white/30 text-xl" />
             <h3 className="text-sm font-black text-white uppercase tracking-[0.2em]">Recently Called</h3>
@@ -744,9 +743,9 @@ export default function QueueDisplayPage() {
                 const doctorName = resolveDoctorName(patient);
                 const room = resolveRoom(doctorName);
                 return (
-                  <div key={`${patient.id}-${patient.called_at}`} className="bg-[#0d261e] rounded-xl p-4 border border-[#2d5a4a] hover:border-[#279b61] transition-all shadow-md">
-                    <div className="text-xl font-black text-[#279b61] mb-1">{patient.queue_number}</div>
-                    <div className="text-[9px] text-white/50 uppercase font-black mb-1 truncate">
+                  <div key={`${patient.id}-${patient.called_at}`} className="bg-[var(--display-card-header)] rounded-xl p-4 border border-[var(--display-border)] hover:border-[var(--display-positive)] transition-all shadow-md">
+                    <div className="text-xl font-black text-[var(--display-positive)] mb-1">{patient.queue_number}</div>
+                    <div className="text-[9px] text-white/60 uppercase font-black mb-1 truncate">
                       {doctorName}{room ? ` · ${room}` : ""}
                     </div>
                     <div className="text-[9px] text-white/70 font-bold">
@@ -756,7 +755,7 @@ export default function QueueDisplayPage() {
                 );
               })
             ) : (
-              <div className="col-span-full py-8 text-center text-white/10 text-xs font-black uppercase tracking-[0.4em]">
+              <div className="col-span-full py-8 text-center text-white/60 text-xs font-black uppercase tracking-[0.4em]">
                 No recent activity
               </div>
             )}
@@ -764,11 +763,11 @@ export default function QueueDisplayPage() {
         </div>
       </main>
 
-      <footer className="px-6 py-6 border-t border-[#2d5a4a] bg-[#0d261e] text-center">
-        <p className="text-[10px] text-white/40 font-bold uppercase tracking-[0.2em] mb-2">
+      <footer className="px-6 py-6 border-t border-[var(--display-border)] bg-[var(--display-card-header)] text-center">
+        <p className="text-[10px] text-white/60 font-bold uppercase tracking-[0.2em] mb-2">
           © {new Date().getFullYear()} CHO CABADBARAN CITY Smart Queuing System. All rights reserved.
         </p>
-        <p className="text-[9px] text-white/30 font-bold uppercase tracking-[0.4em]">
+        <p className="text-[9px] text-white/60 font-bold uppercase tracking-[0.4em]">
           Please listen for your name and queue number to be called.
         </p>
       </footer>

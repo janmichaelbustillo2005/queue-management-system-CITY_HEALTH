@@ -455,43 +455,43 @@ export default function HomePage() {
 
       <div className={`container mx-auto max-w-6xl px-3 md:px-4 ${activeSection === "home" ? "" : "hidden"}`}>
         <div className="mb-4 md:mb-8">
-            <h2 className="text-xl md:text-3xl font-bold text-gray-800 mb-4 md:mb-6 flex items-center">
-            <i className="fas fa-home mr-2 md:mr-3 text-emerald-800" />
+            <h2 className="text-xl md:text-3xl font-bold brand-text mb-4 md:mb-6 flex items-center">
+            <i className="fas fa-home mr-2 md:mr-3 brand-text-primary" />
             Superadmin Dashboard
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
             <div
-              className="bg-white border border-gray-200 rounded-lg p-3 md:p-6 card-hover cursor-pointer shadow-sm"
+              className="bg-white border brand-border rounded-lg p-3 md:p-6 card-hover cursor-pointer shadow-sm"
               onClick={() => setActiveSection("queue")}
             >
               <div className="flex items-center justify-between gap-2 md:gap-3">
                 <div className="min-w-0">
-                  <h3 className="text-sm md:text-lg font-bold text-gray-900 mb-0.5 md:mb-1 truncate">Queue Management</h3>
-                  <p className="text-[10px] md:text-xs text-gray-600 truncate">Manage patient queues</p>
+                  <h3 className="text-sm md:text-lg font-bold brand-text mb-0.5 md:mb-1 truncate">Queue Management</h3>
+                  <p className="text-[10px] md:text-xs brand-text-muted truncate">Manage patient queues</p>
                 </div>
-                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-800 shrink-0">
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full brand-bg-subtle flex items-center justify-center brand-text-primary shrink-0">
                   <i className="fas fa-users text-base md:text-xl" />
                 </div>
               </div>
             </div>
-            <Link href="/analytics" className="bg-white border border-gray-200 rounded-lg p-3 md:p-6 card-hover cursor-pointer no-underline shadow-sm">
+            <Link href="/analytics" className="bg-white border brand-border rounded-lg p-3 md:p-6 card-hover cursor-pointer no-underline shadow-sm">
               <div className="flex items-center justify-between gap-2 md:gap-3">
                 <div className="min-w-0">
-                  <h3 className="text-sm md:text-lg font-bold text-gray-900 mb-0.5 md:mb-1 truncate">Analytics</h3>
-                  <p className="text-[10px] md:text-xs text-gray-600 truncate">View statistics</p>
+                  <h3 className="text-sm md:text-lg font-bold brand-text mb-0.5 md:mb-1 truncate">Analytics</h3>
+                  <p className="text-[10px] md:text-xs brand-text-muted truncate">View statistics</p>
                 </div>
-                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full bg-teal-100 flex items-center justify-center text-teal-800 shrink-0">
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full brand-bg-subtle flex items-center justify-center brand-text-primary shrink-0">
                   <i className="fas fa-chart-bar text-base md:text-xl" />
                 </div>
               </div>
             </Link>
-            <Link href="/records" className="bg-white border border-gray-200 rounded-lg p-3 md:p-6 card-hover cursor-pointer no-underline shadow-sm">
+            <Link href="/records" className="bg-white border brand-border rounded-lg p-3 md:p-6 card-hover cursor-pointer no-underline shadow-sm">
               <div className="flex items-center justify-between gap-2 md:gap-3">
                 <div className="min-w-0">
-                  <h3 className="text-sm md:text-lg font-bold text-gray-900 mb-0.5 md:mb-1 truncate">Records</h3>
-                  <p className="text-[10px] md:text-xs text-gray-600 truncate">View history</p>
+                  <h3 className="text-sm md:text-lg font-bold brand-text mb-0.5 md:mb-1 truncate">Records</h3>
+                  <p className="text-[10px] md:text-xs brand-text-muted truncate">View history</p>
                 </div>
-                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full bg-[#4a6b5d]/15 flex items-center justify-center text-[#2d4a3e] shrink-0">
+                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full brand-bg-subtle flex items-center justify-center brand-text-primary shrink-0">
                   <i className="fas fa-folder text-base md:text-xl" />
                 </div>
               </div>
@@ -500,20 +500,20 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
-          <div className="bg-white rounded-lg shadow-md p-4 md:p-6 card-hover border border-gray-100">
-            <h3 className="text-base md:text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <i className="fas fa-history text-emerald-800" />
+          <div className="bg-white rounded-lg shadow-md p-4 md:p-6 card-hover border brand-border">
+            <h3 className="text-base md:text-lg font-bold brand-text mb-4 flex items-center gap-2">
+              <i className="fas fa-history brand-text-primary" />
               Recent Activity
             </h3>
             <div className="space-y-3">
               {(queueRows ?? []).slice(0, 5).map((row) => (
-                <div key={row.id} className="flex items-center justify-between text-xs md:text-sm border-b border-gray-50 pb-2">
+                <div key={row.id} className="flex items-center justify-between text-xs md:text-sm border-b brand-border pb-2">
                   <div className="flex flex-col">
-                    <span className="font-semibold text-gray-900">{row.id_num}</span>
+                    <span className="font-semibold brand-text">{row.id_num}</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] md:text-xs text-gray-500">{row.service_type}</span>
+                      <span className="text-[10px] md:text-xs brand-text-muted">{row.service_type}</span>
                       {row.residency && (
-                        <span className="text-[9px] text-gray-400 truncate max-w-[120px]">
+                        <span className="text-[9px] brand-text-muted truncate max-w-[120px]">
                           <i className="fas fa-map-marker-alt mr-1" />
                           {row.residency}
                         </span>
@@ -525,26 +525,26 @@ export default function HomePage() {
                   </span>
                 </div>
               ))}
-              {(queueRows ?? []).length === 0 && <p className="text-gray-500 text-center py-4 italic text-sm">No recent activity</p>}
+              {(queueRows ?? []).length === 0 && <p className="brand-text-muted text-center py-4 italic text-sm">No recent activity</p>}
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-md p-4 md:p-6 card-hover border border-gray-100">
-            <h3 className="text-base md:text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <i className="fas fa-server text-emerald-800" />
+          <div className="bg-white rounded-lg shadow-md p-4 md:p-6 card-hover border brand-border">
+            <h3 className="text-base md:text-lg font-bold brand-text mb-4 flex items-center gap-2">
+              <i className="fas fa-server brand-text-primary" />
               System Status
             </h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs md:text-sm text-gray-600">Database Connection</span>
-                <span className="flex items-center text-xs font-bold text-green-600">
+                <span className="text-xs md:text-sm brand-text-muted">Database Connection</span>
+                <span className="flex items-center text-xs font-bold text-green-700">
                   <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse" />
                   ONLINE
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs md:text-sm text-gray-600">Queue Backend</span>
-                <span className="flex items-center text-xs font-bold text-green-600">
+                <span className="text-xs md:text-sm brand-text-muted">Queue Backend</span>
+                <span className="flex items-center text-xs font-bold text-green-700">
                   <span className="w-2 h-2 bg-green-500 rounded-full mr-2" />
                   RUNNING
                 </span>
@@ -556,34 +556,34 @@ export default function HomePage() {
 
       <div className={`container mx-auto max-w-6xl px-3 md:px-4 ${activeSection === "staff" ? "" : "hidden"}`}>
         <div className="mb-8 flex items-center justify-between">
-          <h2 className="text-xl md:text-3xl font-bold text-gray-800 flex items-center">
-            <i className="fas fa-user-cog mr-3 text-emerald-800" />
+          <h2 className="text-xl md:text-3xl font-bold brand-text flex items-center">
+            <i className="fas fa-user-cog mr-3 brand-text-primary" />
             Staff Management
           </h2>
           <button 
             onClick={() => setShowUserForm(!showUserForm)}
-            className="bg-emerald-800 text-white px-4 py-2 rounded-lg hover:bg-emerald-900 transition-colors flex items-center gap-2"
+            className="brand-button px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
           >
             <i className={`fas ${showUserForm ? 'fa-times' : 'fa-plus'}`} />
             {showUserForm ? 'Cancel' : 'Add New Staff'}
           </button>
         </div>
 
-        <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden mb-8">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+        <div className="bg-white rounded-xl shadow-md border brand-border overflow-hidden mb-8">
+          <div className="px-6 py-4 border-b brand-border flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 m-0">
+              <h3 className="text-lg font-bold brand-text flex items-center gap-2 m-0">
                 <i className="fas fa-user-times text-red-600" />
                 Doctor Cancellation Requests
               </h3>
-              <p className="text-xs text-gray-500 mt-1 mb-0">
+              <p className="text-xs brand-text-muted mt-1 mb-0">
                 Review doctor account cancellation requests. Approving deletes the account; rejecting keeps it active.
               </p>
             </div>
             <button
               type="button"
               onClick={fetchCancellationRequests}
-              className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
+              className="text-sm px-3 py-1.5 rounded-lg border brand-border brand-text hover:bg-gray-50"
             >
               <i className="fas fa-sync-alt mr-1" />
               Refresh
@@ -592,7 +592,7 @@ export default function HomePage() {
 
           <div className="overflow-x-auto">
             <table className="w-full text-left">
-              <thead className="bg-gray-50 text-gray-600 text-xs font-bold uppercase tracking-wider">
+              <thead className="bg-gray-50 brand-text-muted text-xs font-bold uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-3">Doctor</th>
                   <th className="px-6 py-3">Reason</th>
@@ -601,10 +601,10 @@ export default function HomePage() {
                   <th className="px-6 py-3">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-[var(--brand-border)]">
                 {cancellationRequests.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="px-6 py-10 text-center text-gray-400 italic">
+                    <td colSpan="5" className="px-6 py-10 text-center brand-text-muted italic">
                       No cancellation requests yet
                     </td>
                   </tr>
@@ -612,17 +612,17 @@ export default function HomePage() {
                   cancellationRequests.map((reqItem) => (
                     <tr key={reqItem.id} className="hover:bg-gray-50 transition-colors align-top">
                       <td className="px-6 py-4">
-                        <div className="font-bold text-gray-900">{reqItem.doctor_id_num}</div>
-                        <div className="text-sm text-gray-600">{reqItem.doctor_name || "—"}</div>
-                        <div className="text-[10px] uppercase font-bold text-gray-400 mt-1">{reqItem.doctor_role || "admin"}</div>
+                        <div className="font-bold brand-text">{reqItem.doctor_id_num}</div>
+                        <div className="text-sm brand-text-muted">{reqItem.doctor_name || "—"}</div>
+                        <div className="text-[10px] uppercase font-bold brand-text-muted mt-1">{reqItem.doctor_role || "admin"}</div>
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-700 max-w-xs whitespace-pre-wrap">
+                      <td className="px-6 py-4 text-sm brand-text max-w-xs whitespace-pre-wrap">
                         {reqItem.reason}
                       </td>
-                      <td className="px-6 py-4 text-xs text-gray-500 whitespace-nowrap">
+                      <td className="px-6 py-4 text-xs brand-text-muted whitespace-nowrap">
                         {reqItem.requested_at ? new Date(reqItem.requested_at).toLocaleString() : "—"}
                         {reqItem.processed_at ? (
-                          <div className="mt-1 text-[11px] text-gray-400">
+                          <div className="mt-1 text-[11px] brand-text-muted">
                             Processed: {new Date(reqItem.processed_at).toLocaleString()}
                             {reqItem.processed_by ? ` by ${reqItem.processed_by}` : ""}
                           </div>
@@ -658,7 +658,7 @@ export default function HomePage() {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-gray-400">No actions</span>
+                          <span className="text-xs brand-text-muted">No actions</span>
                         )}
                       </td>
                     </tr>
@@ -670,34 +670,34 @@ export default function HomePage() {
         </div>
 
         {showUserForm && (
-          <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100 mb-8 max-w-2xl">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">Create New Account</h3>
+          <div className="bg-white p-6 rounded-xl shadow-md border brand-border mb-8 max-w-2xl">
+            <h3 className="text-lg font-bold brand-text mb-4">Create New Account</h3>
             <form onSubmit={handleCreateUser} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">User ID (Username)</label>
+                  <label className="block text-sm font-bold brand-text mb-1">User ID (Username)</label>
                   <input
                     type="text"
                     required
-                    className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-4 py-2 rounded-lg brand-input border outline-none"
                     value={userForm.id_num}
                     onChange={(e) => setUserForm({...userForm, id_num: e.target.value})}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
+                  <label className="block text-sm font-bold brand-text mb-1">Password</label>
                   <input
                     type="password"
                     required
-                    className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-4 py-2 rounded-lg brand-input border outline-none"
                     value={userForm.password}
                     onChange={(e) => setUserForm({...userForm, password: e.target.value})}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Role</label>
+                  <label className="block text-sm font-bold brand-text mb-1">Role</label>
                   <select
-                    className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-4 py-2 rounded-lg brand-input border outline-none"
                     value={userForm.role}
                     onChange={(e) => setUserForm({...userForm, role: e.target.value})}
                   >
@@ -707,11 +707,11 @@ export default function HomePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Display Name / Doctor Name</label>
+                  <label className="block text-sm font-bold brand-text mb-1">Display Name / Doctor Name</label>
                   <input
                     type="text"
                     placeholder="e.g. Dr. Smith"
-                    className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full px-4 py-2 rounded-lg brand-input border outline-none"
                     value={userForm.doctor_name}
                     onChange={(e) => setUserForm({...userForm, doctor_name: e.target.value})}
                   />
@@ -719,7 +719,7 @@ export default function HomePage() {
               </div>
               <button 
                 type="submit"
-                className="w-full bg-emerald-800 text-white py-3 rounded-lg font-bold hover:bg-emerald-900 transition-all"
+                className="w-full brand-button py-3 rounded-lg font-bold transition-all"
               >
                 Create Account
               </button>
@@ -727,9 +727,9 @@ export default function HomePage() {
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-md border brand-border overflow-hidden">
           <table className="w-full text-left">
-            <thead className="bg-gray-50 text-gray-600 text-xs font-bold uppercase tracking-wider">
+            <thead className="bg-gray-50 brand-text-muted text-xs font-bold uppercase tracking-wider">
               <tr>
                 <th className="px-6 py-4">User ID</th>
                 <th className="px-6 py-4">Display Name</th>
@@ -738,11 +738,11 @@ export default function HomePage() {
                 <th className="px-6 py-4">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-[var(--brand-border)]">
               {users.map((u) => (
                 <tr key={u.id_num} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 font-bold text-gray-900">{u.id_num}</td>
-                  <td className="px-6 py-4 text-gray-700">{u.doctor_name || "—"}</td>
+                  <td className="px-6 py-4 font-bold brand-text">{u.id_num}</td>
+                  <td className="px-6 py-4 brand-text">{u.doctor_name || "—"}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
                       u.role === 'superadmin' ? 'bg-purple-100 text-purple-700' : 
@@ -751,7 +751,7 @@ export default function HomePage() {
                       {u.role}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-xs text-gray-500">
+                  <td className="px-6 py-4 text-xs brand-text-muted">
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4">
@@ -768,7 +768,7 @@ export default function HomePage() {
             </tbody>
           </table>
           {users.length === 0 && (
-            <div className="p-12 text-center text-gray-400 italic">No staff accounts found</div>
+            <div className="p-12 text-center brand-text-muted italic">No staff accounts found</div>
           )}
         </div>
       </div>
@@ -789,12 +789,12 @@ export default function HomePage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3 mb-4">
           <div className="bg-white rounded-lg shadow-md p-2.5 md:p-3 card-hover">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="p-2 rounded-full bg-emerald-100 text-emerald-800 shrink-0">
+              <div className="p-2 rounded-full brand-bg-subtle brand-text-primary shrink-0">
                 <i className="fas fa-clock text-base md:text-lg" />
               </div>
               <div className="min-w-0">
-                <p className="text-base md:text-lg font-bold text-gray-800 leading-tight tabular-nums">{stats.waiting}</p>
-                <p className="text-[11px] md:text-xs text-gray-600 leading-snug">Waiting</p>
+                <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{stats.waiting}</p>
+                <p className="text-[11px] md:text-xs brand-text-muted leading-snug">Waiting</p>
               </div>
             </div>
           </div>
@@ -804,8 +804,8 @@ export default function HomePage() {
                 <i className="fas fa-user-check text-base md:text-lg" />
               </div>
               <div className="min-w-0">
-                <p className="text-base md:text-lg font-bold text-gray-800 leading-tight tabular-nums">{stats.serving}</p>
-                <p className="text-[11px] md:text-xs text-gray-600 leading-snug">Serving</p>
+                <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{stats.serving}</p>
+                <p className="text-[11px] md:text-xs brand-text-muted leading-snug">Serving</p>
               </div>
             </div>
           </div>
@@ -815,8 +815,8 @@ export default function HomePage() {
                 <i className="fas fa-check-circle text-base md:text-lg" />
               </div>
               <div className="min-w-0">
-                <p className="text-base md:text-lg font-bold text-gray-800 leading-tight tabular-nums">{stats.completed}</p>
-                <p className="text-[11px] md:text-xs text-gray-600 leading-snug">Completed</p>
+                <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{stats.completed}</p>
+                <p className="text-[11px] md:text-xs brand-text-muted leading-snug">Completed</p>
               </div>
             </div>
           </div>
@@ -826,8 +826,8 @@ export default function HomePage() {
                 <i className="fas fa-calendar-day text-base md:text-lg" />
               </div>
               <div className="min-w-0">
-                <p className="text-base md:text-lg font-bold text-gray-800 leading-tight tabular-nums">{stats.today_total_patients}</p>
-                <p className="text-[11px] md:text-xs text-gray-600 leading-snug">Total Patients</p>
+                <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{stats.today_total_patients}</p>
+                <p className="text-[11px] md:text-xs brand-text-muted leading-snug">Total Patients</p>
               </div>
             </div>
           </div>
@@ -837,16 +837,16 @@ export default function HomePage() {
           <div>
             <div className="bg-white rounded-lg shadow-md p-3 md:p-4 card-hover">
               <div className="flex flex-wrap gap-2 justify-between items-center mb-3">
-                <h2 className="text-base md:text-lg font-bold text-gray-800 flex items-center gap-2">
-                  <i className="fas fa-list text-emerald-800" />
+                <h2 className="text-base md:text-lg font-bold brand-text flex items-center gap-2">
+                  <i className="fas fa-list brand-text-primary" />
                   Queue Management
                 </h2>
                 <div className="flex gap-2 w-full sm:w-auto">
-                  <button type="button" onClick={() => setShowAddForm(!showAddForm)} className="text-white text-sm px-3 py-1.5 rounded-md hover:opacity-90 transition flex-1 sm:flex-none flex items-center justify-center gap-2" style={{ backgroundColor: "#0f766e" }}>
+                  <button type="button" onClick={() => setShowAddForm(!showAddForm)} className="brand-button text-sm px-3 py-1.5 rounded-md transition flex-1 sm:flex-none flex items-center justify-center gap-2">
                     <i className={`fas fa-${showAddForm ? "times" : "plus"}`} />
                     {showAddForm ? "Cancel" : "Add Patient"}
                   </button>
-                  <button type="button" onClick={refreshAll} className="text-white text-sm px-3 py-1.5 rounded-md hover:opacity-90 transition flex-1 sm:flex-none flex items-center justify-center gap-2" style={{ backgroundColor: "#279b61" }}>
+                  <button type="button" onClick={refreshAll} className="brand-button text-sm px-3 py-1.5 rounded-md transition flex-1 sm:flex-none flex items-center justify-center gap-2">
                     <i className="fas fa-sync-alt" />
                     Refresh
                   </button>
@@ -854,9 +854,9 @@ export default function HomePage() {
               </div>
 
               {showAddForm && (
-                <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                    <i className="fas fa-user-plus text-emerald-800" />
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg border brand-border">
+                  <h3 className="text-sm font-bold brand-text mb-3 flex items-center gap-2">
+                    <i className="fas fa-user-plus brand-text-primary" />
                     Manual Queue Entry
                   </h3>
                   <form onSubmit={(e) => {
@@ -864,21 +864,21 @@ export default function HomePage() {
                     setShowAddForm(false);
                   }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Full Name</label>
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Full Name</label>
                       <input
                         type="text"
                         required
                         placeholder="Enter full name"
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.fullName}
                         onChange={(e) => setForm({ ...form, fullName: e.target.value })}
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Service Type</label>
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Service Type</label>
                       <select
                         required
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.service_type}
                         onChange={(e) => setForm({ ...form, service_type: e.target.value })}
                         suppressHydrationWarning
@@ -890,40 +890,40 @@ export default function HomePage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Mobile Number</label>
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Mobile Number</label>
                       <input
                         type="text"
                         placeholder="9123456789"
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.mobile_number}
                         onChange={(e) => setForm({ ...form, mobile_number: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) })}
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">PhilHealth ID</label>
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">PhilHealth ID</label>
                       <input
                         type="text"
                         placeholder="Enter PhilHealth ID"
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.philhealth_id}
                         onChange={(e) => setForm({ ...form, philhealth_id: e.target.value })}
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Birthdate</label>
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Birthdate</label>
                       <input
                         type="date"
                         required
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.birthdate}
                         onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
                       />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Sex</label>
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Sex</label>
                       <select
                         required
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.sex}
                         onChange={(e) => setForm({ ...form, sex: e.target.value })}
                       >
@@ -933,26 +933,26 @@ export default function HomePage() {
                       </select>
                     </div>
                     <div className="sm:col-span-2 lg:col-span-2 relative">
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Residency</label>
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Residency</label>
                       <input
                         type="text"
                         required
                         placeholder="Search address..."
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.residency}
                         onChange={(e) => handleResidencySearch(e.target.value)}
                         onFocus={() => residencySuggestions.length > 0 && setShowSuggestions(true)}
                         autoComplete="off"
                       />
                       {showSuggestions && residencySuggestions.length > 0 && (
-                        <div className="absolute w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-[100] max-h-48 overflow-y-auto">
+                        <div className="absolute w-full mt-1 bg-white border brand-border rounded-md shadow-lg z-[100] max-h-48 overflow-y-auto">
                           {residencySuggestions.map((item, index) => (
                             <div
                               key={index}
-                              className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-0"
+                              className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer border-b brand-border last:border-0"
                               onClick={() => selectResidency(item)}
                             >
-                              <i className="fas fa-map-marker-alt mr-2 text-gray-400" />
+                              <i className="fas fa-map-marker-alt mr-2 brand-text-muted" />
                               {item.display_name}
                             </div>
                           ))}
@@ -960,23 +960,23 @@ export default function HomePage() {
                       )}
                     </div>
                     <div className="sm:col-span-2 lg:col-span-4">
-                      <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Vulnerability (Priority Score Computed Automatically)</label>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 bg-gray-50 p-2.5 rounded-md border border-gray-200">
+                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Vulnerability (Priority Score Computed Automatically)</label>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 bg-gray-50 p-2.5 rounded-md border brand-border">
                         {vulnerabilityOptions.map((opt) => (
                           <label key={opt.value} className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
                             <input
                               type="checkbox"
-                              className="rounded"
+                              className="brand-focus-ring rounded accent-[var(--brand-primary)]"
                               checked={form.vulnerabilityFlags.includes(opt.value)}
                               onChange={() => handleVulnerabilityToggle(opt.value)}
                               disabled={loading}
                             />
                             <span>{opt.label}</span>
-                            <span className="text-gray-400">(+{opt.weight})</span>
+                            <span className="brand-text-muted">(+{opt.weight})</span>
                           </label>
                         ))}
                         {form.vulnerabilityFlags.length > 0 && (
-                          <span className="text-emerald-700 font-semibold text-xs ml-auto">
+                          <span className="brand-text-primary font-semibold text-xs ml-auto">
                             Score: {computePreviewScore(form.vulnerabilityFlags)}
                           </span>
                         )}
@@ -986,7 +986,7 @@ export default function HomePage() {
                       <button
                         type="submit"
                         disabled={loading}
-                        className="bg-emerald-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-emerald-700 transition disabled:opacity-50"
+                        className="brand-button px-4 py-2 rounded-md text-sm font-bold transition disabled:opacity-50"
                       >
                         {loading ? "Adding..." : "Add to Queue"}
                       </button>
@@ -996,38 +996,38 @@ export default function HomePage() {
               )}
 
               <div className="mb-3">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Counter Status</h3>
+                <h3 className="text-sm font-semibold brand-text mb-2">Counter Status</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
                   {counters.map((counter) => (
                     <div key={counter.id} className={`border rounded-lg p-2 md:p-3 shadow-sm transition-all duration-200 ${counter.is_online ? "bg-green-50 border-green-200 hover:shadow-md" : "bg-red-50 border-red-200"}`}>
                       <div className="text-center mb-1 md:mb-2">
-                        <h4 className="text-[10px] md:text-sm font-bold text-gray-800 truncate" title={counter.name}>{counter.name}</h4>
+                        <h4 className="text-[10px] md:text-sm font-bold brand-text truncate" title={counter.name}>{counter.name}</h4>
                         <span className={`inline-block mt-0.5 md:mt-1 px-1.5 py-0.5 rounded text-[8px] md:text-[10px] font-bold uppercase tracking-wider ${counter.is_online ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}>
                           {counter.is_online ? "Online" : "Offline"}
                         </span>
                       </div>
-                      <div className="text-center text-[9px] md:text-[11px] text-gray-600">
-                        Serving: <span className="font-semibold text-gray-900">{counter.current_patient_name || "—"}</span>
+                      <div className="text-center text-[9px] md:text-[11px] brand-text-muted">
+                        Serving: <span className="font-semibold brand-text">{counter.current_patient_name || "—"}</span>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="overflow-x-auto rounded-md border border-gray-100 max-w-full">
+              <div className="overflow-x-auto rounded-md border brand-border max-w-full">
                 <table className="w-full min-w-[600px] md:min-w-[720px] table-auto text-left">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="px-2 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">Queue</th>
-                      <th className="px-2 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide" suppressHydrationWarning>Patient Info</th>
-                      <th className="px-2 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">Service</th>
-                      <th className="px-2 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide text-center">Priority</th>
-                      <th className="px-2 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">Status</th>
-                      <th className="px-2 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">Time</th>
-                      <th className="px-2 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">Actions</th>
+                    <tr className="bg-gray-50 border-b brand-border">
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Queue</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide" suppressHydrationWarning>Patient Info</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Service</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide text-center">Priority</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Status</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Time</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-[var(--brand-border)]">
                     {filteredRows.length ? filteredRows.map((patient) => {
                       const canCall = patient.status === "waiting" && patient.id === nextWaitingId;
                       const statusClass = patient.status === "waiting"
@@ -1042,25 +1042,25 @@ export default function HomePage() {
                         <tr key={patient.id} className={`hover:bg-gray-50/80 ${canCall ? "bg-yellow-50 border-l-2 border-yellow-400" : ""}`}>
                           <td className="px-2 py-2">
                             <span className="queue-number text-sm font-bold">{patient.queue_number}</span>
-                            {canCall ? <span className="ml-1 text-[10px] bg-yellow-400 text-yellow-900 px-1.5 py-0.5 rounded-full font-medium">NEXT</span> : null}
+                            {canCall ? <span className="ml-1 text-[10px] brand-accent-badge px-1.5 py-0.5 rounded-full font-medium">NEXT</span> : null}
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex flex-col">
-                              <span className="text-sm font-semibold text-gray-900">{patient.id_num}</span>
+                              <span className="text-sm font-semibold brand-text">{patient.id_num}</span>
                               <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                                 {patient.sex && (
-                                  <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">
+                                  <span className="text-[10px] brand-text-primary font-bold uppercase tracking-wider">
                                     {patient.sex}
                                   </span>
                                 )}
                                 {patient.birthdate && (
-                                  <span className="text-[10px] text-gray-500">
+                                  <span className="text-[10px] brand-text-muted">
                                     <i className="fas fa-birthday-cake mr-1" />
                                     {new Date(patient.birthdate).toLocaleDateString()}
                                   </span>
                                 )}
                                 {patient.mobile_number && (
-                                  <span className="text-[10px] text-gray-500">
+                                  <span className="text-[10px] brand-text-muted">
                                     <i className="fas fa-phone-alt mr-1" />
                                     {patient.mobile_number}
                                   </span>
@@ -1073,7 +1073,7 @@ export default function HomePage() {
                                 )}
                               </div>
                               {patient.residency && (
-                                <span className="text-[10px] text-gray-400 mt-0.5 max-w-[200px] truncate" title={patient.residency}>
+                                <span className="text-[10px] brand-text-muted mt-0.5 max-w-[200px] truncate" title={patient.residency}>
                                   <i className="fas fa-map-marker-alt mr-1" />
                                   {patient.residency}
                                 </span>
@@ -1081,7 +1081,7 @@ export default function HomePage() {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-900 border border-emerald-200">{patient.service_type}</span>
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium brand-bg-subtle brand-text-primary border brand-border">{patient.service_type}</span>
                           </td>
                           <td className="px-2 py-2 text-center">
                             {(patient.priority_score || 0) >= 3 ? (
@@ -1093,29 +1093,29 @@ export default function HomePage() {
                                 <i className="fas fa-star" /> {patient.priority_score}
                               </span>
                             ) : (
-                              <span className="text-gray-400 text-[10px]">—</span>
+                              <span className="brand-text-muted text-[10px]">—</span>
                             )}
                           </td>
                           <td className="px-2 py-2">
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>{patient.status}</span>
                           </td>
-                          <td className="px-2 py-2 text-xs text-gray-500 whitespace-nowrap">{new Date(patient.created_at).toLocaleTimeString()}</td>
+                          <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{new Date(patient.created_at).toLocaleTimeString()}</td>
                           <td className="px-2 py-2">
                             <div className="flex flex-wrap gap-1 items-center">
                               {canCall ? (
-                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} className="text-white px-2 py-1 rounded text-xs hover:opacity-90 whitespace-nowrap" style={{ backgroundColor: "#279b61" }}>
+                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap">
                                   <i className="fas fa-bullhorn mr-0.5" />
                                   Call
                                 </button>
                               ) : null}
                               {patient.status === "serving" ? (
-                                <button type="button" onClick={() => queueAction("/queue/complete", patient.id)} className="text-white px-2 py-1 rounded text-xs hover:opacity-90 whitespace-nowrap" style={{ backgroundColor: "#1a6b45" }}>
+                                <button type="button" onClick={() => queueAction("/queue/complete", patient.id)} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap">
                                   <i className="fas fa-check mr-0.5" />
                                   Complete
                                 </button>
                               ) : null}
                               {!["completed", "cancelled"].includes(patient.status) ? (
-                                <button type="button" onClick={() => queueAction("/queue/cancel", patient.id)} className="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 whitespace-nowrap">
+                                <button type="button" onClick={() => queueAction("/queue/cancel", patient.id)} className="bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700 whitespace-nowrap">
                                   <i className="fas fa-times mr-0.5" />
                                   Cancel
                                 </button>
@@ -1129,7 +1129,7 @@ export default function HomePage() {
                                     className="p-1 hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center"
                                     title="More actions"
                                   >
-                                    <i className="fas fa-ellipsis-h text-gray-500 px-1" />
+                                    <i className="fas fa-ellipsis-h brand-text-muted px-1" />
                                   </button>
                                   {openMenuId === patient.id && (
                                     <button
@@ -1152,7 +1152,7 @@ export default function HomePage() {
                       );
                     }) : (
                       <tr>
-                        <td colSpan="8" className="px-2 py-6 text-center text-gray-500 text-sm">
+                        <td colSpan="8" className="px-2 py-6 text-center brand-text-muted text-sm">
                           <i className="fas fa-inbox text-2xl mb-1 block opacity-60" />
                           No patients in queue
                         </td>

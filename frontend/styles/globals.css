@@ -145,6 +145,81 @@ body {
   white-space: nowrap;
 }
 
+.header-profile-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 5px 9px 5px 12px;
+  text-align: right;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.header-profile-button:hover,
+.header-profile-button:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+  outline: none;
+}
+
+.header-profile-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.header-profile-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  padding: 6px;
+  background: #fff;
+  color: #1f2937;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.18);
+  z-index: 150;
+}
+
+.header-profile-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.header-profile-menu-item:hover,
+.header-profile-menu-item:focus-visible {
+  background: #f3f4f6;
+  outline: none;
+}
+
+.header-profile-menu-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: #e5e7eb;
+}
+
 @media (min-width: 768px) {
   .header-datetime {
     font-size: 0.85rem;

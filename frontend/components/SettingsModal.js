@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 export const defaultQueueSettings = {
   autoRefresh: true,
@@ -31,6 +31,9 @@ const CATEGORIES = [
   { id: "data", label: "Data Management", icon: "fas fa-database", short: "Data Management" },
   { id: "security", label: "System Security and Maintenance", icon: "fas fa-shield-alt", short: "Security" }
 ];
+
+const DEFAULT_CATEGORY = "queue";
+let lastSelectedCategory = DEFAULT_CATEGORY;
 
 function ToggleBadge({ enabled }) {
   return (
@@ -90,7 +93,7 @@ export default function SettingsModal({
   onClearAll,
   onExport
 }) {
-  const [category, setCategory] = useState("queue");
+  const [category, setCategory] = useState(lastSelectedCategory);
   const [draft, setDraft] = useState(settings || defaultQueueSettings);
   const [baseline, setBaseline] = useState(settings || defaultQueueSettings);
   const [errors, setErrors] = useState({});
@@ -98,15 +101,31 @@ export default function SettingsModal({
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const wasOpenRef = useRef(false);
+
+  // Always keep the latest server-provided settings available, but only initialize
+  // the editor when the modal is opened (not on every settings prop identity change).
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
-    if (!isOpen) return;
-    const next = { ...defaultQueueSettings, ...(settings || {}) };
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+
+    if (wasOpenRef.current) {
+      return;
+    }
+
+    wasOpenRef.current = true;
+    const next = { ...defaultQueueSettings, ...(settingsRef.current || {}) };
     setDraft(next);
     setBaseline(next);
     setErrors({});
     setConfirmClear(false);
-    setCategory("queue");
 
     if (next.autoBackupReminder) {
       const last = next.lastExportAt ? new Date(next.lastExportAt).getTime() : 0;
@@ -122,9 +141,14 @@ export default function SettingsModal({
     } else {
       setNotice({ type: "", message: "" });
     }
-  }, [isOpen, settings]);
+  }, [isOpen]);
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(baseline), [draft, baseline]);
+
+  function handleCategorySelect(nextCategory) {
+    lastSelectedCategory = nextCategory;
+    setCategory(nextCategory);
+  }
 
   function updateDraft(patch) {
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -220,7 +244,7 @@ export default function SettingsModal({
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setCategory(item.id)}
+                  onClick={() => handleCategorySelect(item.id)}
                   className={`text-left rounded-lg border px-3 py-2.5 transition-colors ${
                     active
                       ? "bg-emerald-50 border-emerald-300 text-emerald-900"

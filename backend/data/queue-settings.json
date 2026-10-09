@@ -1,6 +1,6 @@
 {
   "autoRefresh": true,
-  "refreshInterval": 5,
+  "refreshInterval": 8,
   "showCompleted": true,
   "maxQueues": 11,
   "soundNotifications": true,

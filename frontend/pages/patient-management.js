@@ -126,6 +126,7 @@ export default function PatientManagementPage() {
 
   const visibleDoctors = doctorFilter === "all" ? DOCTORS : DOCTORS.filter((d) => d.name === doctorFilter);
   const hasFilters = doctorFilter !== "all" || statusFilter !== "active" || search.trim() !== "";
+  const isFrontdesk = user?.id_num === "frontdesk";
 
   if (!canView) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
@@ -136,9 +137,13 @@ export default function PatientManagementPage() {
       title="Patient Management"
       icon="fas fa-hospital-user"
       welcome="Welcome"
-      showSidebar={true}
+      showSidebar={!isFrontdesk}
       sidebarTitle="Front Desk Menu"
       sidebarLinks={frontdeskSidebarLinks("/patient-management")}
+      showProfileMenu={isFrontdesk}
+      profileMenuLinks={frontdeskSidebarLinks("/patient-management")}
+      profileIcon="fas fa-user"
+      contentClassName="frontdesk-page"
     >
       <div className="w-full max-w-7xl mx-auto px-3 md:px-6 py-4">
         {notice.text ? (

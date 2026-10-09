@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
 function useDateTime(formatter) {
@@ -26,10 +26,16 @@ export default function SiteFrame({
   onSettings,
   onShowHome,
   onShowQueue,
-  sidebarTitle = "Admin Menu"
+  sidebarTitle = "Admin Menu",
+  showProfileMenu = false,
+  profileMenuLinks = [],
+  profileIcon = "fas fa-user-md",
+  contentClassName = ""
 }) {
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
   
   const displayWelcome = welcome || (user ? `Welcome, ${user.role === 'superadmin' ? 'Super Admin' : user.doctor_name || user.id_num}` : "Welcome, Guest");
   const dateTime = useDateTime(
@@ -40,6 +46,20 @@ export default function SiteFrame({
   );
 
   const toggleSidebar = () => setSidebarOpen((current) => !current);
+  const toggleProfileMenu = () => setProfileMenuOpen((current) => !current);
+
+  useEffect(() => {
+    if (!profileMenuOpen) return undefined;
+
+    function handleClickOutside(event) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [profileMenuOpen]);
 
   return (
     <div className="layout-shell">
@@ -129,13 +149,80 @@ export default function SiteFrame({
           </div>
           <span className="text-base md:text-lg font-bold leading-tight break-words">{title}</span>
         </div>
-        <div className="header-right text-white flex flex-col justify-center py-1">
-          <div className="header-datetime font-semibold">{dateTime}</div>
-          <div className="header-welcome opacity-90">{displayWelcome}</div>
-        </div>
+        {showProfileMenu && user ? (
+          <div className="header-right text-white py-1 relative" ref={profileMenuRef}>
+            <button
+              type="button"
+              onClick={toggleProfileMenu}
+              className="header-profile-button"
+              aria-haspopup="menu"
+              aria-expanded={profileMenuOpen}
+            >
+              <span className="flex flex-col items-end min-w-0">
+                <span className="header-datetime font-semibold">{dateTime}</span>
+                <span className="header-welcome opacity-90">{displayWelcome}</span>
+              </span>
+              <span className="header-profile-avatar">
+                <i className={profileIcon} />
+              </span>
+              <i className={`fas fa-chevron-down text-[10px] transition-transform ${profileMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {profileMenuOpen ? (
+              <div className="header-profile-menu" role="menu">
+                {profileMenuLinks.map((link, idx) => (
+                  link.type === "button" ? (
+                    <button
+                      key={idx}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        link.onClick?.();
+                      }}
+                      className="header-profile-menu-item"
+                    >
+                      <i className={`${link.icon} w-4 text-center`} />
+                      <span>{link.label}</span>
+                    </button>
+                  ) : (
+                    <Link
+                      key={idx}
+                      href={link.href}
+                      role="menuitem"
+                      onClick={() => setProfileMenuOpen(false)}
+                      className="header-profile-menu-item no-underline"
+                    >
+                      <i className={`${link.icon} w-4 text-center`} />
+                      <span>{link.label}</span>
+                    </Link>
+                  )
+                ))}
+                {profileMenuLinks.length ? <div className="header-profile-menu-divider" /> : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="header-profile-menu-item text-red-700"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    logout();
+                  }}
+                >
+                  <i className="fas fa-sign-out-alt w-4 text-center" />
+                  <span>Logout</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="header-right text-white flex flex-col justify-center py-1">
+            <div className="header-datetime font-semibold">{dateTime}</div>
+            <div className="header-welcome opacity-90">{displayWelcome}</div>
+          </div>
+        )}
       </header>
 
-      <main className={`page-content ${sidebarOpen ? "sidebar-active" : ""} ${showSidebar && sidebarTitle.toLowerCase().includes("front") ? "frontdesk-page" : ""}`}>{children}</main>
+      <main className={`page-content ${sidebarOpen ? "sidebar-active" : ""} ${contentClassName}`}>{children}</main>
       <footer className="site-footer">2025 Smart Queuing System. All rights reserved.</footer>
     </div>
   );

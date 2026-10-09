@@ -103,7 +103,7 @@ router.post("/queue", authenticateToken, async (req, res) => {
       message: "Patient added successfully"
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -133,7 +133,7 @@ router.post("/queue/website", async (req, res) => {
       priority_score: row.priority_score
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -165,10 +165,42 @@ router.post("/queue/accept", authenticateToken, async (req, res) => {
   }
 });
 
+router.post("/queue/re-call", authenticateToken, async (req, res) => {
+  try {
+    const patientId = Number(req.body.patient_id);
+    const patient = await getPatientById(patientId);
+    if (!patient) {
+      return res.status(404).json({ success: false, message: "Patient not found" });
+    }
+
+    if (patient.status !== "serving" || !patient.counter_id) {
+      return res.status(400).json({ success: false, message: "Only the current serving patient can be re-called" });
+    }
+
+    if (isAwaitingAccept(patientId)) {
+      return res.status(400).json({ success: false, message: "Accept this patient before using Re-Call." });
+    }
+
+    const requestedDoctor = req.user?.doctor_name || String(req.body?.counterId || patient.counter_id);
+    if (patient.counter_id !== requestedDoctor) {
+      return res.status(403).json({ success: false, message: "You can only re-call your assigned patient." });
+    }
+
+    const acceptedAt = markAccepted(patientId);
+    res.json({
+      success: true,
+      accepted_at: acceptedAt,
+      message: `Re-call announcement queued for ${patient.queue_number}`
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 router.post("/queue/complete", authenticateToken, async (req, res) => {
   try {
-    const { patient_id, reason } = req.body;
-    await completePatient(Number(patient_id), reason);
+    const { patient_id, reason, counter_id, counterId } = req.body;
+    await completePatient(Number(patient_id), reason, counter_id || counterId || null);
     clearAwaitingAccept(patient_id);
     res.json({ success: true, message: "Patient completed successfully" });
   } catch (error) {

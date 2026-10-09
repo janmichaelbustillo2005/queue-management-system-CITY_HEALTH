@@ -36,6 +36,13 @@ function computePreviewScore(flags) {
   return flags.reduce((s, f) => s + (weights[f] || 0), 0);
 }
 
+function areSettingsEqual(left = {}, right = {}) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
 export default function HomePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -149,7 +156,7 @@ export default function HomePage() {
 
     const timer = setInterval(refreshAll, Number(settings.refreshInterval || 5) * 1000);
     return () => clearInterval(timer);
-  }, [settings]);
+  }, [settings.autoRefresh, settings.refreshInterval]);
 
   useEffect(() => {
     if (user && user.role === "superadmin") {
@@ -175,14 +182,18 @@ export default function HomePage() {
       setQueueRows(queueData.patients || []);
       setCounters(queueData.counters || []);
       if (queueData.queue_settings) {
-        setSettings((prev) =>
-          applyCounterAvailability(
+        setSettings((prev) => {
+          const next = applyCounterAvailability(
             { ...prev, ...queueData.queue_settings },
             queueData.counters || []
-          )
-        );
+          );
+          return areSettingsEqual(prev, next) ? prev : next;
+        });
       } else if (queueData.counters?.length) {
-        setSettings((prev) => applyCounterAvailability(prev, queueData.counters));
+        setSettings((prev) => {
+          const next = applyCounterAvailability(prev, queueData.counters);
+          return areSettingsEqual(prev, next) ? prev : next;
+        });
       }
       setStats(statsData.data || {});
     } catch (fetchError) {

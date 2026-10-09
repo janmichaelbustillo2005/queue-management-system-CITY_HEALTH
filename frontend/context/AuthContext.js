@@ -49,6 +49,7 @@ export function AuthProvider({ children }) {
           if (response.user.id_num === "admin1") router.push("/admin1");
           else if (response.user.id_num === "admin2") router.push("/admin2");
           else if (response.user.id_num === "admin3") router.push("/admin3");
+          else if (response.user.id_num === "frontdesk") router.push("/fill-up_form");
           else router.push("/");
         }
         return { success: true };

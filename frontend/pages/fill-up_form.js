@@ -12,6 +12,20 @@ const serviceOptions = [
   { value: "family_planning", label: "Family Planning" }
 ];
 
+const SERVICE_TO_DOCTOR = {
+  consultation: "Doctor 1",
+  checkup: "Doctor 1",
+  prenatal: "Doctor 2",
+  maternity: "Doctor 2",
+  family_planning: "Doctor 3"
+};
+
+const DOCTOR_AVAILABILITY_KEYS = {
+  "Doctor 1": "doctor1Online",
+  "Doctor 2": "doctor2Online",
+  "Doctor 3": "doctor3Online"
+};
+
 const vulnerabilityOptions = [
   { value: "senior", label: "Senior Citizen (60+)", weight: 4 },
   { value: "pwd", label: "Person with Disability (PWD)", weight: 3 },
@@ -24,6 +38,38 @@ function computePreviewScore(flags) {
   const weights = { senior: 4, pwd: 3, pregnant: 3, indigenous: 2, solo_parent: 1 };
   const score = flags.reduce((s, f) => s + (weights[f] || 0), 0);
   return score === 0 ? 1 : score; // Base weight 1 for Regular
+}
+
+function getDoctorForService(serviceType) {
+  return SERVICE_TO_DOCTOR[serviceType] || "Doctor 1";
+}
+
+function getDoctorOfflineMessage(doctorName) {
+  return `${doctorName} is currently offline and unavailable. Please select another available doctor.`;
+}
+
+function isDoctorAvailableInSettings(settings, doctorName) {
+  const key = DOCTOR_AVAILABILITY_KEYS[doctorName];
+  if (!key) return true;
+  return settings?.[key] !== false;
+}
+
+async function fetchDoctorAvailability(doctorName) {
+  const displayData = await request("/display");
+  const counter = !displayData?.error && Array.isArray(displayData?.counters)
+    ? displayData.counters.find((item) => item.id_num === doctorName || item.name === doctorName)
+    : null;
+
+  if (counter) {
+    return counter.is_online !== false;
+  }
+
+  const settingsData = await request("/settings");
+  if (!settingsData?.error && settingsData?.settings) {
+    return isDoctorAvailableInSettings(settingsData.settings, doctorName);
+  }
+
+  return true;
 }
 
 const emptyForm = {
@@ -58,7 +104,8 @@ function validateName({ firstName, lastName }) {
 }
 
 export default function FillUpFormPage() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const isFrontdesk = user?.id_num === "frontdesk";
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState({ type: "", text: "", queue: "", priorityScore: 0, serviceType: "" });
   const [isLoading, setIsLoading] = useState(false);
@@ -185,11 +232,22 @@ export default function FillUpFormPage() {
       setMessage({ type: "danger", text: nameError, queue: "" });
       return;
     }
+    if (!form.serviceType) {
+      setMessage({ type: "danger", text: "Please select a service.", queue: "" });
+      return;
+    }
 
     setIsLoading(true);
     setMessage({ type: "", text: "", queue: "" });
 
     try {
+      const doctorName = getDoctorForService(form.serviceType);
+      const doctorAvailable = await fetchDoctorAvailability(doctorName);
+      if (!doctorAvailable) {
+        setMessage({ type: "danger", text: getDoctorOfflineMessage(doctorName), queue: "" });
+        return;
+      }
+
       const payload = {
         fullName: buildFullName(form),
         serviceType: form.serviceType,
@@ -227,7 +285,8 @@ export default function FillUpFormPage() {
         text: "Your queue number has been generated successfully!",
         queue: data.queue_number,
         priorityScore: data.priority_score || 0,
-        serviceType: form.serviceType
+        serviceType: form.serviceType,
+        doctorName
       });
       setIsSuccess(true);
       setForm(emptyForm);
@@ -260,9 +319,13 @@ export default function FillUpFormPage() {
       title="City Health Queue Form" 
       icon="bi bi-people-fill" 
       welcome="Welcome"
-      showSidebar={true}
+      showSidebar={!isFrontdesk}
       sidebarTitle="Front Desk Menu"
       sidebarLinks={frontdeskSidebarLinks("/fill-up_form")}
+      showProfileMenu={isFrontdesk}
+      profileMenuLinks={frontdeskSidebarLinks("/fill-up_form")}
+      profileIcon="fas fa-user"
+      contentClassName="frontdesk-page"
     >
       <div className="frontdesk-fullpage-wrapper">
         <div className="frontdesk-shell">

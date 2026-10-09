@@ -17,6 +17,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [recallCooldown, setRecallCooldown] = useState(false);
   // Modal state
   const [modal, setModal] = useState({
     isOpen: false,
@@ -30,6 +31,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   });
   const modalReasonRef = useRef("");
   const modalConfirmRef = useRef(null);
+  const recallCooldownTimerRef = useRef(null);
   const [cancelAccountModal, setCancelAccountModal] = useState({
     isOpen: false,
     reason: "",
@@ -121,36 +123,6 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     modalReasonRef.current = "";
     modalConfirmRef.current = null;
   }
-
-  const sidebarLinks = useMemo(() => {
-    if (user?.role === "superadmin") {
-      return [
-        { href: "/", icon: "fas fa-tachometer-alt", label: "Dashboard" },
-        { href: "/analytics", icon: "fas fa-chart-bar", label: "Analytics" },
-        { href: "/records", icon: "fas fa-history", label: "Records" }
-      ];
-    }
-
-    return [
-      {
-        type: "button",
-        icon: "fas fa-user-times",
-        label: pendingCancelRequest ? "Cancel Request Pending" : "Cancel Account",
-        active: false,
-        onClick: () => {
-          setCancelAccountModal({
-            isOpen: true,
-            reason: "",
-            submitting: false,
-            error: "",
-            success: pendingCancelRequest
-              ? "You already have a pending cancellation request awaiting Super Admin review."
-              : ""
-          });
-        }
-      }
-    ];
-  }, [user, pendingCancelRequest]);
 
   async function fetchMyCancellationRequest() {
     if (!user || user.role === "superadmin") {
@@ -296,6 +268,17 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     return nextWaiting?.id ?? null;
   }, [filteredRows]);
 
+  const recallPatient = useMemo(
+    () =>
+      filteredRows.find(
+        (row) =>
+          row.status === "serving" &&
+          row.counter_id === doctorName &&
+          !row.awaiting_accept
+      ) || null,
+    [filteredRows, doctorName]
+  );
+
   const canProcessPatient = (row) => row?.id != null && row.id === activePatientId;
 
   const doctorIsOnline = useMemo(() => {
@@ -313,6 +296,14 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     refreshAll();
   }, []);
   useEffect(() => { fetchMyCancellationRequest(); }, [user]);
+
+  useEffect(() => {
+    return () => {
+      if (recallCooldownTimerRef.current) {
+        clearTimeout(recallCooldownTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const intervalSec = Number(queueSettings.refreshInterval) || 5;
@@ -382,6 +373,44 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       await refreshAll();
     } catch (err) {
       setError(err.message || "Failed to accept patient");
+      window.setTimeout(() => setError(""), 5000);
+    }
+  }
+
+  async function handleRecallAnnouncement() {
+    if (recallCooldown) return;
+
+    if (!recallPatient) {
+      setError("No accepted patient is currently available to re-call.");
+      window.setTimeout(() => setError(""), 4000);
+      return;
+    }
+
+    setRecallCooldown(true);
+    if (recallCooldownTimerRef.current) {
+      clearTimeout(recallCooldownTimerRef.current);
+    }
+    recallCooldownTimerRef.current = window.setTimeout(() => {
+      setRecallCooldown(false);
+      recallCooldownTimerRef.current = null;
+    }, 3000);
+
+    try {
+      setError("");
+      const data = await request("/queue/re-call", {
+        method: "POST",
+        body: JSON.stringify({
+          patient_id: recallPatient.id,
+          counterId: doctorName
+        })
+      });
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+      setSuccessMessage(data.message || `Re-call announcement queued for ${recallPatient.queue_number}`);
+      window.setTimeout(() => setSuccessMessage(""), 4000);
+    } catch (err) {
+      setError(err.message || "Failed to re-call patient");
       window.setTimeout(() => setError(""), 5000);
     }
   }
@@ -470,8 +499,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     <SiteFrame
       title={doctorName}
       icon="fas fa-user-md"
-      showSidebar={true}
-      sidebarLinks={sidebarLinks}
+      showSidebar={false}
+      showProfileMenu={true}
     >
       <div className="admin-content p-4 md:p-6">
         {error ? (
@@ -556,6 +585,26 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                 <i className="fas fa-external-link-alt" />
                 Live View
               </a>
+              <button
+                type="button"
+                onClick={handleRecallAnnouncement}
+                disabled={!recallPatient || recallCooldown}
+                title={
+                  !recallPatient
+                    ? "No accepted patient to re-call"
+                    : recallCooldown
+                      ? "Re-Call will be available again in 3 seconds"
+                      : `Re-call ${recallPatient.queue_number}`
+                }
+                className={`px-3 py-1.5 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  !recallPatient || recallCooldown
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-amber-600 hover:bg-amber-700"
+                }`}
+              >
+                <i className="fas fa-volume-up" />
+                Re-Call
+              </button>
               <button 
                 onClick={refreshAll}
                 className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"

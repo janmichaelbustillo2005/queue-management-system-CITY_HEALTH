@@ -266,6 +266,24 @@ function getDoctorForService(serviceType) {
   return "Doctor 1";
 }
 
+function getDoctorOfflineMessage(doctorName) {
+  return `${doctorName} is currently offline and unavailable. Please select another available doctor.`;
+}
+
+async function ensureDoctorAvailableForService(serviceType) {
+  const doctorName = getDoctorForService(serviceType);
+  const counters = await getCounters();
+  const counter = counters.find((c) => c.id_num === doctorName || c.name === doctorName);
+
+  if (counter && counter.is_online === false) {
+    const error = new Error(getDoctorOfflineMessage(doctorName));
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return doctorName;
+}
+
 async function getNextQueueNumber(serviceType, offset = 0) {
   const doctorCode = SERVICE_CODE_MAP[serviceType] || "GP";
   const doctorName = getDoctorForService(serviceType);
@@ -333,6 +351,8 @@ function computePriorityScore(vulnerabilityFlags = []) {
 }
 
 async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate, sex, source = "admin", vulnerabilityFlags = [] }) {
+  await ensureDoctorAvailableForService(serviceType);
+
   let attempts = 0;
   const maxAttempts = 8;
   let lastError = null;
@@ -572,7 +592,7 @@ async function callPatient(patientId, counterId = null) {
   return { success: true };
 }
 
-async function completePatient(patientId, reason = null) {
+async function completePatient(patientId, reason = null, counterId = null) {
   const existing = await getPatientById(patientId);
   if (!existing) {
     throw new Error("Patient not found");
@@ -580,6 +600,7 @@ async function completePatient(patientId, reason = null) {
 
   const trimmedReason = reason == null ? null : String(reason).trim() || null;
   const completedAt = new Date().toISOString();
+  const assignedCounter = counterId ? String(counterId) : null;
 
   if (useLocalFallback) {
     const patientIndex = localData.patients.findIndex(p => p.id === patientId);
@@ -587,23 +608,43 @@ async function completePatient(patientId, reason = null) {
       localData.patients[patientIndex].status = "completed";
       localData.patients[patientIndex].completed_at = completedAt;
       localData.patients[patientIndex].reason = trimmedReason;
+      if (assignedCounter) {
+        localData.patients[patientIndex].counter_id = assignedCounter;
+      }
     }
     await clearCounterAssignment(patientId);
     return localData.patients[patientIndex];
   }
+
+  const updatePayload = {
+    status: "completed",
+    completed_at: completedAt,
+    reason: trimmedReason
+  };
+  if (assignedCounter) {
+    updatePayload.counter_id = assignedCounter;
+  }
   
   let { data, error } = await supabase
     .from("patients")
-    .update({ status: "completed", completed_at: completedAt, reason: trimmedReason })
+    .update(updatePayload)
     .eq("id", patientId)
     .select("*")
     .single();
 
   // Fallback when patients.reason column has not been migrated yet
   if (error && /reason/i.test(String(error.message || ""))) {
+    const fallbackPayload = {
+      status: "completed",
+      completed_at: completedAt
+    };
+    if (assignedCounter) {
+      fallbackPayload.counter_id = assignedCounter;
+    }
+
     ({ data, error } = await supabase
       .from("patients")
-      .update({ status: "completed", completed_at: completedAt })
+      .update(fallbackPayload)
       .eq("id", patientId)
       .select("*")
       .single());

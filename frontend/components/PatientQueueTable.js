@@ -246,14 +246,14 @@ export default function PatientQueueTable({
   function renderActions(row, doctorName) {
     if (row.status === "waiting") {
       if (!isHead(row, doctorName)) {
-        return <span className="text-[11px] text-gray-400 font-semibold italic px-1">Waiting for turn</span>;
+        return <span className="text-[11px] brand-text-muted font-semibold italic px-1">Waiting for turn</span>;
       }
       return (
         <>
           <button
             type="button"
             onClick={() => handleCall(row, doctorName)}
-            className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors"
+            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors"
           >
             Call Now
           </button>
@@ -312,22 +312,22 @@ export default function PatientQueueTable({
       );
     }
 
-    return <span className="text-gray-400 text-xs">—</span>;
+    return <span className="brand-text-muted text-xs">—</span>;
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-6">
-      <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex flex-wrap justify-between items-center gap-3">
+    <div className="bg-white rounded-2xl shadow-sm border brand-border overflow-hidden mb-6">
+      <div className="p-4 border-b brand-border brand-bg-subtle flex flex-wrap justify-between items-center gap-3">
         <div className="flex items-center gap-2">
-          <i className="fas fa-users text-emerald-600" />
-          <h2 className="font-bold text-gray-800 text-base m-0">All Patients</h2>
-          <span className="text-xs text-gray-500">({visibleRows.length} shown)</span>
+          <i className="fas fa-users brand-text-primary" />
+          <h2 className="font-bold brand-text text-base m-0">All Patients</h2>
+          <span className="text-xs brand-text-muted">({visibleRows.length} shown)</span>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-semibold">
           <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Waiting {counts.waiting}</span>
           <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">Serving {counts.serving}</span>
           <span className="px-2.5 py-1 rounded-full bg-green-50 text-green-700">Completed {counts.completed}</span>
-          <span className="px-2.5 py-1 rounded-full bg-gray-200 text-gray-700">Cancelled {counts.cancelled}</span>
+          <span className="px-2.5 py-1 rounded-full bg-gray-200 brand-text">Cancelled {counts.cancelled}</span>
         </div>
       </div>
 
@@ -339,58 +339,58 @@ export default function PatientQueueTable({
             ))}
           </colgroup>
           <thead>
-            <tr className="bg-gray-50/50">
-              <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Queue</th>
-              <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Patient</th>
-              <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Doctor</th>
-              <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Service</th>
-              <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Priority</th>
-              <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Status</th>
-              <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+            <tr className="brand-bg-subtle">
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Queue</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Patient</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Doctor</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Service</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Priority</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Status</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-4 py-10 text-center text-gray-400">
+                <td colSpan="7" className="px-4 py-10 text-center brand-text-muted">
                   <i className="fas fa-inbox text-3xl mb-2 block" />
                   No patients match this view
                 </td>
               </tr>
             ) : (
               visibleRows.map(({ row, doctorName }) => (
-                <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
+                <tr key={row.id} className="brand-hover-subtle transition-colors">
                   <td className="px-4 py-4">
-                    <span className="font-mono font-bold text-emerald-600 text-lg whitespace-nowrap">{row.queue_number}</span>
+                    <span className="font-mono font-bold brand-text-primary text-lg whitespace-nowrap">{row.queue_number}</span>
                   </td>
                   <td className="px-4 py-4">
-                    <div className="font-semibold text-gray-800 truncate" title={row.id_num}>{row.id_num}</div>
+                    <div className="font-semibold brand-text truncate" title={row.id_num}>{row.id_num}</div>
                     <div className="flex flex-wrap gap-2 mt-1">
                       {row.sex && (
-                        <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                        <span className="text-[10px] brand-bg-subtle brand-text-primary px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
                           {row.sex}
                         </span>
                       )}
                       {row.birthdate && (
-                        <span className="text-[10px] text-gray-500">
+                        <span className="text-[10px] brand-text-muted">
                           <i className="fas fa-birthday-cake me-1" />
                           {new Date(row.birthdate).toLocaleDateString()}
                         </span>
                       )}
                       {row.mobile_number && (
-                        <span className="text-[10px] text-gray-500">
+                        <span className="text-[10px] brand-text-muted">
                           <i className="fas fa-phone-alt me-1" /> {row.mobile_number}
                         </span>
                       )}
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-2 font-semibold text-gray-800 text-sm whitespace-nowrap">
+                    <div className="flex items-center gap-2 font-semibold brand-text text-sm whitespace-nowrap">
                       <i className="fas fa-user-md text-blue-600" />
                       {doctorName}
                     </div>
                     {!doctorStates[doctorName].online ? (
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Offline</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider brand-text-muted">Offline</span>
                     ) : null}
                   </td>
                   <td className="px-4 py-4">
@@ -408,7 +408,7 @@ export default function PatientQueueTable({
                         <i className="fas fa-star" /> {row.priority_score}
                       </span>
                     ) : (
-                      <span className="text-gray-400 text-xs">—</span>
+                      <span className="brand-text-muted text-xs">—</span>
                     )}
                   </td>
                   <td className="px-4 py-4 text-center">
@@ -417,9 +417,9 @@ export default function PatientQueueTable({
                         row.status === "serving" ? "bg-emerald-100 text-emerald-700" :
                         row.status === "waiting" ? "bg-amber-100 text-amber-700" :
                         row.status === "no-show" ? "bg-red-100 text-red-700" :
-                        row.status === "cancelled" ? "bg-gray-200 text-gray-700" :
+                        row.status === "cancelled" ? "bg-gray-200 brand-text" :
                         row.status === "completed" ? "bg-green-50 text-green-700" :
-                        "bg-gray-100 text-gray-600"
+                        "bg-gray-100 brand-text-muted"
                       }`}
                     >
                       {row.status}

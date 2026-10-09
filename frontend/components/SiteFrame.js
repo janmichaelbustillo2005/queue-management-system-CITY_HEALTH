@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import SystemLogo from "./SystemLogo";
 
 function useDateTime(formatter) {
   const [value, setValue] = useState("");
@@ -67,7 +68,10 @@ export default function SiteFrame({
         <>
           <div id="sidebar" className={`sidebar ${sidebarOpen ? "active" : ""}`}>
             <div className="sidebar-header">
-              <div className="sidebar-title">{sidebarTitle}</div>
+              <div className="sidebar-brand">
+                <SystemLogo variant="sidebar" />
+                <div className="sidebar-title">{sidebarTitle}</div>
+              </div>
               <button className="sidebar-close" onClick={toggleSidebar}>
                 <i className="fas fa-times" />
               </button>
@@ -87,8 +91,8 @@ export default function SiteFrame({
                       onClick={() => { link.onClick(); toggleSidebar(); }}
                       className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
                         isActive 
-                          ? "bg-white/15 text-white font-semibold backdrop-blur-sm shadow-sm" 
-                          : "text-emerald-50 hover:bg-white/5"
+                          ? "brand-nav-active font-semibold backdrop-blur-sm shadow-sm"
+                          : "text-white hover:bg-white/5"
                       }`}
                     >
                       <i className={`${link.icon} w-5 text-center`} />
@@ -101,8 +105,8 @@ export default function SiteFrame({
                       onClick={toggleSidebar}
                       className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 no-underline ${
                         isActive 
-                          ? "bg-white/15 text-white font-semibold backdrop-blur-sm shadow-sm" 
-                          : "text-emerald-50 hover:bg-white/5"
+                          ? "brand-nav-active font-semibold backdrop-blur-sm shadow-sm"
+                          : "text-white hover:bg-white/5"
                       }`}
                     >
                     <i className={`${link.icon} w-5 text-center`} />
@@ -144,9 +148,7 @@ export default function SiteFrame({
               <i className="fas fa-bars" />
             </button>
           ) : null}
-          <div className="header-icon flex-shrink-0">
-            <i className={icon} />
-          </div>
+          <SystemLogo />
           <span className="text-base md:text-lg font-bold leading-tight break-words">{title}</span>
         </div>
         {showProfileMenu && user ? (

@@ -158,13 +158,13 @@ export default function PatientManagementPage() {
           </div>
         ) : null}
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border brand-border p-4 mb-6">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-2">
-              <i className="fas fa-tasks text-emerald-600" />
+              <i className="fas fa-tasks brand-text-primary" />
               <div>
-                <h2 className="font-bold text-gray-800 text-lg m-0">Patient Management</h2>
-                <p className="text-xs text-gray-500 m-0">Manage all doctors' patients in one table. Changes sync with the doctor accounts.</p>
+                <h2 className="font-bold brand-text text-lg m-0">Patient Management</h2>
+                <p className="text-xs brand-text-muted m-0">Manage all doctors' patients in one table. Changes sync with the doctor accounts.</p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -180,7 +180,7 @@ export default function PatientManagementPage() {
               <button
                 type="button"
                 onClick={refreshAll}
-                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"
+                className="px-3 py-1.5 brand-button rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               >
                 <i className={`fas fa-sync-alt ${loading ? "animate-spin" : ""}`} />
                 Refresh
@@ -189,10 +189,10 @@ export default function PatientManagementPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-            <label className="text-xs font-semibold text-gray-600">
+            <label className="text-xs font-semibold brand-text-muted">
               Doctor
               <select
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                className="mt-1 w-full px-3 py-2 border brand-input rounded-lg text-sm bg-white"
                 value={doctorFilter}
                 onChange={(e) => setDoctorFilter(e.target.value)}
               >
@@ -202,10 +202,10 @@ export default function PatientManagementPage() {
                 ))}
               </select>
             </label>
-            <label className="text-xs font-semibold text-gray-600">
+            <label className="text-xs font-semibold brand-text-muted">
               Status
               <select
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                className="mt-1 w-full px-3 py-2 border brand-input rounded-lg text-sm bg-white"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               >
@@ -214,11 +214,11 @@ export default function PatientManagementPage() {
                 ))}
               </select>
             </label>
-            <label className="text-xs font-semibold text-gray-600">
+            <label className="text-xs font-semibold brand-text-muted">
               Search
               <input
                 type="text"
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                className="mt-1 w-full px-3 py-2 border brand-input rounded-lg text-sm"
                 placeholder="Patient name or queue number"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -232,7 +232,7 @@ export default function PatientManagementPage() {
                 setSearch("");
               }}
               disabled={!hasFilters}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="px-3 py-2 border brand-border rounded-lg text-sm font-semibold brand-text brand-hover-subtle disabled:opacity-50"
             >
               <i className="fas fa-undo me-1" />
               Reset Filters
@@ -256,8 +256,8 @@ export default function PatientManagementPage() {
       {modal.isOpen && (
         <div className="fixed inset-0 bg-black/50 z-[10000] flex items-center justify-center px-3">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-            <h3 className="text-xl font-bold text-gray-800 mb-3">{modal.title}</h3>
-            <p className="text-gray-600 mb-4">{modal.message}</p>
+            <h3 className="text-xl font-bold brand-text mb-3">{modal.title}</h3>
+            <p className="brand-text-muted mb-4">{modal.message}</p>
             {modal.error ? (
               <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {modal.error}
@@ -265,7 +265,7 @@ export default function PatientManagementPage() {
             ) : null}
             {modal.showReason && (
               <div className="mb-5">
-                <label className="block mb-2 text-sm font-medium text-gray-700">
+                <label className="block mb-2 text-sm font-medium brand-text">
                   {modal.requireReason ? "Reason for Cancel" : "Reason (optional)"}
                 </label>
                 <textarea
@@ -276,7 +276,7 @@ export default function PatientManagementPage() {
                     setModal((prev) => ({ ...prev, reason: e.target.value, error: "" }));
                   }}
                   placeholder="Enter reason..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y min-h-[100px]"
+                  className="w-full px-3 py-2 border brand-input rounded-lg text-sm resize-y min-h-[100px]"
                 />
               </div>
             )}
@@ -285,7 +285,7 @@ export default function PatientManagementPage() {
                 type="button"
                 onClick={() => !modal.submitting && closeModal()}
                 disabled={modal.submitting}
-                className="px-5 py-2 border border-gray-300 rounded-lg bg-white text-gray-700 font-medium disabled:opacity-60"
+                className="px-5 py-2 border brand-border rounded-lg bg-white brand-text font-medium disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -293,8 +293,7 @@ export default function PatientManagementPage() {
                 type="button"
                 onClick={handleModalConfirm}
                 disabled={modal.submitting}
-                className="px-5 py-2 rounded-lg text-white font-medium disabled:opacity-60"
-                style={{ backgroundColor: "#166534" }}
+                className="px-5 py-2 rounded-lg brand-button font-medium disabled:opacity-60"
               >
                 {modal.submitting ? "Confirming..." : "Confirm"}
               </button>

@@ -39,7 +39,7 @@ function ToggleBadge({ enabled }) {
   return (
     <span
       className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-        enabled ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-500"
+        enabled ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 brand-text-muted"
       }`}
     >
       {enabled ? "Enabled" : "Disabled"}
@@ -49,10 +49,10 @@ function ToggleBadge({ enabled }) {
 
 function SettingRow({ title, description, children }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-3 border-b border-gray-100 last:border-b-0">
+    <div className="flex items-start justify-between gap-4 py-3 border-b brand-border last:border-b-0">
       <div className="min-w-0 pr-2">
-        <div className="text-sm font-semibold text-gray-800">{title}</div>
-        {description ? <p className="text-xs text-gray-500 mt-0.5 m-0">{description}</p> : null}
+        <div className="text-sm font-semibold brand-text">{title}</div>
+        {description ? <p className="text-xs brand-text-muted mt-0.5 m-0">{description}</p> : null}
       </div>
       <div className="shrink-0 flex items-center">{children}</div>
     </div>
@@ -233,8 +233,8 @@ export default function SettingsModal({
           </p>
         </div>
 
-        <div className="px-5 pt-4 pb-2 border-b border-gray-100">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
+        <div className="px-5 pt-4 pb-2 border-b brand-border">
+          <div className="text-[10px] font-bold uppercase tracking-wider brand-text-muted mb-2">
             Settings Category
           </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
@@ -247,12 +247,12 @@ export default function SettingsModal({
                   onClick={() => handleCategorySelect(item.id)}
                   className={`text-left rounded-lg border px-3 py-2.5 transition-colors ${
                     active
-                      ? "bg-emerald-50 border-emerald-300 text-emerald-900"
-                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                      ? "brand-bg-subtle brand-border brand-text-primary"
+                      : "bg-white brand-border brand-text brand-hover-subtle"
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <i className={`${item.icon} text-sm ${active ? "text-emerald-700" : "text-gray-400"}`} />
+                    <i className={`${item.icon} text-sm ${active ? "brand-text-primary" : "brand-text-muted"}`} />
                     <span className="text-[11px] font-bold leading-tight">{item.short}</span>
                   </div>
                 </button>
@@ -276,7 +276,7 @@ export default function SettingsModal({
 
           {category === "queue" && (
             <section>
-              <h4 className="font-bold text-gray-800 text-base m-0 pb-2 border-b border-gray-200">
+              <h4 className="font-bold brand-text text-base m-0 pb-2 border-b brand-border">
                 Queue Configuration
               </h4>
               <SettingRow title="Auto-refresh Queue" description="Automatically update queue information.">
@@ -292,14 +292,14 @@ export default function SettingsModal({
                 <div className="flex flex-col items-end gap-1">
                   <div className="flex items-center gap-1">
                     <input
-                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.refreshInterval ? "border-red-400" : "border-gray-300"}`}
+                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.refreshInterval ? "border-red-400" : "brand-input"}`}
                       type="number"
                       min="1"
                       max="60"
                       value={draft.refreshInterval}
                       onChange={(e) => updateDraft({ refreshInterval: Number(e.target.value) })}
                     />
-                    <span className="text-xs text-gray-500">sec</span>
+                    <span className="text-xs brand-text-muted">sec</span>
                   </div>
                   {errors.refreshInterval ? (
                     <span className="text-[10px] text-red-600 max-w-[160px] text-right">{errors.refreshInterval}</span>
@@ -317,7 +317,7 @@ export default function SettingsModal({
               <SettingRow title="Max Queues Display" description="Maximum records shown per page.">
                 <div className="flex flex-col items-end gap-1">
                   <input
-                    className={`w-16 px-2 py-1 border rounded text-sm ${errors.maxQueues ? "border-red-400" : "border-gray-300"}`}
+                    className={`w-16 px-2 py-1 border rounded text-sm ${errors.maxQueues ? "border-red-400" : "brand-input"}`}
                     type="number"
                     min="5"
                     max="100"
@@ -334,7 +334,7 @@ export default function SettingsModal({
 
           {category === "announce" && (
             <section>
-              <h4 className="font-bold text-gray-800 text-base m-0 pb-2 border-b border-gray-200">
+              <h4 className="font-bold brand-text text-base m-0 pb-2 border-b brand-border">
                 Notification and Announcement Settings
               </h4>
               <SettingRow title="Sound Notifications" description="Play alert sounds for queue events where supported.">
@@ -356,14 +356,14 @@ export default function SettingsModal({
                 <div className="flex flex-col items-end gap-1">
                   <div className="flex items-center gap-1">
                     <input
-                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.announceGapSeconds ? "border-red-400" : "border-gray-300"}`}
+                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.announceGapSeconds ? "border-red-400" : "brand-input"}`}
                       type="number"
                       min="0"
                       max="30"
                       value={draft.announceGapSeconds}
                       onChange={(e) => updateDraft({ announceGapSeconds: Number(e.target.value) })}
                     />
-                    <span className="text-xs text-gray-500">sec</span>
+                    <span className="text-xs brand-text-muted">sec</span>
                   </div>
                   {errors.announceGapSeconds ? (
                     <span className="text-[10px] text-red-600 max-w-[160px] text-right">{errors.announceGapSeconds}</span>
@@ -375,21 +375,21 @@ export default function SettingsModal({
 
           {category === "rules" && (
             <section>
-              <h4 className="font-bold text-gray-800 text-base m-0 pb-2 border-b border-gray-200">
+              <h4 className="font-bold brand-text text-base m-0 pb-2 border-b brand-border">
                 Queue Rules and Patient Management
               </h4>
               <SettingRow title="No-show Waiting Time" description="Suggested wait before marking a called patient as no-show.">
                 <div className="flex flex-col items-end gap-1">
                   <div className="flex items-center gap-1">
                     <input
-                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.noShowWaitMinutes ? "border-red-400" : "border-gray-300"}`}
+                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.noShowWaitMinutes ? "border-red-400" : "brand-input"}`}
                       type="number"
                       min="1"
                       max="120"
                       value={draft.noShowWaitMinutes}
                       onChange={(e) => updateDraft({ noShowWaitMinutes: Number(e.target.value) })}
                     />
-                    <span className="text-xs text-gray-500">min</span>
+                    <span className="text-xs brand-text-muted">min</span>
                   </div>
                   {errors.noShowWaitMinutes ? (
                     <span className="text-[10px] text-red-600 max-w-[160px] text-right">{errors.noShowWaitMinutes}</span>
@@ -399,7 +399,7 @@ export default function SettingsModal({
               <SettingRow title="Recall Attempts" description="How many times a patient may be recalled before escalation.">
                 <div className="flex flex-col items-end gap-1">
                   <input
-                    className={`w-16 px-2 py-1 border rounded text-sm ${errors.recallAttempts ? "border-red-400" : "border-gray-300"}`}
+                    className={`w-16 px-2 py-1 border rounded text-sm ${errors.recallAttempts ? "border-red-400" : "brand-input"}`}
                     type="number"
                     min="0"
                     max="10"
@@ -416,9 +416,9 @@ export default function SettingsModal({
                   <ToggleBadge enabled={!!draft.allowQueueReassignment} />
                 </button>
               </SettingRow>
-              <div className="mt-3 rounded-lg border border-gray-200 p-3">
-                <div className="text-sm font-semibold text-gray-800 mb-2">Doctor Availability</div>
-                <p className="text-xs text-gray-500 mb-3 m-0">
+              <div className="mt-3 rounded-lg border brand-border p-3">
+                <div className="text-sm font-semibold brand-text mb-2">Doctor Availability</div>
+                <p className="text-xs brand-text-muted mb-3 m-0">
                   Mark doctors online/offline. Offline doctors are skipped for automatic counter assignment.
                 </p>
                 {[
@@ -426,8 +426,8 @@ export default function SettingsModal({
                   { key: "doctor2Online", label: "Doctor 2" },
                   { key: "doctor3Online", label: "Doctor 3" }
                 ].map((doc) => (
-                  <div key={doc.key} className="flex items-center justify-between py-2 border-t border-gray-100 first:border-t-0">
-                    <span className="text-sm text-gray-700">{doc.label}</span>
+                  <div key={doc.key} className="flex items-center justify-between py-2 border-t brand-border first:border-t-0">
+                    <span className="text-sm brand-text">{doc.label}</span>
                     <button type="button" onClick={() => updateDraft({ [doc.key]: !draft[doc.key] })}>
                       <ToggleBadge enabled={!!draft[doc.key]} />
                     </button>
@@ -439,23 +439,23 @@ export default function SettingsModal({
 
           {category === "data" && (
             <section>
-              <h4 className="font-bold text-gray-800 text-base m-0 pb-2 border-b border-gray-200">
+              <h4 className="font-bold brand-text text-base m-0 pb-2 border-b brand-border">
                 Data Management
               </h4>
-              <div className="rounded-lg border border-gray-200 p-4 mt-3">
-                <div className="flex items-center gap-2 text-gray-800 font-semibold mb-1">
-                  <i className="fas fa-database text-emerald-700" />
+              <div className="rounded-lg border brand-border p-4 mt-3">
+                <div className="flex items-center gap-2 brand-text font-semibold mb-1">
+                  <i className="fas fa-database brand-text-primary" />
                   Data Management
                 </div>
-                <p className="text-xs text-gray-500 m-0 mb-4">
+                <p className="text-xs brand-text-muted m-0 mb-4">
                   Archive active queues safely and export transaction history with filters.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                  <label className="text-xs text-gray-600">
+                  <label className="text-xs brand-text-muted">
                     Status
                     <select
-                      className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                      className="mt-1 w-full px-2 py-1.5 border brand-input rounded text-sm"
                       value={draft.exportStatus}
                       onChange={(e) => updateDraft({ exportStatus: e.target.value })}
                     >
@@ -466,10 +466,10 @@ export default function SettingsModal({
                       <option value="cancelled">Cancelled</option>
                     </select>
                   </label>
-                  <label className="text-xs text-gray-600">
+                  <label className="text-xs brand-text-muted">
                     Service
                     <select
-                      className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                      className="mt-1 w-full px-2 py-1.5 border brand-input rounded text-sm"
                       value={draft.exportService}
                       onChange={(e) => updateDraft({ exportService: e.target.value })}
                     >
@@ -481,10 +481,10 @@ export default function SettingsModal({
                       <option value="family_planning">Family Planning</option>
                     </select>
                   </label>
-                  <label className="text-xs text-gray-600">
+                  <label className="text-xs brand-text-muted">
                     Date range
                     <select
-                      className="mt-1 w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                      className="mt-1 w-full px-2 py-1.5 border brand-input rounded text-sm"
                       value={draft.exportDateFilter}
                       onChange={(e) => updateDraft({ exportDateFilter: e.target.value })}
                     >
@@ -497,10 +497,10 @@ export default function SettingsModal({
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  <label className="text-xs text-gray-600 flex items-center gap-2">
+                  <label className="text-xs brand-text-muted flex items-center gap-2">
                     Format
                     <select
-                      className="px-2 py-1.5 border border-gray-300 rounded text-sm"
+                      className="px-2 py-1.5 border brand-input rounded text-sm"
                       value={draft.exportFormat}
                       onChange={(e) => updateDraft({ exportFormat: e.target.value })}
                     >
@@ -514,7 +514,7 @@ export default function SettingsModal({
                     type="button"
                     disabled={exportBusy}
                     onClick={handleExport}
-                    className="rounded-lg px-4 py-2.5 text-sm font-bold bg-emerald-100 text-emerald-900 hover:bg-emerald-200 disabled:opacity-60"
+                    className="rounded-lg px-4 py-2.5 text-sm font-bold brand-button-subtle disabled:opacity-60"
                   >
                     {exportBusy ? "Exporting…" : "Export Data"}
                   </button>
@@ -526,7 +526,7 @@ export default function SettingsModal({
                     Reset Queue
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-500 m-0 mt-3">
+                <p className="text-[11px] brand-text-muted m-0 mt-3">
                   Reset archives active waiting/serving patients and clears doctor counters. Completed and cancelled history is kept.
                 </p>
               </div>
@@ -535,7 +535,7 @@ export default function SettingsModal({
 
           {category === "security" && (
             <section>
-              <h4 className="font-bold text-gray-800 text-base m-0 pb-2 border-b border-gray-200">
+              <h4 className="font-bold brand-text text-base m-0 pb-2 border-b brand-border">
                 System Security and Maintenance
               </h4>
               <SettingRow
@@ -557,23 +557,22 @@ export default function SettingsModal({
           )}
         </div>
 
-        <div className="bg-gray-50 px-5 py-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-[11px] text-gray-500">
+        <div className="brand-bg-subtle px-5 py-4 border-t brand-border flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[11px] brand-text-muted">
             {dirty ? "You have unsaved changes." : "All changes saved."}
           </div>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={handleClose}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm font-semibold"
+              className="px-4 py-2 bg-gray-200 brand-text rounded-lg hover:bg-gray-300 text-sm font-semibold"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={handleSave}
-              className="px-4 py-2 text-white rounded-lg hover:opacity-90 text-sm font-semibold"
-              style={{ backgroundColor: "#279b61" }}
+              className="px-4 py-2 brand-button rounded-lg text-sm font-semibold"
             >
               Save Settings
             </button>
@@ -584,10 +583,10 @@ export default function SettingsModal({
       {confirmClear ? (
         <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center px-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h4 className="m-0 text-lg font-bold text-gray-900">Reset active queues?</h4>
+            <div className="px-5 py-4 border-b brand-border">
+              <h4 className="m-0 text-lg font-bold brand-text">Reset active queues?</h4>
             </div>
-            <div className="px-5 py-4 text-sm text-gray-600 space-y-2">
+            <div className="px-5 py-4 text-sm brand-text-muted space-y-2">
               <p className="m-0">
                 This will clear doctor counters and archive today&apos;s <strong>waiting</strong> and{" "}
                 <strong>serving</strong> patients as cancelled with reason &quot;System queue reset&quot;.
@@ -596,12 +595,12 @@ export default function SettingsModal({
                 Completed and previously cancelled records stay available in Super Admin records and exports.
               </p>
             </div>
-            <div className="px-5 py-4 bg-gray-50 flex justify-end gap-2">
+            <div className="px-5 py-4 brand-bg-subtle flex justify-end gap-2">
               <button
                 type="button"
                 disabled={clearBusy}
                 onClick={() => setConfirmClear(false)}
-                className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 text-sm font-semibold"
+                className="px-4 py-2 rounded-lg bg-gray-200 brand-text text-sm font-semibold"
               >
                 Cancel
               </button>

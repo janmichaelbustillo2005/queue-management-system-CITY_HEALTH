@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useAuth } from "../context/AuthContext";
+import SystemLogo from "../components/SystemLogo";
 
 export default function Login() {
   const [idNum, setIdNum] = useState("");
@@ -62,18 +63,16 @@ export default function Login() {
       <div className="layout-shell">
         <div className="site-header">
           <div className="header-left">
-            <div className="header-icon">
-              <i className="fas fa-shield-alt" />
-            </div>
+            <SystemLogo />
             <span>City Health Log-In Form</span>
           </div>
         </div>
         <div className="page-content flex items-center justify-center">
           <div className="text-center">
             <div className="inline-block">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--brand-primary)]"></div>
             </div>
-            <p className="mt-4 text-gray-600">Loading...</p>
+            <p className="mt-4 brand-text-muted">Loading...</p>
           </div>
         </div>
         <footer className="site-footer">2025 Smart Queuing System. All rights reserved.</footer>
@@ -91,9 +90,7 @@ export default function Login() {
         {/* Header */}
         <header className="site-header">
           <div className="header-left">
-            <div className="header-icon">
-              <i className="fas fa-shield-alt" />
-            </div>
+            <SystemLogo />
             <span>City Health Log-In Form</span>
           </div>
           <div className="header-right">
@@ -105,13 +102,11 @@ export default function Login() {
         <main className="page-content flex-1 flex items-center justify-center px-4 md:px-8 py-8">
           <div className="w-full max-w-md">
             {/* Welcome Card */}
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100 mb-6">
-              {/* Card Header with gradient */}
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden border brand-border mb-6">
+              {/* Card Header with shared brand color */}
               <div className="csu-gradient-bar px-6 md:px-8 py-8 md:py-10 text-center">
                 <div className="mb-4 flex justify-center">
-                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-lock text-white text-3xl md:text-4xl" />
-                  </div>
+                  <SystemLogo variant="login" />
                 </div>
                 <h1 className="text-white text-2xl md:text-3xl font-bold mb-2">
                   Welcome
@@ -142,9 +137,9 @@ export default function Login() {
                   <div>
                     <label
                       htmlFor="id_num"
-                      className="block text-sm font-semibold text-gray-700 mb-2"
+                      className="block text-sm font-semibold brand-text mb-2"
                     >
-                      <i className="fas fa-user-circle mr-2 text-emerald-600" />
+                      <i className="fas fa-user-circle mr-2 brand-text-primary" />
                       Username / ID Number
                     </label>
                     <input
@@ -157,7 +152,7 @@ export default function Login() {
                       value={idNum}
                       onChange={(e) => setIdNum(e.target.value)}
                       onKeyPress={(e) => e.key === "Enter" && handleSubmit(e)}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-gray-800 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition duration-200 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                      className="w-full px-4 py-3 border-2 brand-input rounded-lg focus:outline-none transition duration-200 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -165,9 +160,9 @@ export default function Login() {
                   <div>
                     <label
                       htmlFor="password"
-                      className="block text-sm font-semibold text-gray-700 mb-2"
+                      className="block text-sm font-semibold brand-text mb-2"
                     >
-                      <i className="fas fa-lock mr-2 text-emerald-600" />
+                      <i className="fas fa-lock mr-2 brand-text-primary" />
                       Password
                     </label>
                     <input
@@ -180,7 +175,7 @@ export default function Login() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       onKeyPress={(e) => e.key === "Enter" && handleSubmit(e)}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg text-gray-800 placeholder-gray-400 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition duration-200 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                      className="w-full px-4 py-3 border-2 brand-input rounded-lg focus:outline-none transition duration-200 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -188,7 +183,7 @@ export default function Login() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold rounded-lg transition duration-200 shadow-md hover:shadow-lg flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full py-3 px-4 brand-button text-white font-bold rounded-lg transition duration-200 shadow-md hover:shadow-lg flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {loading ? (
                       <>
@@ -205,10 +200,10 @@ export default function Login() {
                 </form>
 
                 {/* Helpful Info */}
-                <div className="mt-6 pt-6 border-t border-gray-200">
-                  <p className="text-center text-xs md:text-sm text-gray-600">
+                <div className="mt-6 pt-6 border-t brand-border">
+                  <p className="text-center text-xs md:text-sm brand-text-muted">
                     <i className="fas fa-info-circle mr-1 text-blue-500" />
-                    For demo: Use <span className="font-semibold text-gray-800">admin1</span>/<span className="font-semibold text-gray-800">admin001</span>, <span className="font-semibold text-gray-800">admin2</span>/<span className="font-semibold text-gray-800">admin002</span>, <span className="font-semibold text-gray-800">admin3</span>/<span className="font-semibold text-gray-800">admin003</span>, <span className="font-semibold text-gray-800">frontdesk</span>/<span className="font-semibold text-gray-800">frontdesk123</span>, or <span className="font-semibold text-gray-800">superadmin</span>/<span className="font-semibold text-gray-800">superadmin123</span>
+                    For demo: Use <span className="font-semibold brand-text">admin1</span>/<span className="font-semibold brand-text">admin001</span>, <span className="font-semibold brand-text">admin2</span>/<span className="font-semibold brand-text">admin002</span>, <span className="font-semibold brand-text">admin3</span>/<span className="font-semibold brand-text">admin003</span>, <span className="font-semibold brand-text">frontdesk</span>/<span className="font-semibold brand-text">frontdesk123</span>, or <span className="font-semibold brand-text">superadmin</span>/<span className="font-semibold brand-text">superadmin123</span>
                   </p>
                 </div>
               </div>
@@ -216,8 +211,8 @@ export default function Login() {
 
             {/* Footer Info */}
             <div className="text-center">
-              <p className="text-xs md:text-sm text-gray-600">
-                <i className="fas fa-shield-alt mr-1 text-emerald-600" />
+              <p className="text-xs md:text-sm brand-text-muted">
+                <i className="fas fa-shield-alt mr-1 brand-text-primary" />
                 Secure Queue Management System
               </p>
             </div>

@@ -151,6 +151,35 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     modalConfirmRef.current = null;
   }
 
+  const profileMenuLinks = useMemo(() => {
+    if (user?.role === "superadmin") {
+      return [
+        { href: "/", icon: "fas fa-tachometer-alt", label: "Dashboard" },
+        { href: "/analytics", icon: "fas fa-chart-bar", label: "Analytics" },
+        { href: "/records", icon: "fas fa-history", label: "Records" }
+      ];
+    }
+
+    return [
+      {
+        type: "button",
+        icon: "fas fa-user-times",
+        label: pendingCancelRequest ? "Cancel Request Pending" : "Cancel Account",
+        onClick: () => {
+          setCancelAccountModal({
+            isOpen: true,
+            reason: "",
+            submitting: false,
+            error: "",
+            success: pendingCancelRequest
+              ? "You already have a pending cancellation request awaiting Super Admin review."
+              : ""
+          });
+        }
+      }
+    ];
+  }, [user, pendingCancelRequest]);
+
   async function fetchMyCancellationRequest() {
     if (!user || user.role === "superadmin") {
       setPendingCancelRequest(null);
@@ -528,6 +557,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       icon="fas fa-user-md"
       showSidebar={false}
       showProfileMenu={true}
+      profileMenuLinks={profileMenuLinks}
     >
       <div className="admin-content p-4 md:p-6">
         {error ? (

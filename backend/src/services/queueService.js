@@ -11,7 +11,8 @@ const {
   clearRecallCount,
   isAwaitingAccept,
   getAcceptedAt,
-  getVoiceAnnouncementEvents
+  getVoiceAnnouncementEvents,
+  markAwaitingAccept
 } = require("./settingsService");
 
 // Local in-memory fallback data for development when Supabase is unreachable
@@ -108,6 +109,8 @@ async function getCounters() {
   if (useLocalFallback) {
     return localData.counters.map(c => ({
       ...c,
+      name: c.id_num,
+      ID_Num: c.id_num,
       current_patient_name: localData.patients.find(p => p.id === c.current_patient_id)?.id_num || null,
       current_patient_queue_number: localData.patients.find(p => p.id === c.current_patient_id)?.queue_number || null
     }));
@@ -530,69 +533,174 @@ async function clearCounterAssignment(patientId) {
   }
 }
 
+// Reject overlapping calls in this process; conditional database writes also
+// protect the doctor slot and patient when requests come from another process.
+const callsInProgress = new Set();
+
+function compareWaitingPriority(a, b) {
+  return (b.priority_score || 0) - (a.priority_score || 0) ||
+    new Date(a.created_at) - new Date(b.created_at) ||
+    Number(a.id) - Number(b.id);
+}
+
 async function callPatient(patientId, counterId = null) {
-  const patient = await getPatientById(patientId);
-  if (!patient) {
-    throw new Error("Patient not found");
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) {
+    throw new Error("A valid patient ID is required");
   }
 
-  const assignedCounterId = counterId || patient.counter_id || getDoctorForService(patient.service_type);
+  // Never silently switch to development data during a queue mutation.
+  const localCall = useLocalFallback;
+  let patient;
+  if (localCall) {
+    patient = localData.patients.find((p) => p.id === patientId);
+  } else {
+    const { data, error } = await supabase.from("patients").select("*").eq("id", patientId).maybeSingle();
+    if (error) throw formatError(error, "Failed to load patient for calling");
+    patient = data;
+  }
+  if (!patient) throw new Error("Patient not found");
+  if (patient.status !== "waiting" || patient.completed_at != null) {
+    throw new Error("Only a waiting patient without a completion timestamp can be called");
+  }
+  const doctorName = getDoctorForService(patient.service_type);
+  // Undo can retain the patient's previous doctor association while waiting.
+  if (patient.counter_id != null && patient.counter_id !== doctorName) {
+    throw new Error("This waiting patient has a conflicting doctor assignment");
+  }
+  if (counterId != null && counterId !== doctorName) {
+    throw new Error(`This patient is assigned to ${doctorName}`);
+  }
+  if (callsInProgress.has(doctorName)) {
+    throw new Error(`A call for ${doctorName} is already processing`);
+  }
+  callsInProgress.add(doctorName);
 
-  if (assignedCounterId) {
-    const counters = await getCounters();
-    const counter = counters.find((c) => c.id_num === assignedCounterId);
-    if (counter && counter.is_online === false) {
-      throw new Error(`${assignedCounterId} is marked offline in System Settings. Enable availability before calling patients.`);
+  try {
+    let counters;
+    let waitingPatients;
+    let servingPatients;
+    if (localCall) {
+      counters = localData.counters;
+      waitingPatients = localData.patients.filter((p) => p.status === "waiting");
+      servingPatients = localData.patients.filter((p) => p.status === "serving" &&
+        (p.counter_id === doctorName || (p.counter_id == null && getDoctorForService(p.service_type) === doctorName)));
+    } else {
+      const { start, end } = getTodayRange();
+      const [counterResult, waitingResult, servingResult] = await Promise.all([
+        supabase.from("counters").select("id, id_num, is_online, current_patient_id"),
+        supabase.from("patients").select("*").eq("status", "waiting")
+          .gte("created_at", start).lte("created_at", end),
+        supabase.from("patients").select("id, counter_id, service_type").eq("status", "serving")
+      ]);
+      if (counterResult.error) throw formatError(counterResult.error, "Failed to check doctor availability");
+      if (waitingResult.error) throw formatError(waitingResult.error, "Failed to check queue priority");
+      if (servingResult.error) throw formatError(servingResult.error, "Failed to check doctor's current patient");
+      counters = counterResult.data || [];
+      waitingPatients = waitingResult.data || [];
+      // Legacy Superadmin calls could leave serving rows without a counter.
+      // Block their service's doctor until an explicit existing recovery action.
+      servingPatients = (servingResult.data || []).filter((p) =>
+        p.counter_id === doctorName || (p.counter_id == null && getDoctorForService(p.service_type) === doctorName));
     }
-  }
-  
-  if (useLocalFallback) {
-    const patientIndex = localData.patients.findIndex(p => p.id === patientId);
-    if (patientIndex !== -1) {
-      localData.patients[patientIndex].status = "serving";
-      localData.patients[patientIndex].called_at = new Date().toISOString();
-      if (assignedCounterId) {
-        localData.patients[patientIndex].counter_id = assignedCounterId;
-        const counterIndex = localData.counters.findIndex(c => c.id_num === assignedCounterId);
-        if (counterIndex !== -1) {
-          localData.counters[counterIndex].current_patient_id = patientId;
+    if (localCall !== useLocalFallback) {
+      throw new Error("Queue storage changed while calling. Refresh the queue and try again.");
+    }
+
+    const counter = counters.find((c) => c.id_num === doctorName);
+    if (!counter) throw new Error(`${doctorName} counter was not found`);
+    if (counter.is_online !== true) {
+      throw new Error(`${doctorName} is marked offline in System Settings. Enable availability before calling patients.`);
+    }
+    const reservedForPatient = patient.counter_id === doctorName && Number(counter.current_patient_id) === patientId;
+    if ((counter.current_patient_id != null && !reservedForPatient) || servingPatients.length) {
+      throw new Error(`${doctorName} is already serving a patient`);
+    }
+    if (counters.some((c) => c.id_num !== doctorName && Number(c.current_patient_id) === patientId)) {
+      throw new Error("This patient is already assigned to another doctor");
+    }
+    const nextPatient = waitingPatients
+      .filter((p) => getDoctorForService(p.service_type) === doctorName)
+      .sort(compareWaitingPriority)[0];
+    if (!nextPatient || Number(nextPatient.id) !== patientId) {
+      throw new Error(`Call the next eligible patient for ${doctorName} according to queue priority`);
+    }
+
+    const calledAt = new Date().toISOString();
+    if (localCall) {
+      // No await between the final checks and both in-memory updates.
+      patient.status = "serving";
+      patient.counter_id = doctorName;
+      patient.called_at = calledAt;
+      counter.current_patient_id = patientId;
+    } else {
+      // Claim an empty online doctor slot, or validate this patient's existing
+      // Undo reservation. Only newly claimed slots may be released on failure.
+      let claimQuery = supabase.from("counters")
+        .update({ current_patient_id: patientId }).eq("id", counter.id)
+        .eq("is_online", true);
+      claimQuery = reservedForPatient
+        ? claimQuery.eq("current_patient_id", patientId)
+        : claimQuery.is("current_patient_id", null);
+      const { data: claimedCounter, error: claimError } = await claimQuery.select("id").maybeSingle();
+      if (claimError) throw formatError(claimError, "Failed to reserve doctor");
+      if (!claimedCounter) throw new Error(`${doctorName} became unavailable or occupied. Refresh the queue.`);
+
+      let uncertainOwnUpdate = false;
+      try {
+        if (localCall !== useLocalFallback) {
+          throw new Error("Queue storage changed while calling. Refresh the queue and try again.");
         }
+        let patientQuery = supabase.from("patients")
+          .update({ status: "serving", counter_id: doctorName, called_at: calledAt })
+          .eq("id", patientId).eq("status", "waiting").eq("service_type", patient.service_type).is("completed_at", null);
+        patientQuery = patient.counter_id == null
+          ? patientQuery.is("counter_id", null)
+          : patientQuery.eq("counter_id", doctorName);
+        const { data: calledPatient, error: updateError } = await patientQuery.select("id").maybeSingle();
+        if (updateError) {
+          uncertainOwnUpdate = !reservedForPatient && !updateError.code &&
+            /fetch failed|failed to fetch|network|ECONNRESET|ETIMEDOUT|timeout/i.test(updateError.message || "");
+          throw formatError(updateError, "Failed to call patient");
+        }
+        if (!calledPatient) throw new Error("This patient is no longer eligible to be called. Refresh the queue.");
+      } catch (error) {
+        // A transport failure can occur after the patient update commits, or a
+        // competing caller can win the patient CAS using an Undo reservation.
+        const { data: latestPatient, error: stateError } = await supabase.from("patients")
+          .select("status, counter_id, called_at").eq("id", patientId).maybeSingle();
+        if (stateError) {
+          throw new Error(`${error.message}. Could not confirm the patient state; the doctor reservation was kept. Refresh the queue.`);
+        }
+        const isServingHere = latestPatient?.status === "serving" && latestPatient.counter_id === doctorName;
+        if (!reservedForPatient && !isServingHere) {
+          // Never clear a pre-existing reservation or a slot with a serving
+          // patient, and only release a slot still pointing to this patient.
+          const { error: releaseError } = await supabase.from("counters")
+            .update({ current_patient_id: null }).eq("id", counter.id).eq("current_patient_id", patientId);
+          if (releaseError) {
+            throw new Error(`${error.message}. Failed to release the reserved doctor: ${releaseError.message}`);
+          }
+        }
+        if (!uncertainOwnUpdate || !isServingHere || latestPatient.called_at !== calledAt) throw error;
+        // Only an uncertain transport error on our newly claimed slot can be
+        // recovered. A zero-row CAS is always a conflict, even with an identical
+        // timestamp, and must never reset a competing winner's acceptance state.
+      }
+    }
+
+    // Acceptance, not calling, continues to drive the public voice announcement.
+    markAwaitingAccept(patientId);
+    if (patient.mobile_number) {
+      try {
+        await sendQueueCalledNotification(patient.mobile_number, patient.queue_number, doctorName);
+      } catch (err) {
+        console.error("Failed to send call notification:", err.message);
       }
     }
     return { success: true };
+  } finally {
+    callsInProgress.delete(doctorName);
   }
-
-  const { error: updateError } = await supabase
-    .from("patients")
-    .update({ 
-      status: "serving", 
-      counter_id: assignedCounterId,
-      called_at: new Date().toISOString() 
-    })
-    .eq("id", patientId);
-
-  if (updateError) {
-    throw formatError(updateError, "Failed to call patient");
-  }
-
-  // Update the counter assignment without forcing online (respect System Settings availability)
-  if (assignedCounterId) {
-    await supabase
-      .from("counters")
-      .update({ current_patient_id: patientId })
-      .eq("id_num", assignedCounterId);
-  }
-
-  // Send notification
-  if (patient.mobile_number) {
-    try {
-      await sendQueueCalledNotification(patient.mobile_number, patient.queue_number, assignedCounterId || "Counter");
-    } catch (err) {
-      console.error("Failed to send call notification:", err.message);
-    }
-  }
-
-  return { success: true };
 }
 
 async function completePatient(patientId, reason = null, counterId = null) {
@@ -600,11 +708,11 @@ async function completePatient(patientId, reason = null, counterId = null) {
   if (!existing) {
     throw new Error("Patient not found");
   }
-  if (existing.status !== "serving") {
-    throw new Error("Only a serving patient can be completed");
+  if (existing.status !== "serving" || !existing.called_at || !existing.counter_id) {
+    throw new Error("Only a serving patient called and assigned to a doctor can be completed");
   }
   if (isAwaitingAccept(patientId)) {
-    throw new Error("Accept this patient before completing");
+    throw new Error("Accept this patient before completing the consultation.");
   }
 
   const trimmedReason = reason == null ? null : String(reason).trim() || null;

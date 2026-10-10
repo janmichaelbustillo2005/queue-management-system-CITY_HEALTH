@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { request } from "../lib/api";
 
 export const DOCTORS = [
@@ -36,7 +36,7 @@ function compareQueue(a, b) {
   if ((b.priority_score || 0) !== (a.priority_score || 0)) {
     return (b.priority_score || 0) - (a.priority_score || 0);
   }
-  return new Date(a.created_at) - new Date(b.created_at);
+  return new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
 }
 
 // Same rules as the Doctor "My Queue Management" list: waiting/serving patients plus
@@ -82,6 +82,9 @@ export default function PatientQueueTable({
   onNotify,
   onConfirm
 }) {
+  const pendingCallsRef = useRef(new Set());
+  const [callingDoctors, setCallingDoctors] = useState(() => new Set());
+
   const doctorStates = useMemo(() => {
     const states = {};
     for (const doctor of doctors) {
@@ -166,7 +169,12 @@ export default function PatientQueueTable({
 
   const isHead = (row, doctorName) => row?.id != null && row.id === doctorStates[doctorName]?.activePatientId;
 
-  function handleCall(row, doctorName) {
+  async function handleCall(row, doctorName) {
+    if (pendingCallsRef.current.has(doctorName)) return;
+    if (row.status !== "waiting") {
+      onNotify("error", "Only waiting patients can be called.");
+      return;
+    }
     if (!isHead(row, doctorName)) {
       onNotify("error", `You can only call the first patient in ${doctorName}'s queue.`);
       return;
@@ -175,13 +183,38 @@ export default function PatientQueueTable({
       onNotify("error", `${doctorName} is marked offline in System Settings. Ask Super Admin to enable availability.`);
       return;
     }
-    postAction(doctorName, "/queue/call", { patient_id: row.id, counterId: doctorName }, "Patient called successfully")
-      .catch((err) => {
-        onNotify("error", `${doctorName}: ${err.message || "Action failed"}`);
-      });
+    const counter = (counters ?? []).find((item) => item.id_num === doctorName);
+    if (counter?.current_patient_id != null && counter.current_patient_id !== row.id) {
+      onNotify("error", `${doctorName} is already assigned to another patient.`);
+      return;
+    }
+
+    // The ref closes the interval before React renders the disabled button.
+    pendingCallsRef.current.add(doctorName);
+    setCallingDoctors(new Set(pendingCallsRef.current));
+    try {
+      await postAction(
+        doctorName,
+        "/queue/call",
+        { patient_id: row.id, counterId: doctorName },
+        "Patient called successfully"
+      );
+    } catch (err) {
+      onNotify("error", `${doctorName}: ${err.message || "Action failed"}`);
+      // Refresh stale priority/availability information after a rejected call.
+      try { await onRefresh(); } catch (_) { /* Keep the call error visible. */ }
+    } finally {
+      pendingCallsRef.current.delete(doctorName);
+      setCallingDoctors(new Set(pendingCallsRef.current));
+    }
   }
 
   function handleComplete(row, doctorName) {
+    if (pendingCallsRef.current.has(doctorName)) return;
+    if (row.awaiting_accept) {
+      onNotify("error", "The assigned doctor must accept this patient before completion.");
+      return;
+    }
     if (!isHead(row, doctorName)) {
       onNotify("error", `You can only complete the patient ${doctorName} is currently serving.`);
       return;
@@ -190,6 +223,7 @@ export default function PatientQueueTable({
   }
 
   function handleCancel(row, doctorName) {
+    if (pendingCallsRef.current.has(doctorName)) return;
     if (!isHead(row, doctorName)) {
       onNotify("error", `You can only cancel the first patient in ${doctorName}'s queue.`);
       return;
@@ -229,6 +263,7 @@ export default function PatientQueueTable({
   }
 
   function renderActions(row, doctorName) {
+    const calling = callingDoctors.has(doctorName);
     if (row.status === "waiting") {
       if (!isHead(row, doctorName)) {
         return <span className="text-[11px] brand-text-muted font-semibold italic px-1">Waiting for turn</span>;
@@ -238,13 +273,16 @@ export default function PatientQueueTable({
           <button
             type="button"
             onClick={() => handleCall(row, doctorName)}
-            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors"
+            disabled={calling || !doctorStates[doctorName].online || (counters ?? []).some((counter) => counter.id_num === doctorName && counter.current_patient_id != null && counter.current_patient_id !== row.id)}
+            aria-busy={calling}
+            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Call Now
+            {calling ? "Calling..." : "Call Now"}
           </button>
           <button
             type="button"
             onClick={() => handleCancel(row, doctorName)}
+            disabled={calling}
             className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
           >
             Cancel
@@ -259,6 +297,7 @@ export default function PatientQueueTable({
           <button
             type="button"
             onClick={() => handleComplete(row, doctorName)}
+            disabled={calling || row.awaiting_accept}
             className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors"
           >
             Complete
@@ -266,6 +305,7 @@ export default function PatientQueueTable({
           <button
             type="button"
             onClick={() => handleCancel(row, doctorName)}
+            disabled={calling}
             className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
           >
             Cancel

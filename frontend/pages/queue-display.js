@@ -73,7 +73,7 @@ function resolveRoom(doctorName) {
 
 function collectCallCandidates(displayData) {
   const byKey = new Map();
-  const source = displayData?.voice_announcements?.length
+  const source = Array.isArray(displayData?.voice_announcements)
     ? displayData.voice_announcements
     : displayData?.recent_accepted || [];
 

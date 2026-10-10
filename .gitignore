@@ -4,4 +4,6 @@ frontend/.env
 node_modules/
 frontend/.next/
 backend/data/awaiting-accept.json
+backend/data/voice-announcements.json
 backend/query-output.txt
+backend/voice/*.log

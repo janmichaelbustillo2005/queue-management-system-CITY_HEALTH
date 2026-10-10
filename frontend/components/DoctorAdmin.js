@@ -8,6 +8,33 @@ import { fetchQueueSettings, loadLocalQueueSettings, mergeQueueSettings } from "
 const iconButtonClass =
   "inline-flex items-center justify-center w-8 h-8 text-white rounded-lg text-sm transition-colors shadow-sm";
 
+function normalizeDoctorAssignment(value, counters = []) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const counter = (counters ?? []).find((item) =>
+    String(item.id) === raw ||
+    String(item.id_num || "").trim() === raw ||
+    String(item.name || "").trim() === raw
+  );
+  if (counter) return String(counter.id_num || counter.name || "").trim();
+
+  const doctorMatch = raw.match(/^doctor\s*(\d+)$/i);
+  if (doctorMatch) return `Doctor ${doctorMatch[1]}`;
+
+  if (/^\d+$/u.test(raw)) return `Doctor ${raw}`;
+
+  return raw;
+}
+
+function isAssignedToDoctor(row, doctorName, counters = []) {
+  if (!row || !doctorName) return false;
+  return (
+    normalizeDoctorAssignment(row.counter_id, counters) === doctorName ||
+    normalizeDoctorAssignment(row.counter_name, counters) === doctorName
+  );
+}
+
 export default function DoctorAdminPage({ doctorId, doctorName }) {
   const { user } = useAuth();
   const [queueRows, setQueueRows] = useState([]);
@@ -183,7 +210,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   }
 
   const currentCounter = useMemo(() => 
-    (counters ?? []).find(c => c.name === doctorName), 
+    (counters ?? []).find(c => c.name === doctorName || c.id_num === doctorName), 
   [counters, doctorName]);
 
   // Helper to match services to doctors based on categories
@@ -213,21 +240,21 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       if (row.status === "waiting" || !row.called_at) return false;
 
       // Show if the patient is already being served by THIS doctor
-      if (row.counter_id === doctorName) return true;
+      if (isAssignedToDoctor(row, doctorName, counters)) return true;
 
       // Show recent cancellations for this doctor's services (Undo window)
       if (row.status === "cancelled" && matchesDoctor(row.service_type, doctorName)) return true;
       
       return false;
     });
-  }, [queueRows, doctorName]);
+  }, [queueRows, doctorName, counters]);
 
   const filteredRows = useMemo(() => {
     const queue = doctorQueue ?? [];
     // After the doctor Calls the next patient, hide prior cancellations from the active list.
     // Status/reason stay in the DB for Super Admin records.
     const hasActiveServing = queue.some(
-      (row) => row.status === "serving" && row.counter_id === doctorName
+      (row) => row.status === "serving" && isAssignedToDoctor(row, doctorName, counters)
     );
 
     const rows = queue.filter((row) => {
@@ -258,7 +285,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
         return new Date(a.created_at) - new Date(b.created_at);
       })
       .slice(0, 20);
-  }, [doctorQueue, doctorName]);
+  }, [doctorQueue, doctorName, counters]);
 
   // Only the head of the unfinished queue (serving first, else first waiting) may be acted on
   const activePatientId = useMemo(() => {
@@ -273,10 +300,10 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       filteredRows.find(
         (row) =>
           row.status === "serving" &&
-          row.counter_id === doctorName &&
+          isAssignedToDoctor(row, doctorName, counters) &&
           !row.awaiting_accept
       ) || null,
-    [filteredRows, doctorName]
+    [filteredRows, doctorName, counters]
   );
 
   const canProcessPatient = (row) => row?.id != null && row.id === activePatientId;
@@ -334,7 +361,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       // Calculate specific stats for this doctor
     const patients = data.patients ?? [];
     
-    const myServed = patients.filter(q => q.counter_id === doctorName);
+    const myServed = patients.filter(q => isAssignedToDoctor(q, doctorName, data.counters ?? []));
     const matchingWaiting = patients.filter(q => 
       q.status === "waiting" && matchesDoctor(q.service_type, doctorName)
     );

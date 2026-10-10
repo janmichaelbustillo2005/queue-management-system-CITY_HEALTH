@@ -15,6 +15,7 @@ const {
   createQueueEntry,
   getAnalytics,
   getDisplayData,
+  getCounters,
   getPatientById,
   getPatientsForExport,
   getQueueOverview,
@@ -41,10 +42,33 @@ const {
   markAccepted,
   clearAwaitingAccept,
   resetAcceptState,
-  clearAllAwaitingAccept
+  clearAllAwaitingAccept,
+  recordVoiceAnnouncementEvent,
+  clearAllVoiceAnnouncementEvents
 } = require("../services/settingsService");
 
 const router = express.Router();
+
+function normalizeDoctorAssignment(value, counters = []) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const counter = counters.find((item) =>
+    String(item.id) === raw ||
+    String(item.id_num || "").trim() === raw ||
+    String(item.name || "").trim() === raw
+  );
+  if (counter) {
+    return String(counter.id_num || counter.name || "").trim();
+  }
+
+  const doctorMatch = raw.match(/^doctor\s*(\d+)$/i);
+  if (doctorMatch) return `Doctor ${doctorMatch[1]}`;
+
+  if (/^\d+$/u.test(raw)) return `Doctor ${raw}`;
+
+  return raw;
+}
 
 router.get("/health", (_req, res) => {
   res.json({ success: true, message: "Backend is running" });
@@ -139,9 +163,14 @@ router.post("/queue/website", async (req, res) => {
 
 router.post("/queue/call", authenticateToken, async (req, res) => {
   try {
-    const { patient_id, counterId } = req.body;
-    await callPatient(Number(patient_id), counterId);
+    const { patient_id, counter_id, counterId } = req.body;
+    await callPatient(Number(patient_id), counterId || counter_id || null);
     markAwaitingAccept(patient_id);
+    console.info("[voice][queue-call]", {
+      patient_id: Number(patient_id),
+      requested_counter: counterId || counter_id || null,
+      at: new Date().toISOString()
+    });
     res.json({ success: true, message: "Patient called successfully" });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -158,8 +187,22 @@ router.post("/queue/accept", authenticateToken, async (req, res) => {
     if (patient.status !== "serving" || !isAwaitingAccept(patientId)) {
       return res.status(400).json({ success: false, message: "This patient is not waiting to be accepted" });
     }
-    markAccepted(patientId);
-    res.json({ success: true, message: "Patient accepted" });
+    const acceptedAt = markAccepted(patientId);
+    const announcement = recordVoiceAnnouncementEvent({ patient, eventType: "accept", eventAt: acceptedAt });
+    console.info("[voice][accept]", {
+      patient_id: patientId,
+      queue_number: patient.queue_number,
+      patient_name: patient.id_num,
+      doctor: patient.counter_id,
+      announcement_key: announcement?.event_id,
+      accepted_at: acceptedAt
+    });
+    res.json({
+      success: true,
+      accepted_at: acceptedAt,
+      announcement_key: announcement?.event_id,
+      message: "Patient accepted"
+    });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -181,15 +224,39 @@ router.post("/queue/re-call", authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "Accept this patient before using Re-Call." });
     }
 
-    const requestedDoctor = req.user?.doctor_name || String(req.body?.counterId || patient.counter_id);
-    if (patient.counter_id !== requestedDoctor) {
+    const counters = await getCounters();
+    const requestedDoctor = normalizeDoctorAssignment(
+      req.user?.doctor_name || req.body?.counterId || req.body?.counter_id || patient.counter_id,
+      counters
+    );
+    const assignedDoctor = normalizeDoctorAssignment(patient.counter_id, counters);
+
+    if (!requestedDoctor || !assignedDoctor || assignedDoctor !== requestedDoctor) {
+      console.warn("[voice][re-call-denied]", {
+        patient_id: patientId,
+        queue_number: patient.queue_number,
+        patient_counter_id: patient.counter_id,
+        assigned_doctor: assignedDoctor,
+        requested_doctor: requestedDoctor,
+        user_doctor: req.user?.doctor_name || null,
+        body_counter: req.body?.counterId || req.body?.counter_id || null
+      });
       return res.status(403).json({ success: false, message: "You can only re-call your assigned patient." });
     }
 
-    const acceptedAt = markAccepted(patientId);
+    const announcement = recordVoiceAnnouncementEvent({ patient, eventType: "recall" });
+    console.info("[voice][re-call]", {
+      patient_id: patientId,
+      queue_number: patient.queue_number,
+      patient_name: patient.id_num,
+      doctor: patient.counter_id,
+      announcement_key: announcement?.event_id,
+      announcement_at: announcement?.event_at
+    });
     res.json({
       success: true,
-      accepted_at: acceptedAt,
+      announcement_key: announcement?.event_id,
+      announcement_at: announcement?.event_at,
       message: `Re-call announcement queued for ${patient.queue_number}`
     });
   } catch (error) {
@@ -273,6 +340,7 @@ router.post("/queue/clear", authenticateToken, authorizeRole(["superadmin"]), as
   try {
     await clearTodaysQueues();
     clearAllAwaitingAccept();
+    clearAllVoiceAnnouncementEvents();
     res.json({
       success: true,
       message: "Active queues were reset. Transaction history was preserved."

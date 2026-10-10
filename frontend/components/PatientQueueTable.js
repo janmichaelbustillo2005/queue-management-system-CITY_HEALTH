@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { request } from "../lib/api";
 
 export const DOCTORS = [
@@ -41,9 +41,9 @@ function compareQueue(a, b) {
 
 // Same rules as the Doctor "My Queue Management" list: waiting/serving patients plus
 // cancellations still inside the Undo window (hidden once the doctor calls the next patient).
-function buildActiveQueue(queueRows, doctorName, completedVisibleIds = new Set()) {
+function buildActiveQueue(queueRows, doctorName) {
   const queue = (queueRows ?? []).filter((row) => {
-    if (completedVisibleIds.has(row.id) && belongsToDoctor(row, doctorName)) return true;
+    if (row.status === "completed") return false;
     if (row.counter_id === doctorName) return true;
     if (row.status === "waiting" && matchesDoctor(row.service_type, doctorName)) return true;
     if (row.status === "cancelled" && matchesDoctor(row.service_type, doctorName)) return true;
@@ -53,7 +53,6 @@ function buildActiveQueue(queueRows, doctorName, completedVisibleIds = new Set()
   const hasActiveServing = queue.some((row) => row.status === "serving" && row.counter_id === doctorName);
 
   const rows = queue.filter((row) => {
-    if (row.status === "completed") return completedVisibleIds.has(row.id);
     if (row.status === "cancelled") return !hasActiveServing;
     return true;
   });
@@ -83,12 +82,10 @@ export default function PatientQueueTable({
   onNotify,
   onConfirm
 }) {
-  const [completedVisibleIds, setCompletedVisibleIds] = useState(() => new Set());
-
   const doctorStates = useMemo(() => {
     const states = {};
     for (const doctor of doctors) {
-      const activeRows = buildActiveQueue(queueRows, doctor.name, completedVisibleIds);
+      const activeRows = buildActiveQueue(queueRows, doctor.name);
       const serving = activeRows.find((row) => row.status === "serving");
       states[doctor.name] = {
         activeRows,
@@ -101,7 +98,7 @@ export default function PatientQueueTable({
       };
     }
     return states;
-  }, [doctors, queueRows, counters, queueSettings, completedVisibleIds]);
+  }, [doctors, queueRows, counters, queueSettings]);
 
   const visibleRows = useMemo(() => {
     const byId = new Map();
@@ -178,19 +175,7 @@ export default function PatientQueueTable({
       onNotify("error", `${doctorName} is marked offline in System Settings. Ask Super Admin to enable availability.`);
       return;
     }
-    postAction(
-      doctorName,
-      "/queue/complete",
-      { patient_id: row.id, counter_id: doctorName },
-      "Patient completed successfully"
-    )
-      .then(() => {
-        setCompletedVisibleIds((current) => {
-          const next = new Set(current);
-          next.add(row.id);
-          return next;
-        });
-      })
+    postAction(doctorName, "/queue/call", { patient_id: row.id, counterId: doctorName }, "Patient called successfully")
       .catch((err) => {
         onNotify("error", `${doctorName}: ${err.message || "Action failed"}`);
       });

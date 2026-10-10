@@ -1,8 +1,11 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const SETTINGS_PATH = path.join(__dirname, "../../data/queue-settings.json");
 const AWAITING_ACCEPT_PATH = path.join(__dirname, "../../data/awaiting-accept.json");
+const VOICE_ANNOUNCEMENTS_PATH = path.join(__dirname, "../../data/voice-announcements.json");
+const MAX_VOICE_ANNOUNCEMENTS = 100;
 
 const DEFAULT_QUEUE_SETTINGS = {
   autoRefresh: true,
@@ -108,6 +111,7 @@ function clearRecallCount(patientId) {
  * Shape: { [patientId]: { awaiting: boolean, acceptedAt: ISO string | null } }
  */
 let acceptState = null;
+let voiceAnnouncementEvents = null;
 
 function loadAcceptState() {
   if (acceptState) return acceptState;
@@ -185,6 +189,76 @@ function clearAllAwaitingAccept() {
   persistAcceptState();
 }
 
+function loadVoiceAnnouncementEvents() {
+  if (voiceAnnouncementEvents) return voiceAnnouncementEvents;
+  voiceAnnouncementEvents = [];
+  try {
+    ensureDataDir();
+    const raw = fs.existsSync(VOICE_ANNOUNCEMENTS_PATH) ? fs.readFileSync(VOICE_ANNOUNCEMENTS_PATH, "utf8") : "";
+    const parsed = raw.trim() ? JSON.parse(raw) : [];
+    voiceAnnouncementEvents = Array.isArray(parsed)
+      ? parsed.filter((entry) => entry && typeof entry === "object" && entry.event_id)
+      : [];
+  } catch (err) {
+    console.warn("Failed to read voice announcements file:", err.message);
+  }
+  return voiceAnnouncementEvents;
+}
+
+function persistVoiceAnnouncementEvents() {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(VOICE_ANNOUNCEMENTS_PATH, JSON.stringify(loadVoiceAnnouncementEvents(), null, 2), "utf8");
+  } catch (err) {
+    console.warn("Failed to write voice announcements file:", err.message);
+  }
+}
+
+function recordVoiceAnnouncementEvent({ patient, eventType = "accept", eventAt = new Date().toISOString() }) {
+  if (!patient?.id) return null;
+
+  const event = {
+    event_id: `${patient.id}:${eventType}:${eventAt}:${crypto.randomUUID()}`,
+    event_type: eventType,
+    event_at: eventAt,
+    patient_id: patient.id,
+    queue_number: patient.queue_number,
+    id_num: patient.id_num,
+    status: patient.status,
+    called_at: patient.called_at,
+    counter_name: patient.counter_id || "TBA"
+  };
+
+  const events = loadVoiceAnnouncementEvents();
+  events.push(event);
+  events.sort((a, b) => new Date(a.event_at) - new Date(b.event_at));
+  if (events.length > MAX_VOICE_ANNOUNCEMENTS) {
+    events.splice(0, events.length - MAX_VOICE_ANNOUNCEMENTS);
+  }
+  persistVoiceAnnouncementEvents();
+  console.info("[voice][event-recorded]", {
+    event_id: event.event_id,
+    event_type: event.event_type,
+    patient_id: event.patient_id,
+    queue_number: event.queue_number,
+    patient_name: event.id_num,
+    doctor: event.counter_name,
+    event_at: event.event_at
+  });
+  return event;
+}
+
+function getVoiceAnnouncementEvents() {
+  return loadVoiceAnnouncementEvents()
+    .slice()
+    .sort((a, b) => new Date(a.event_at) - new Date(b.event_at));
+}
+
+function clearAllVoiceAnnouncementEvents() {
+  voiceAnnouncementEvents = [];
+  persistVoiceAnnouncementEvents();
+}
+
 module.exports = {
   DEFAULT_QUEUE_SETTINGS,
   getQueueSettings,
@@ -198,5 +272,8 @@ module.exports = {
   markAccepted,
   clearAwaitingAccept,
   resetAcceptState,
-  clearAllAwaitingAccept
+  clearAllAwaitingAccept,
+  recordVoiceAnnouncementEvent,
+  getVoiceAnnouncementEvents,
+  clearAllVoiceAnnouncementEvents
 };

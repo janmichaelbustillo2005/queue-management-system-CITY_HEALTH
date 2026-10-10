@@ -6,6 +6,12 @@ import SystemLogo from "../components/SystemLogo";
 
 const ANNOUNCE_GAP_MS_DEFAULT = 3000;
 const DISPLAY_POLL_MS = 1500;
+const PYTTSX3_TTS_BASE_URL = (process.env.NEXT_PUBLIC_PYTTSX3_TTS_URL || "http://127.0.0.1:8765").replace(/\/+$/, "");
+const PYTTSX3_HEALTH_TIMEOUT_MS = 2500;
+const PYTTSX3_SPEAK_TIMEOUT_MS = 45000;
+const PYTTSX3_RETRY_MS = 5000;
+const TTS_DEBUG = process.env.NEXT_PUBLIC_TTS_DEBUG !== "0";
+const TTS_LOG_PREFIX = "[QueueDisplay TTS]";
 
 let runtimeQueueSettings = { ...defaultQueueSettings };
 
@@ -33,6 +39,14 @@ function soundNotificationsAllowed() {
   return runtimeQueueSettings?.soundNotifications !== false;
 }
 
+function formatQueueForSpeech(queueNumber) {
+  return String(queueNumber || "")
+    .replace(/-/g, "")
+    .replace(/\s+/g, "")
+    .split("")
+    .join(" ");
+}
+
 const DOCTOR_INFO_MAP = {
   "Doctor 1": { specialty: "General Practitioner", badge: "GP", room: "Room 1" },
   "Doctor 2": { specialty: "Prenatal & Maternity", badge: "OB", room: "Room 2" },
@@ -40,8 +54,10 @@ const DOCTOR_INFO_MAP = {
 };
 
 function getAnnouncementKey(patient) {
-  if (!patient?.id || !patient.accepted_at) return null;
-  return `${patient.id}:${patient.accepted_at}`;
+  if (patient?.announcement_key) return patient.announcement_key;
+  const eventAt = patient?.announcement_at || patient?.accepted_at;
+  if (!patient?.id || !eventAt) return null;
+  return `${patient.id}:${eventAt}`;
 }
 
 function resolveDoctorName(patient) {
@@ -57,8 +73,11 @@ function resolveRoom(doctorName) {
 
 function collectCallCandidates(displayData) {
   const byKey = new Map();
+  const source = displayData?.voice_announcements?.length
+    ? displayData.voice_announcements
+    : displayData?.recent_accepted || [];
 
-  for (const patient of displayData?.recent_accepted || []) {
+  for (const patient of source) {
     const key = getAnnouncementKey(patient);
     if (key && !byKey.has(key)) byKey.set(key, patient);
   }
@@ -66,24 +85,40 @@ function collectCallCandidates(displayData) {
   return Array.from(byKey.values());
 }
 
-function pickVoice(voices) {
-  if (!voices?.length) return null;
-  return (
-    voices.find((v) => /google/i.test(v.name) && /^en(-|_|$)/i.test(v.lang)) ||
-    voices.find((v) => /zira/i.test(v.name)) ||
-    voices.find((v) => /david/i.test(v.name)) ||
-    voices.find((v) => /microsoft/i.test(v.name) && /^en(-|_|$)/i.test(v.lang)) ||
-    voices.find((v) => /^en(-|_|$)/i.test(v.lang)) ||
-    voices[0]
-  );
+function logTts(stage, details = {}) {
+  if (!TTS_DEBUG || typeof console === "undefined") return;
+  console.info(TTS_LOG_PREFIX, stage, {
+    at: new Date().toISOString(),
+    ...details
+  });
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.success === false) {
+      throw new Error(data?.error || data?.message || `Request failed with status ${response.status}`);
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error("pyttsx3 service timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export default function QueueDisplayPage() {
   const [time, setTime] = useState(new Date());
   const [mounted, setMounted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState("");
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [voiceStatus, setVoiceStatus] = useState("Listening for doctor calls via pyttsx3...");
   const [display, setDisplay] = useState({
     settings: {
       department_name: "CHO & Family Planning Center Cabadbaran City",
@@ -102,12 +137,13 @@ export default function QueueDisplayPage() {
 
   const announcementQueueRef = useRef([]);
   const announcedKeysRef = useRef(new Set());
+  const queuedKeysRef = useRef(new Set());
   const isProcessingRef = useRef(false);
-  const voiceEnabledRef = useRef(false);
+  const voiceEnabledRef = useRef(true);
   const seededRef = useRef(false);
+  const displayStartedAtRef = useRef(Date.now());
   const audioCtxRef = useRef(null);
   const displayRef = useRef(display);
-  const preferredVoiceRef = useRef(null);
 
   useEffect(() => {
     displayRef.current = display;
@@ -115,20 +151,10 @@ export default function QueueDisplayPage() {
 
   useEffect(() => {
     setMounted(true);
+    logTts("mounted", { ttsUrl: PYTTSX3_TTS_BASE_URL });
+    verifyTtsServiceOnStartup();
     const timer = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(timer);
-  }, []);
-
-  // Preload voices when available
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return undefined;
-    const cacheVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      preferredVoiceRef.current = pickVoice(voices);
-    };
-    cacheVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", cacheVoices);
-    return () => window.speechSynthesis.removeEventListener("voiceschanged", cacheVoices);
   }, []);
 
   useEffect(() => {
@@ -137,47 +163,36 @@ export default function QueueDisplayPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Keep ref in sync with React state (survives Fast Refresh / remounts)
+  // Keep ref in sync with React state (survives Fast Refresh / remounts).
+  // pyttsx3 audio is produced by the local Python process, so the display can
+  // listen automatically without a browser speech-synthesis user gesture.
   useEffect(() => {
     voiceEnabledRef.current = voiceEnabled;
     if (!voiceEnabled) {
-      seededRef.current = false;
       announcementQueueRef.current = [];
-      announcedKeysRef.current = new Set();
+      queuedKeysRef.current = new Set();
       isProcessingRef.current = false;
-      return;
-    }
-    // If state says enabled but we lost seed (HMR), re-seed from current display only
-    if (!seededRef.current) {
-      seedKnownCalls(displayRef.current);
-      setVoiceStatus("Listening for doctor calls…");
+      setIsSpeaking(false);
     }
   }, [voiceEnabled]);
 
-  // Chrome: speechSynthesis can pause itself; keep it alive while voice is on
-  useEffect(() => {
-    if (!voiceEnabled || typeof window === "undefined" || !window.speechSynthesis) return undefined;
-    const keepAlive = setInterval(() => {
-      try {
-        if (window.speechSynthesis.speaking && window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-      } catch (_e) {
-        // ignore
-      }
-    }, 200);
-    return () => clearInterval(keepAlive);
-  }, [voiceEnabled]);
-
-  function seedKnownCalls(displayData) {
+  function seedKnownCalls(displayData, seedBeforeMs = displayStartedAtRef.current) {
     const candidates = collectCallCandidates(displayData);
-    const nextKeys = new Set();
+    const seededKeys = [];
     candidates.forEach((patient) => {
       const key = getAnnouncementKey(patient);
-      if (key) nextKeys.add(key);
+      const eventAtMs = new Date(patient?.announcement_at || patient?.accepted_at || 0).getTime();
+      if (key && (!Number.isFinite(eventAtMs) || eventAtMs < seedBeforeMs)) {
+        announcedKeysRef.current.add(key);
+        seededKeys.push(key);
+      }
     });
-    announcedKeysRef.current = nextKeys;
     seededRef.current = true;
+    logTts("seed-known-calls", {
+      candidates: candidates.length,
+      seededKeys,
+      seedBefore: new Date(seedBeforeMs).toISOString()
+    });
   }
 
   function unlockAudioFromUserGesture() {
@@ -207,69 +222,99 @@ export default function QueueDisplayPage() {
       // ignore
     }
 
-    // Unlock SpeechSynthesis with a real audible phrase (empty utterances often fail)
-    if (window.speechSynthesis) {
-      try {
-        window.speechSynthesis.cancel();
-        const voices = window.speechSynthesis.getVoices();
-        preferredVoiceRef.current = pickVoice(voices) || preferredVoiceRef.current;
+    // Voice itself is handled by the local pyttsx3 service. The browser only
+    // plays the optional bell, so SpeechSynthesis never overlaps with pyttsx3.
+  }
 
-        const unlock = new SpeechSynthesisUtterance("Voice announcer enabled");
-        unlock.lang = "en-US";
-        unlock.rate = 1;
-        unlock.pitch = 1;
-        unlock.volume = 1;
-        if (preferredVoiceRef.current) unlock.voice = preferredVoiceRef.current;
-        window.speechSynthesis.speak(unlock);
-      } catch (err) {
-        console.error("Failed to unlock speechSynthesis:", err);
-      }
+  async function checkPyttsx3Service({ initialize = false } = {}) {
+    const suffix = initialize ? "?init=1" : "";
+    const url = `${PYTTSX3_TTS_BASE_URL}/health${suffix}`;
+    logTts("health-check-start", { url, initialize });
+    const data = await fetchJsonWithTimeout(url, { method: "GET" }, PYTTSX3_HEALTH_TIMEOUT_MS);
+    logTts("health-check-ok", {
+      url,
+      ready: data.ready,
+      dryRun: data.dry_run,
+      audioThread: data.audio_thread,
+      queueLength: data.queue_length,
+      speaking: data.speaking,
+      lastError: data.last_error
+    });
+    if (data.engine !== "pyttsx3" || data.ready === false) {
+      throw new Error(data.last_error || "pyttsx3 service is not ready");
+    }
+    return data;
+  }
+
+  async function verifyTtsServiceOnStartup() {
+    try {
+      const health = await checkPyttsx3Service({ initialize: true });
+      setVoiceStatus(`pyttsx3 ready at ${PYTTSX3_TTS_BASE_URL}`);
+      logTts("startup-health-ready", health);
+    } catch (err) {
+      setVoiceStatus(`pyttsx3 unavailable at ${PYTTSX3_TTS_BASE_URL}: ${err.message || "not reachable"}`);
+      logTts("startup-health-failed", { error: err.message || String(err) });
     }
   }
 
-  function enableVoiceAnnouncer() {
+  async function enableVoiceAnnouncer() {
     if (!voiceAnnouncementsAllowed()) {
       setVoiceStatus("Voice announcements are disabled in System Settings.");
       return;
     }
-    // Seed BEFORE flipping the enabled ref so an in-flight poll cannot
-    // mark brand-new calls as "already known" without announcing them.
-    seedKnownCalls(displayRef.current);
+    setVoiceStatus("Checking local pyttsx3 service...");
+    try {
+      await checkPyttsx3Service({ initialize: true });
+    } catch (err) {
+      setVoiceEnabled(false);
+      voiceEnabledRef.current = false;
+      setVoiceStatus(`pyttsx3 unavailable: ${err.message || "start the local TTS service"}`);
+      return;
+    }
+    if (!seededRef.current) {
+      seedKnownCalls(displayRef.current);
+    }
     unlockAudioFromUserGesture();
     voiceEnabledRef.current = true;
     setVoiceEnabled(true);
-    setVoiceStatus("Listening for doctor calls…");
+    setVoiceStatus("Listening for doctor calls via pyttsx3...");
     setIsSpeaking(false);
   }
 
   function disableVoiceAnnouncer() {
     voiceEnabledRef.current = false;
-    seededRef.current = false;
     announcementQueueRef.current = [];
-    announcedKeysRef.current = new Set();
+    queuedKeysRef.current = new Set();
     isProcessingRef.current = false;
     setVoiceEnabled(false);
-    setVoiceStatus("");
+    setVoiceStatus("Voice announcements paused on this display.");
     setIsSpeaking(false);
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch (_e) {
-        // ignore
-      }
-    }
   }
 
   function enqueueNewCalls(candidatePatients) {
-    if (!voiceEnabledRef.current || !seededRef.current) return;
+    if (!voiceEnabledRef.current || !seededRef.current) {
+      logTts("enqueue-skipped-disabled-or-unseeded", {
+        voiceEnabled: voiceEnabledRef.current,
+        seeded: seededRef.current,
+        candidates: candidatePatients?.length || 0
+      });
+      return;
+    }
 
     const newcomers = [];
     for (const patient of candidatePatients || []) {
       const key = getAnnouncementKey(patient);
       if (!key) continue;
-      if (announcedKeysRef.current.has(key)) continue;
+      if (announcedKeysRef.current.has(key)) {
+        logTts("candidate-skipped-already-announced", { key, queueNumber: patient.queue_number });
+        continue;
+      }
+      if (queuedKeysRef.current.has(key)) {
+        logTts("candidate-skipped-already-queued", { key, queueNumber: patient.queue_number });
+        continue;
+      }
 
-      announcedKeysRef.current.add(key);
+      queuedKeysRef.current.add(key);
       const doctorName = resolveDoctorName(patient);
       newcomers.push({
         key,
@@ -279,9 +324,21 @@ export default function QueueDisplayPage() {
           id_num: patient.id_num,
           counter_name: doctorName,
           room: resolveRoom(doctorName),
-          called_at: patient.called_at
+          called_at: patient.called_at,
+          accepted_at: patient.accepted_at,
+          announcement_at: patient.announcement_at || patient.accepted_at,
+          announcement_key: key
         },
-        calledAtMs: new Date(patient.accepted_at).getTime()
+        calledAtMs: new Date(patient.announcement_at || patient.accepted_at).getTime()
+      });
+      logTts("candidate-queued", {
+        key,
+        eventType: patient.event_type,
+        queueNumber: patient.queue_number,
+        patientName: patient.id_num,
+        doctorName,
+        room: resolveRoom(doctorName),
+        announcementAt: patient.announcement_at || patient.accepted_at
       });
     }
 
@@ -294,6 +351,10 @@ export default function QueueDisplayPage() {
     announcementQueueRef.current.push(...newcomers);
     announcementQueueRef.current.sort((a, b) => a.calledAtMs - b.calledAtMs);
     setVoiceStatus(`Queued: ${announcementQueueRef.current.length} announcement(s)`);
+    logTts("queue-ready", {
+      queueLength: announcementQueueRef.current.length,
+      keys: announcementQueueRef.current.map((item) => item.key)
+    });
     processAnnouncementQueue();
   }
 
@@ -303,16 +364,42 @@ export default function QueueDisplayPage() {
     if (announcementQueueRef.current.length === 0) return;
 
     isProcessingRef.current = true;
+    logTts("process-start", { queueLength: announcementQueueRef.current.length });
 
     while (voiceEnabledRef.current && announcementQueueRef.current.length > 0) {
       const next = announcementQueueRef.current.shift();
       if (!next?.patient) continue;
 
       try {
+        logTts("process-next", {
+          key: next.key,
+          queueNumber: next.patient.queue_number,
+          doctorName: next.patient.counter_name,
+          room: next.patient.room
+        });
         await speakPatientAnnouncement(next.patient);
+        announcedKeysRef.current.add(next.key);
+        queuedKeysRef.current.delete(next.key);
+        logTts("process-spoken", { key: next.key, queueNumber: next.patient.queue_number });
       } catch (err) {
         console.error("Announcement failed:", err);
-        setVoiceStatus(`Announcement error: ${err.message || "playback failed"}`);
+        logTts("process-error", {
+          key: next.key,
+          queueNumber: next.patient?.queue_number,
+          error: err.message || String(err)
+        });
+        if (!voiceEnabledRef.current) {
+          queuedKeysRef.current.delete(next.key);
+          break;
+        }
+        if (!announcedKeysRef.current.has(next.key)) {
+          announcementQueueRef.current.unshift(next);
+        } else {
+          queuedKeysRef.current.delete(next.key);
+        }
+        setVoiceStatus(`pyttsx3 unavailable: ${err.message || "playback failed"}; retrying...`);
+        await delay(PYTTSX3_RETRY_MS);
+        continue;
       }
 
       if (voiceEnabledRef.current && announcementQueueRef.current.length > 0) {
@@ -321,11 +408,12 @@ export default function QueueDisplayPage() {
     }
 
     isProcessingRef.current = false;
+    logTts("process-finished", { remaining: announcementQueueRef.current.length });
     if (voiceEnabledRef.current) {
       setVoiceStatus(
         announcementQueueRef.current.length
           ? `Queued: ${announcementQueueRef.current.length} announcement(s)`
-          : "Listening for doctor calls…"
+          : "Listening for doctor calls via pyttsx3..."
       );
     }
 
@@ -387,81 +475,38 @@ export default function QueueDisplayPage() {
     });
   }
 
-  function speakText(text, { cancelPending = false } = {}) {
-    return new Promise((resolve, reject) => {
-      if (typeof window === "undefined" || !window.speechSynthesis) {
-        reject(new Error("Speech synthesis is not supported in this browser"));
-        return;
-      }
-
-      let settled = false;
-      let safetyTimer = null;
-      let resumeTimer = null;
-
-      const finish = (err) => {
-        if (settled) return;
-        settled = true;
-        if (safetyTimer) clearTimeout(safetyTimer);
-        if (resumeTimer) clearInterval(resumeTimer);
-        if (err) reject(err);
-        else resolve();
-      };
-
-      try {
-        if (cancelPending) {
-          window.speechSynthesis.cancel();
-        } else if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "en-US";
-        const voice = preferredVoiceRef.current || pickVoice(window.speechSynthesis.getVoices());
-        if (voice) {
-          preferredVoiceRef.current = voice;
-          utterance.voice = voice;
-          if (voice.lang) utterance.lang = voice.lang;
-        }
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-
-        const estimatedMs = Math.min(35000, Math.max(8000, text.length * 120 + 2000));
-        safetyTimer = setTimeout(() => finish(), estimatedMs);
-
-        // Periodic resume — Chrome sometimes pauses mid-utterance
-        resumeTimer = setInterval(() => {
-          try {
-            if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-          } catch (_e) {
-            // ignore
-          }
-        }, 250);
-
-        utterance.onend = () => finish();
-        utterance.onerror = (event) => {
-          const errName = event?.error || "speech_error";
-          // "interrupted" / "canceled" can happen on disable — treat as soft end
-          if (errName === "interrupted" || errName === "canceled") {
-            finish();
-            return;
-          }
-          finish(new Error(`Speech error: ${errName}`));
-        };
-
-        window.speechSynthesis.speak(utterance);
-
-        // Nudge engines that start paused
-        setTimeout(() => {
-          try {
-            if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-          } catch (_e) {
-            // ignore
-          }
-        }, 40);
-      } catch (err) {
-        finish(err);
-      }
+  function sendPyttsx3Announcement(payload) {
+    const requestBody = {
+      ...payload,
+      wait: true,
+      timeout_seconds: Math.ceil(PYTTSX3_SPEAK_TIMEOUT_MS / 1000),
+      gap_ms: getStoredAnnounceGapMs()
+    };
+    logTts("speak-request-start", {
+      url: `${PYTTSX3_TTS_BASE_URL}/speak`,
+      key: requestBody.key,
+      queueNumber: requestBody.queue_number,
+      patientName: requestBody.patient_name,
+      doctorName: requestBody.doctor_name,
+      room: requestBody.room,
+      text: requestBody.text
+    });
+    return fetchJsonWithTimeout(
+      `${PYTTSX3_TTS_BASE_URL}/speak`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
+      },
+      PYTTSX3_SPEAK_TIMEOUT_MS
+    ).then((result) => {
+      logTts("speak-request-ok", {
+        key: requestBody.key,
+        success: result?.success,
+        duplicate: result?.duplicate,
+        serviceKey: result?.key
+      });
+      return result;
     });
   }
 
@@ -470,9 +515,11 @@ export default function QueueDisplayPage() {
     setVoiceStatus(`Announcing ${patient.queue_number || "patient"}…`);
 
     try {
+      await checkPyttsx3Service({ initialize: true });
       await playNotificationBell();
     } catch (_e) {
-      // continue even if bell fails
+      setIsSpeaking(false);
+      throw _e;
     }
 
     if (!voiceEnabledRef.current) {
@@ -486,12 +533,31 @@ export default function QueueDisplayPage() {
     const room = patient.room || resolveRoom(doctorName);
     const includeRoom = runtimeQueueSettings?.announceDoctorRoom !== false;
     const destination = includeRoom && room ? `${doctorName}, ${room}` : doctorName;
-    const spokenQueue = String(queueNumber).split("").join(" ").replace(/-/g, " ");
+    const spokenQueue = formatQueueForSpeech(queueNumber);
     const text = `Now calling queue number ${spokenQueue}, ${name}, please proceed to ${destination}.`;
+    logTts("announcement-built", {
+      key: patient.announcement_key,
+      queueNumber,
+      patientName: name,
+      doctorName,
+      room,
+      text
+    });
 
     try {
-      // Clear any leftover unlock utterance so the patient call speaks cleanly
-      await speakText(text, { cancelPending: true });
+      const result = await sendPyttsx3Announcement({
+        key: patient.announcement_key,
+        text,
+        queue_number: queueNumber,
+        patient_name: name,
+        doctor_name: doctorName,
+        room,
+        accepted_at: patient.accepted_at,
+        announcement_at: patient.announcement_at
+      });
+      if (result?.duplicate) {
+        setVoiceStatus(`${queueNumber || "Patient"} is already queued in pyttsx3`);
+      }
     } finally {
       setIsSpeaking(false);
     }
@@ -525,6 +591,21 @@ export default function QueueDisplayPage() {
       setApiError(null);
       setDisplay(data);
       displayRef.current = data;
+      const candidates = collectCallCandidates(data);
+      if (candidates.length) {
+        logTts("display-events-received", {
+          count: candidates.length,
+          events: candidates.map((patient) => ({
+            key: getAnnouncementKey(patient),
+            eventType: patient.event_type,
+            queueNumber: patient.queue_number,
+            patientName: patient.id_num,
+            doctorName: resolveDoctorName(patient),
+            room: resolveRoom(resolveDoctorName(patient)),
+            announcementAt: patient.announcement_at || patient.accepted_at
+          }))
+        });
+      }
 
       if (data.queue_settings) {
         applyRuntimeSettings(data.queue_settings);
@@ -535,13 +616,16 @@ export default function QueueDisplayPage() {
         }
       }
 
-      // Only enqueue when voice is active AND already seeded from the enable click.
-      // Never seed from poll data — that can swallow brand-new calls without announcing.
-      if (voiceEnabledRef.current && seededRef.current && voiceAnnouncementsAllowed()) {
-        enqueueNewCalls(collectCallCandidates(data));
+      if (!seededRef.current) {
+        seedKnownCalls(data);
+      }
+
+      if (voiceEnabledRef.current && voiceAnnouncementsAllowed()) {
+        enqueueNewCalls(candidates);
       }
     } catch (_error) {
       setApiError("Cannot connect to server");
+      logTts("display-load-error", { error: _error.message || String(_error) });
     }
   }
 
@@ -595,7 +679,7 @@ export default function QueueDisplayPage() {
               <i className={`fas ${voiceEnabled ? "fa-volume-up" : "fa-volume-mute"}`} />
               {voiceEnabled ? (isSpeaking ? "Announcing…" : "Voice Enabled") : "Voice Disabled"}
             </button>
-            {voiceEnabled && voiceStatus ? (
+            {voiceStatus ? (
               <span className="text-[9px] text-white/60 font-bold uppercase tracking-wider max-w-[220px] text-right truncate">
                 {voiceStatus}
               </span>

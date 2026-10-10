@@ -12,7 +12,7 @@
   "allowQueueReassignment": true,
   "preventDuplicateRegistration": true,
   "doctor1Online": true,
-  "doctor2Online": true,
+  "doctor2Online": false,
   "doctor3Online": true,
   "autoBackupReminder": true,
   "exportStatus": "",

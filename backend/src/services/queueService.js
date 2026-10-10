@@ -10,7 +10,8 @@ const {
   incrementRecallCount,
   clearRecallCount,
   isAwaitingAccept,
-  getAcceptedAt
+  getAcceptedAt,
+  getVoiceAnnouncementEvents
 } = require("./settingsService");
 
 // Local in-memory fallback data for development when Supabase is unreachable
@@ -535,11 +536,13 @@ async function callPatient(patientId, counterId = null) {
     throw new Error("Patient not found");
   }
 
-  if (counterId) {
+  const assignedCounterId = counterId || patient.counter_id || getDoctorForService(patient.service_type);
+
+  if (assignedCounterId) {
     const counters = await getCounters();
-    const counter = counters.find((c) => c.id_num === counterId);
+    const counter = counters.find((c) => c.id_num === assignedCounterId);
     if (counter && counter.is_online === false) {
-      throw new Error(`${counterId} is marked offline in System Settings. Enable availability before calling patients.`);
+      throw new Error(`${assignedCounterId} is marked offline in System Settings. Enable availability before calling patients.`);
     }
   }
   
@@ -548,9 +551,9 @@ async function callPatient(patientId, counterId = null) {
     if (patientIndex !== -1) {
       localData.patients[patientIndex].status = "serving";
       localData.patients[patientIndex].called_at = new Date().toISOString();
-      if (counterId) {
-        localData.patients[patientIndex].counter_id = counterId;
-        const counterIndex = localData.counters.findIndex(c => c.id_num === counterId);
+      if (assignedCounterId) {
+        localData.patients[patientIndex].counter_id = assignedCounterId;
+        const counterIndex = localData.counters.findIndex(c => c.id_num === assignedCounterId);
         if (counterIndex !== -1) {
           localData.counters[counterIndex].current_patient_id = patientId;
         }
@@ -563,7 +566,7 @@ async function callPatient(patientId, counterId = null) {
     .from("patients")
     .update({ 
       status: "serving", 
-      counter_id: counterId,
+      counter_id: assignedCounterId,
       called_at: new Date().toISOString() 
     })
     .eq("id", patientId);
@@ -573,17 +576,17 @@ async function callPatient(patientId, counterId = null) {
   }
 
   // Update the counter assignment without forcing online (respect System Settings availability)
-  if (counterId) {
+  if (assignedCounterId) {
     await supabase
       .from("counters")
       .update({ current_patient_id: patientId })
-      .eq("id_num", counterId);
+      .eq("id_num", assignedCounterId);
   }
 
   // Send notification
   if (patient.mobile_number) {
     try {
-      await sendQueueCalledNotification(patient.mobile_number, patient.queue_number, counterId || "Counter");
+      await sendQueueCalledNotification(patient.mobile_number, patient.queue_number, assignedCounterId || "Counter");
     } catch (err) {
       console.error("Failed to send call notification:", err.message);
     }
@@ -596,6 +599,12 @@ async function completePatient(patientId, reason = null, counterId = null) {
   const existing = await getPatientById(patientId);
   if (!existing) {
     throw new Error("Patient not found");
+  }
+  if (existing.status !== "serving") {
+    throw new Error("Only a serving patient can be completed");
+  }
+  if (isAwaitingAccept(patientId)) {
+    throw new Error("Accept this patient before completing");
   }
 
   const trimmedReason = reason == null ? null : String(reason).trim() || null;
@@ -1162,9 +1171,46 @@ async function getDisplayData() {
       counter_name: patient.counter_id || "TBA"
     }));
 
+  const patientById = new Map(patients.map((patient) => [Number(patient.id), patient]));
+  const voiceAnnouncements = getVoiceAnnouncementEvents()
+    .map((event) => {
+      const patient = patientById.get(Number(event.patient_id));
+      if (!patient || patient.status !== "serving") return null;
+      return {
+        id: patient.id,
+        queue_number: patient.queue_number || event.queue_number,
+        id_num: patient.id_num || event.id_num,
+        status: patient.status,
+        called_at: patient.called_at || event.called_at,
+        accepted_at: event.event_at,
+        announcement_at: event.event_at,
+        announcement_key: event.event_id,
+        event_type: event.event_type,
+        counter_name: patient.counter_id || event.counter_name || "TBA"
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.announcement_at) - new Date(b.announcement_at))
+    .slice(-20);
+
+  if (voiceAnnouncements.length) {
+    console.info("[voice][display-events]", {
+      count: voiceAnnouncements.length,
+      events: voiceAnnouncements.map((event) => ({
+        announcement_key: event.announcement_key,
+        event_type: event.event_type,
+        queue_number: event.queue_number,
+        patient_name: event.id_num,
+        doctor: event.counter_name,
+        announcement_at: event.announcement_at
+      }))
+    });
+  }
+
   return {
     settings: settings,
     queue_settings: getQueueSettings(),
+    voice_announcements: voiceAnnouncements,
     recent_accepted: recentAccepted,
     all_serving: allServing,
     serving_count: allServing.length,
@@ -1818,6 +1864,7 @@ module.exports = {
   createQueueEntry,
   findActiveDuplicate,
   getAnalytics,
+  getCounters,
   getDisplayData,
   getDisplaySettings,
   getPatientById,

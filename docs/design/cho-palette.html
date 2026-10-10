@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>City Health palette reference</title>
+  <style>
+    :root { --foreground: #1f2937; --border: #d8e3dc; }
+    body { margin: 0; padding: 24px; background: #f6f8f7; color: var(--foreground); font: 16px/1.5 Arial, Helvetica, sans-serif; }
+    main { max-width: 1080px; margin: auto; padding: 24px; background: white; border: 1px solid var(--border); border-radius: 12px; }
+    header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+    header img { width: 64px; height: auto; flex-shrink: 0; }
+    h1 { margin: 0; color: #0b3d2e; font-size: 1.6rem; }
+    header p { margin: 4px 0 0; }
+    code { font-size: 0.9em; }
+    @media (max-width: 600px) { body { padding: 12px; } main { padding: 12px; } h1 { font-size: 1.25rem; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="../../frontend/public/cho_logo-transparent.png" alt="Cabadbaran City Health Office logo" width="64" height="64">
+    <div><h1>City Health palette reference</h1><p>Forest green, white, soft neutrals, and restrained warm gold.</p></div>
+  </header>
+<div id="cho-palette-review" aria-label="Previous and current City Health Office system colors">
+  <style>
+    #cho-palette-review .palette-table { width: 100%; border-collapse: collapse; }
+    #cho-palette-review th, #cho-palette-review td { padding: 10px 8px; text-align: left; vertical-align: middle; color: var(--foreground); border-bottom: 1px solid var(--border); }
+    #cho-palette-review th { font-weight: 500; }
+    #cho-palette-review .palette-color { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    #cho-palette-review .palette-swatch { display: inline-block; width: 30px; height: 30px; flex: 0 0 30px; border: 1px solid var(--border); border-radius: 4px; }
+    #cho-palette-review code { white-space: normal; overflow-wrap: anywhere; }
+    #cho-palette-review .palette-footer { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 14px; color: var(--foreground); }
+    #cho-palette-review .palette-footer > span { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    @media (max-width: 480px) {
+      #cho-palette-review th, #cho-palette-review td { padding: 9px 4px; }
+      #cho-palette-review .palette-swatch { width: 24px; height: 24px; flex-basis: 24px; }
+      #cho-palette-review .palette-color { gap: 5px; }
+    }
+  </style>
+  <table class="palette-table">
+    <thead><tr><th scope="col">Use</th><th scope="col">Previous palette</th><th scope="col">Current project palette</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Header / sidebar</th><td><div class="palette-color"><span class="palette-swatch" style="background: linear-gradient(90deg, #00251A, #053D29)" aria-hidden="true"></span><code>#00251A &rarr; #053D29</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #0B3D2E" aria-hidden="true"></span><code>#0B3D2E</code></div></td></tr>
+      <tr><th scope="row">Primary action</th><td><div class="palette-color"><span class="palette-swatch" style="background: #279B61" aria-hidden="true"></span><code>#279B61</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #167D3F" aria-hidden="true"></span><code>#167D3F</code></div></td></tr>
+      <tr><th scope="row">Action hover</th><td><div class="palette-color"><span class="palette-swatch" style="background: #218A54" aria-hidden="true"></span><code>#218A54</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #116530" aria-hidden="true"></span><code>#116530</code></div></td></tr>
+      <tr><th scope="row">Brand accent</th><td><div class="palette-color"><span class="palette-swatch" style="background: #F2E600" aria-hidden="true"></span><code>#F2E600</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #C6A51B" aria-hidden="true"></span><code>#C6A51B</code></div></td></tr>
+      <tr><th scope="row">Public queue numbers</th><td><div class="palette-color"><span class="palette-swatch" style="background: #F2E600" aria-hidden="true"></span><code>#F2E600</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #F4D35E" aria-hidden="true"></span><code>#F4D35E</code></div></td></tr>
+      <tr><th scope="row">Page background</th><td><div class="palette-color"><span class="palette-swatch" style="background: #F4F4F4" aria-hidden="true"></span><code>#F4F4F4</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #F6F8F7" aria-hidden="true"></span><code>#F6F8F7</code></div></td></tr>
+      <tr><th scope="row">Cards / forms</th><td><div class="palette-color"><span class="palette-swatch" style="background: #FFFFFF" aria-hidden="true"></span><code>#FFFFFF</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #FFFFFF" aria-hidden="true"></span><code>#FFFFFF</code></div></td></tr>
+      <tr><th scope="row">Main text</th><td><div class="palette-color"><span class="palette-swatch" style="background: #111827" aria-hidden="true"></span><code>#111827</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #1F2937" aria-hidden="true"></span><code>#1F2937</code></div></td></tr>
+      <tr><th scope="row">Secondary text</th><td>Varies by page</td><td><div class="palette-color"><span class="palette-swatch" style="background: #5F6B64" aria-hidden="true"></span><code>#5F6B64</code></div></td></tr>
+      <tr><th scope="row">Card dividers</th><td><div class="palette-color"><span class="palette-swatch" style="background: #E5E7EB" aria-hidden="true"></span><code>#E5E7EB</code></div></td><td><div class="palette-color"><span class="palette-swatch" style="background: #D8E3DC" aria-hidden="true"></span><code>#D8E3DC</code></div></td></tr>
+    </tbody>
+  </table>
+  <div class="palette-footer text-small" aria-label="Additional interface colors">
+    <span><span class="palette-swatch" style="background: #EAF4ED" aria-hidden="true"></span>Selected-item background <code>#EAF4ED</code></span>
+    <span><span class="palette-swatch" style="background: #7A8F82" aria-hidden="true"></span>Input outline <code>#7A8F82</code></span>
+  </div>
+</div>
+
+  <p>Use white text on primary green buttons and dark text on gold badges. Retain meaningful red, amber, and blue status colors. Public queue numbers use bright gold on the dark display.</p>
+  <p>The application palette is maintained in <code>frontend/styles/globals.css</code>. Keep the logo's original colors.</p>
+</main>
+</body>
+</html>

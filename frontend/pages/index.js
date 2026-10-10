@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import SiteFrame from "../components/SiteFrame";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
@@ -20,20 +20,33 @@ const serviceOptions = [
   { value: "consultation", label: "General Consultation" },
   { value: "checkup", label: "Medical Check-up" },
   { value: "prenatal", label: "Prenatal" },
-  { value: "maternity", label: "Maternity" }
+  { value: "maternity", label: "Maternity" },
+  { value: "family_planning", label: "Family Planning" }
 ];
 
 const vulnerabilityOptions = [
-  { value: "senior", label: "Senior Citizen (60+)", weight: 3 },
+  { value: "senior", label: "Senior Citizen (60+)", weight: 4 },
   { value: "pwd", label: "PWD", weight: 3 },
-  { value: "pregnant", label: "Pregnant", weight: 2 },
+  { value: "pregnant", label: "Pregnant", weight: 3 },
   { value: "indigenous", label: "Indigenous Person", weight: 2 },
   { value: "solo_parent", label: "Solo Parent", weight: 1 }
 ];
 
 function computePreviewScore(flags) {
-  const weights = { senior: 3, pwd: 3, pregnant: 2, indigenous: 2, solo_parent: 1 };
-  return flags.reduce((s, f) => s + (weights[f] || 0), 0);
+  const weights = { senior: 4, pwd: 3, pregnant: 3, indigenous: 2, solo_parent: 1 };
+  return flags.reduce((s, f) => s + (weights[f] || 0), 0) || 1;
+}
+
+// Match the existing backend service mapping and weighted queue order.
+function getServiceDoctor(serviceType) {
+  if (["prenatal", "maternity"].includes(serviceType)) return "Doctor 2";
+  if (serviceType === "family_planning") return "Doctor 3";
+  return "Doctor 1";
+}
+
+function compareQueuePriority(a, b) {
+  return (b.priority_score || 0) - (a.priority_score || 0) ||
+    new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
 }
 
 function areSettingsEqual(left = {}, right = {}) {
@@ -54,6 +67,8 @@ export default function HomePage() {
   const [counters, setCounters] = useState([]);
   const [generatedQueue, setGeneratedQueue] = useState("");
   const [error, setError] = useState("");
+  const pendingActionsRef = useRef(new Map());
+  const [pendingActions, setPendingActions] = useState(() => new Map());
   const [loadingData, setLoadingData] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -82,9 +97,36 @@ export default function HomePage() {
     }
     return rows
       .slice()
-      .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0))
+      .sort(compareQueuePriority)
       .slice(0, Number(settings.maxQueues || 20));
   }, [queueRows, settings]);
+
+  const doctorQueues = useMemo(() => {
+    const states = {};
+    for (const doctorName of ["Doctor 1", "Doctor 2", "Doctor 3"]) {
+      const counter = counters.find((item) => (item.id_num || item.name) === doctorName);
+      const head = queueRows.filter((row) => row.status === "waiting" &&
+        !row.isOptimistic && getServiceDoctor(row.service_type) === doctorName)
+        .slice().sort(compareQueuePriority)[0];
+      const reservedForHead = head?.counter_id === doctorName && counter?.current_patient_id != null &&
+        String(counter.current_patient_id) === String(head.id);
+      const hasServing = queueRows.some((row) => row.status === "serving" &&
+        (row.counter_id === doctorName || (!row.counter_id && getServiceDoctor(row.service_type) === doctorName)));
+      states[doctorName] = {
+        head,
+        online: counter?.is_online === true,
+        occupied: hasServing || (counter?.current_patient_id != null && !reservedForHead)
+      };
+    }
+    return states;
+  }, [queueRows, counters]);
+
+  const inconsistentServing = queueRows.filter((patient) => {
+    if (patient.status !== "serving") return false;
+    const counter = counters.find((item) => (item.id_num || item.name) === patient.counter_id);
+    return !patient.counter_id || !patient.called_at || !counter ||
+      String(counter.current_patient_id) !== String(patient.id);
+  });
 
   const sidebarLinks = [
     { type: "button", onClick: () => handleSectionChange("home"), icon: "fas fa-home", label: "Home", active: activeSection === "home" },
@@ -321,21 +363,6 @@ export default function HomePage() {
     setError("");
 
     try {
-      // Optimistic addition for admin form
-      const tempId = Date.now();
-      const tempEntry = {
-        id: tempId,
-        id_num: form.fullName,
-        service_type: form.service_type,
-        mobile_number: form.mobile_number,
-        status: "waiting",
-        priority_score: computePreviewScore(form.vulnerabilityFlags),
-        vulnerability_flags: form.vulnerabilityFlags,
-        created_at: new Date().toISOString(),
-        isOptimistic: true
-      };
-      setQueueRows(prev => [...prev, tempEntry]);
-      
       const data = await request("/queue", {
         method: "POST",
         body: JSON.stringify(form)
@@ -364,42 +391,54 @@ export default function HomePage() {
   }
 
   async function queueAction(path, patientId) {
+    const patient = queueRows.find((row) => row.id === patientId);
+    if (!patient) { setError("Patient not found. Refresh the queue."); return; }
+    const doctorName = patient.counter_id || getServiceDoctor(patient.service_type);
+    if (pendingActionsRef.current.has(patientId) ||
+        Array.from(pendingActionsRef.current.values()).includes(doctorName)) return;
+    const body = { patient_id: patientId };
+
+    if (path === "/queue/call") {
+      const mappedDoctor = getServiceDoctor(patient.service_type);
+      const state = doctorQueues[mappedDoctor];
+      if (patient.status !== "waiting" || patient.id !== state?.head?.id ||
+          !state.online || state.occupied ||
+          (patient.counter_id && patient.counter_id !== mappedDoctor)) {
+        setError(`Only the next eligible waiting patient for an available ${mappedDoctor} can be called.`);
+        return;
+      }
+      body.counterId = mappedDoctor;
+    }
+    if (path === "/queue/complete" &&
+        (patient.status !== "serving" || !patient.counter_id || !patient.called_at || patient.awaiting_accept ||
+          inconsistentServing.some((row) => row.id === patientId))) {
+      setError("The assigned doctor must accept this serving patient before completion.");
+      return;
+    }
+    if (path === "/queue/cancel") {
+      const reason = window.prompt(`Reason for cancelling ${patient.id_num} (${patient.queue_number}):`);
+      if (reason == null) return;
+      if (!reason.trim()) { setError("A reason for cancel is required."); return; }
+      body.reason = reason.trim();
+      body.counter_id = patient.counter_id || null;
+    }
+
+    pendingActionsRef.current.set(patientId, doctorName);
+    setPendingActions(new Map(pendingActionsRef.current));
     try {
       setError("");
-      
-      // Optimistic update
-      const action = path.split("/").pop(); // 'call', 'complete', 'cancel', 'undo'
-      setQueueRows((prev) => 
-        prev.map((row) => {
-          if (row.id === patientId) {
-            let nextStatus = row.status;
-            if (action === "call") nextStatus = "serving";
-            if (action === "complete") nextStatus = "completed";
-            if (action === "cancel") nextStatus = "cancelled";
-            if (action === "undo") nextStatus = "serving";
-            
-            return { 
-              ...row, 
-              status: nextStatus,
-              // For Undo, we also want to clear completed_at so it doesn't show the three dots immediately
-              completed_at: action === "undo" ? null : (action === "complete" || action === "cancel" ? new Date().toISOString() : row.completed_at)
-            };
-          }
-          return row;
-        })
-      );
-
-      await request(path, {
+      const data = await request(path, {
         method: "POST",
-        body: JSON.stringify({ patient_id: patientId })
+        body: JSON.stringify(body)
       });
-      
-      // Sync with server state
-      refreshAll();
+      if (data.error || data.success === false) throw new Error(data.error || data.message || "Queue action failed");
     } catch (actionError) {
       setError(actionError.message);
-      // Revert/Sync on error
-      refreshAll();
+    } finally {
+      // Status, assignment, timestamps and acceptance are owned by the backend.
+      await refreshAll();
+      pendingActionsRef.current.delete(patientId);
+      setPendingActions(new Map(pendingActionsRef.current));
     }
   }
 
@@ -419,8 +458,6 @@ export default function HomePage() {
     await refreshAll();
     return saved;
   }
-
-  const nextWaitingId = (queueRows ?? []).find((row) => row.status === "waiting")?.id;
 
   const lastActionId = useMemo(() => {
     const actionRows = (queueRows ?? [])
@@ -998,21 +1035,32 @@ export default function HomePage() {
               <div className="mb-3">
                 <h3 className="text-sm font-semibold brand-text mb-2">Counter Status</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
-                  {counters.map((counter) => (
+                  {counters.map((counter) => {
+                    const doctorName = counter.name || counter.id_num;
+                    const assigned = queueRows.find((row) => String(row.id) === String(counter.current_patient_id));
+                    const currentName = counter.current_patient_id != null
+                      ? counter.current_patient_name || assigned?.id_num || "—" : "—";
+                    return (
                     <div key={counter.id} className={`border rounded-lg p-2 md:p-3 shadow-sm transition-all duration-200 ${counter.is_online ? "bg-green-50 border-green-200 hover:shadow-md" : "bg-red-50 border-red-200"}`}>
                       <div className="text-center mb-1 md:mb-2">
-                        <h4 className="text-[10px] md:text-sm font-bold brand-text truncate" title={counter.name}>{counter.name}</h4>
+                        <h4 className="text-[10px] md:text-sm font-bold brand-text truncate" title={doctorName}>{doctorName}</h4>
                         <span className={`inline-block mt-0.5 md:mt-1 px-1.5 py-0.5 rounded text-[8px] md:text-[10px] font-bold uppercase tracking-wider ${counter.is_online ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}>
                           {counter.is_online ? "Online" : "Offline"}
                         </span>
                       </div>
                       <div className="text-center text-[9px] md:text-[11px] brand-text-muted">
-                        Serving: <span className="font-semibold brand-text">{counter.current_patient_name || "—"}</span>
+                        {assigned?.status === "waiting" ? "Reserved: " : "Serving: "}<span className="font-semibold brand-text">{currentName}</span>
                       </div>
                     </div>
-                  ))}
+                  ); })}
                 </div>
               </div>
+
+              {inconsistentServing.length > 0 && (
+                <div role="alert" className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Some serving patients have a missing or inconsistent doctor assignment. Review these existing entries before calling more patients for that doctor.
+                </div>
+              )}
 
               <div className="overflow-x-auto rounded-md border brand-border max-w-full">
                 <table className="w-full min-w-[600px] md:min-w-[720px] table-auto text-left">
@@ -1029,7 +1077,14 @@ export default function HomePage() {
                   </thead>
                   <tbody className="divide-y divide-[var(--brand-border)]">
                     {filteredRows.length ? filteredRows.map((patient) => {
-                      const canCall = patient.status === "waiting" && patient.id === nextWaitingId;
+                      const doctorName = patient.counter_id || getServiceDoctor(patient.service_type);
+                      const state = doctorQueues[getServiceDoctor(patient.service_type)];
+                      const doctorPending = Array.from(pendingActions.values()).includes(doctorName);
+                      const actionPending = pendingActions.has(patient.id) || doctorPending;
+                      const isNextWaiting = patient.status === "waiting" && patient.id === state?.head?.id && !patient.isOptimistic &&
+                        (!patient.counter_id || patient.counter_id === getServiceDoctor(patient.service_type));
+                      const canCall = isNextWaiting && state.online && !state.occupied;
+                      const validServing = patient.status === "serving" && !inconsistentServing.some((row) => row.id === patient.id);
                       const statusClass = patient.status === "waiting"
                         ? "bg-yellow-100 text-yellow-800"
                         : patient.status === "serving"
@@ -1098,24 +1153,26 @@ export default function HomePage() {
                           </td>
                           <td className="px-2 py-2">
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>{patient.status}</span>
+                            {patient.status === "serving" && !validServing && <div className="mt-1 text-[10px] text-amber-800">Doctor assignment missing or inconsistent</div>}
+                            {patient.status === "serving" && validServing && patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">Awaiting doctor acceptance</div>}
                           </td>
                           <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{new Date(patient.created_at).toLocaleTimeString()}</td>
                           <td className="px-2 py-2">
                             <div className="flex flex-wrap gap-1 items-center">
-                              {canCall ? (
-                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap">
+                              {isNextWaiting ? (
+                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} disabled={actionPending || !canCall} aria-busy={pendingActions.has(patient.id)} title={!state.online ? `${doctorName} is offline` : state.occupied ? `${doctorName} is already assigned to a serving patient` : undefined} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-bullhorn mr-0.5" />
-                                  Call
+                                  {pendingActions.has(patient.id) ? "Calling..." : "Call"}
                                 </button>
                               ) : null}
                               {patient.status === "serving" ? (
-                                <button type="button" onClick={() => queueAction("/queue/complete", patient.id)} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap">
+                                <button type="button" onClick={() => queueAction("/queue/complete", patient.id)} disabled={actionPending || !validServing || patient.awaiting_accept} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-check mr-0.5" />
                                   Complete
                                 </button>
                               ) : null}
                               {!["completed", "cancelled"].includes(patient.status) ? (
-                                <button type="button" onClick={() => queueAction("/queue/cancel", patient.id)} className="bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700 whitespace-nowrap">
+                                <button type="button" onClick={() => queueAction("/queue/cancel", patient.id)} disabled={actionPending} className="bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-times mr-0.5" />
                                   Cancel
                                 </button>
@@ -1125,6 +1182,7 @@ export default function HomePage() {
                                 <div className="flex items-center gap-2 action-menu-container">
                                   <button
                                     type="button"
+                                    disabled={actionPending}
                                     onClick={() => setOpenMenuId(openMenuId === patient.id ? null : patient.id)}
                                     className="p-1 hover:bg-gray-100 rounded-full transition-colors flex items-center justify-center"
                                     title="More actions"
@@ -1134,6 +1192,7 @@ export default function HomePage() {
                                   {openMenuId === patient.id && (
                                     <button
                                       type="button"
+                                      disabled={actionPending}
                                       onClick={() => {
                                         queueAction("/queue/undo", patient.id);
                                         setOpenMenuId(null);

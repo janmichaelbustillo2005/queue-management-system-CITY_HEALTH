@@ -38,7 +38,6 @@ const {
   getQueueSettings,
   saveQueueSettings,
   isAwaitingAccept,
-  markAwaitingAccept,
   markAccepted,
   clearAwaitingAccept,
   resetAcceptState,
@@ -163,12 +162,18 @@ router.post("/queue/website", async (req, res) => {
 
 router.post("/queue/call", authenticateToken, async (req, res) => {
   try {
-    const { patient_id, counter_id, counterId } = req.body;
-    await callPatient(Number(patient_id), counterId || counter_id || null);
-    markAwaitingAccept(patient_id);
+    const { patient_id, counterId, counter_id } = req.body;
+    if (counterId != null && counter_id != null && counterId !== counter_id) {
+      return res.status(400).json({ success: false, message: "Conflicting doctor assignments" });
+    }
+    const requestedDoctor = counterId ?? counter_id ?? null;
+    if (req.user?.doctor_name && requestedDoctor != null && requestedDoctor !== req.user.doctor_name) {
+      return res.status(403).json({ success: false, message: "You can only call patients assigned to your doctor." });
+    }
+    await callPatient(Number(patient_id), requestedDoctor ?? req.user?.doctor_name ?? null);
     console.info("[voice][queue-call]", {
       patient_id: Number(patient_id),
-      requested_counter: counterId || counter_id || null,
+      requested_counter: requestedDoctor ?? req.user?.doctor_name ?? null,
       at: new Date().toISOString()
     });
     res.json({ success: true, message: "Patient called successfully" });
@@ -186,6 +191,9 @@ router.post("/queue/accept", authenticateToken, async (req, res) => {
     }
     if (patient.status !== "serving" || !isAwaitingAccept(patientId)) {
       return res.status(400).json({ success: false, message: "This patient is not waiting to be accepted" });
+    }
+    if (req.user?.doctor_name && patient.counter_id !== req.user.doctor_name) {
+      return res.status(403).json({ success: false, message: "You can only accept your assigned patient." });
     }
     const acceptedAt = markAccepted(patientId);
     const announcement = recordVoiceAnnouncementEvent({ patient, eventType: "accept", eventAt: acceptedAt });

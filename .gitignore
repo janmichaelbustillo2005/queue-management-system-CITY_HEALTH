@@ -7,3 +7,6 @@ backend/data/awaiting-accept.json
 backend/data/voice-announcements.json
 backend/query-output.txt
 backend/voice/*.log
+
+# Generated artifacts, archived checkouts, and integration backups.
+output/

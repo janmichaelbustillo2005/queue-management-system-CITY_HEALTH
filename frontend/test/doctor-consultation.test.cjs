@@ -5,15 +5,22 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 
-let componentCode;
+let componentCode, componentCodeWithHandlers;
 before(async () => {
   await swc.loadBindings();
   const filename = path.join(__dirname, "../components/DoctorAdmin.js");
-  componentCode = (await swc.transform(fs.readFileSync(filename, "utf8"), {
+  const source = fs.readFileSync(filename, "utf8");
+  const marker = "  async function handleAccept(patientId) {";
+  assert.ok(source.includes(marker), "Accept handler probe must observe the real component handler");
+  const options = {
     filename,
     jsc: { parser: { syntax: "ecmascript", jsx: true }, transform: { react: { runtime: "automatic" } } },
     module: { type: "commonjs" }
-  })).code;
+  };
+  [componentCode, componentCodeWithHandlers] = (await Promise.all([
+    swc.transform(source, options),
+    swc.transform(source.replace(marker, `  __captureAcceptHandler(handleAccept);\n${marker}`), options)
+  ])).map(({ code }) => code);
 });
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -36,7 +43,7 @@ function doctor(number, patientId = null) {
 
 async function harness(initialRows, options = {}) {
   const hooks = [], effectDeps = [], effects = [], calls = [];
-  let cursor = 0;
+  let cursor = 0, acceptHandler;
   const props = { doctorId: 1, doctorName: "Doctor 1", ...options.props };
   const user = options.user || { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" };
   const backend = { storage_mode: options.storageMode || "supabase", patients: clone(initialRows), counters: clone(options.counters ||
@@ -65,8 +72,11 @@ async function harness(initialRows, options = {}) {
     }
   };
   const module = { exports: {} };
-  vm.runInNewContext(componentCode, {
+  // Observe the real closure to exercise its guard even when the button is hidden.
+  const code = options.exposeAcceptHandler ? componentCodeWithHandlers : componentCode;
+  vm.runInNewContext(code, {
     module, exports: module.exports, Set, Map, console,
+    __captureAcceptHandler: (handler) => { acceptHandler = handler; },
     window: { setTimeout: () => 1 }, setInterval: () => 1, clearInterval() {}, clearTimeout() {},
     require(name) {
       if (name === "react") return react;
@@ -99,6 +109,7 @@ async function harness(initialRows, options = {}) {
   await flush();
   const baselineReads = calls.filter((call) => call.route === "/queue").length;
   return { render, flush, backend, calls,
+    invokeAccept(patientId) { assert.equal(typeof acceptHandler, "function"); return acceptHandler(patientId); },
     get actions() { return calls.filter((call) => call.method === "POST" && call.route.startsWith("/queue/")); },
     get refreshes() { return calls.filter((call) => call.route === "/queue").length - baselineReads; } };
 }
@@ -374,3 +385,100 @@ test("Doctor 2 and Doctor 3 can start only their mapped active patient with the 
     assert.deepEqual(h.actions, [{ route: "/queue/start", method: "POST", body: { patient_id: number } }]);
   }
 });
+
+const consultationServices = ["consultation", "prenatal", "family_planning"];
+const assignmentForms = [
+  ["canonical name", (number) => `Doctor ${number}`],
+  ["compact alias", (number) => `doctor${number}`],
+  ["case and whitespace alias", (number) => `  dOcToR   ${number}  `],
+  ["numeric counter ID", (number) => number + 100],
+  ["string counter ID", (number) => String(number + 100)]
+];
+const restrictedUsers = (number) => [
+  { id_num: "another-doctor", role: "admin", doctor_name: `Doctor ${number % 3 + 1}` },
+  { id_num: "another-doctor-counter-id", role: "admin", doctor_name: (number % 3 + 1) + 100 },
+  { id_num: "frontdesk", role: "admin", doctor_name: null },
+  { id_num: "superadmin", role: "superadmin", doctor_name: null },
+  { id_num: "superadmin-forged-assignment", role: "superadmin", doctor_name: `Doctor ${number}` },
+  { id_num: "non-admin", role: "staff", doctor_name: `Doctor ${number}` }
+];
+const assignedCounters = (number, patientId) => [1, 2, 3].map((counterNumber) => ({
+  ...doctor(counterNumber, counterNumber === number ? patientId : null), id: counterNumber + 100
+}));
+
+for (const number of [1, 2, 3]) {
+  const doctorName = `Doctor ${number}`;
+  for (const [label, assignment] of assignmentForms) {
+    test(`${doctorName}: assigned ${label} can Accept, Start and Complete the visible patient`, async () => {
+      const h = await harness([serving(number, { counter_id: number + 100, service_type: consultationServices[number - 1] })], {
+        props: { doctorId: number, doctorName },
+        user: { id_num: `admin${number}`, role: "admin", doctor_name: assignment(number) },
+        counters: assignedCounters(number, number),
+        request: async (route, init, backend) => {
+          const patient = backend.patients[0];
+          if (route === "/queue/accept") Object.assign(patient, { awaiting_accept: false, accepted_at: acceptedAt });
+          if (route === "/queue/start") patient.consultation_started_at = startedAt;
+          if (route === "/queue/complete") {
+            Object.assign(patient, { status: "completed", completed_at: completedAt });
+            backend.counters[number - 1].current_patient_id = null;
+          }
+          return { success: true };
+        }
+      });
+      assert.ok(text(h.render()).includes(`Test patient ${number}`));
+      assert.equal(button(h.render(), "Accept patient").props.disabled, false);
+      assert.equal(button(h.render(), "Cancel").props.disabled, false);
+      await button(h.render(), "Accept patient").props.onClick();
+      assert.equal(h.backend.patients[0].consultation_started_at, null);
+      assert.equal(button(h.render(), "Accept patient"), undefined);
+      await button(h.render(), "Start Consultation").props.onClick();
+      await button(h.render(), "Complete Consultation").props.onClick();
+      assert.deepEqual(h.actions, ["accept", "start", "complete"].map((action) => ({
+        route: `/queue/${action}`, method: "POST", body: { patient_id: number }
+      })));
+      assert.equal(h.backend.patients[0].called_at, calledAt);
+      assert.equal(h.backend.patients[0].accepted_at, acceptedAt);
+      assert.equal(h.backend.patients[0].consultation_started_at, startedAt);
+      assert.equal(h.backend.counters[number - 1].current_patient_id, null);
+    });
+  }
+
+  test(`${doctorName}: unauthorized viewers retain monitoring and Cancel across all consultation phases`, async () => {
+    const phases = [
+      { awaiting_accept: true, accepted_at: null, consultation_started_at: null },
+      { awaiting_accept: false, accepted_at: acceptedAt, consultation_started_at: null },
+      { awaiting_accept: false, accepted_at: acceptedAt, consultation_started_at: startedAt }
+    ];
+    for (const user of restrictedUsers(number)) {
+      for (const phase of phases) {
+        const h = await harness([serving(number, {
+          counter_id: number + 100, service_type: consultationServices[number - 1], ...phase
+        })], { user, props: { doctorId: number, doctorName }, counters: assignedCounters(number, number) });
+        const tree = h.render();
+        const context = `${user.id_num}, ${phase.awaiting_accept ? "awaiting" : phase.consultation_started_at ? "started" : "accepted"}`;
+        assert.ok(text(tree).includes(`Test patient ${number}`), context);
+        for (const label of ["Accept patient", "Start Consultation", "Complete Consultation"]) {
+          assert.equal(button(tree, label), undefined, `${context}: ${label}`);
+        }
+        assert.equal(button(tree, "Cancel").props.disabled, false, context);
+        assert.equal(button(tree, "Re-Call").props.disabled, phase.awaiting_accept, context);
+        assert.equal(h.actions.length, 0, context);
+      }
+    }
+  });
+
+  test(`${doctorName}: the Accept handler blocks unauthorized direct invocation before POST`, async () => {
+    for (const user of restrictedUsers(number)) {
+      const h = await harness([serving(number, {
+        counter_id: number + 100, service_type: consultationServices[number - 1]
+      })], { user, exposeAcceptHandler: true, props: { doctorId: number, doctorName }, counters: assignedCounters(number, number) });
+      const before = clone(h.backend);
+      await h.invokeAccept(number);
+      assert.equal(h.actions.length, 0, user.id_num);
+      assert.equal(h.refreshes, 0, user.id_num);
+      assert.deepEqual(h.backend, before, user.id_num);
+      assert.match(text(h.render()), /Only the assigned doctor can accept this patient/);
+      assert.equal(button(h.render(), "Cancel").props.disabled, false, user.id_num);
+    }
+  });
+}

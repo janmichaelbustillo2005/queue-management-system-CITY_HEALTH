@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../context/AuthContext";
 import SiteFrame from "../components/SiteFrame";
@@ -18,23 +18,27 @@ const serviceOptions = [
   { value: "consultation", label: "General Consultation" },
   { value: "checkup", label: "Medical Check-up" },
   { value: "prenatal", label: "Prenatal" },
-  { value: "maternity", label: "Maternity" }
+  { value: "maternity", label: "Maternity" },
+  { value: "family_planning", label: "Family Planning" }
 ];
 
 const defaultSettings = defaultQueueSettings;
+const defaultFilters = { status: "", service: "", doctor: "", dateFilter: "", date: "", startDate: "", endDate: "" };
+const emptyRecordsData = {
+  transactions: [],
+  pagination: { currentPage: 1, totalPages: 1, totalRecords: 0, recordsPerPage: 20, hasNext: false, hasPrev: false },
+  stats: { completed: 0, cancelled: 0 }
+};
 
 export default function RecordsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [filters, setFilters] = useState({ status: "", service: "", dateFilter: "" });
+  const loadSequence = useRef(0);
+  const [filters, setFilters] = useState(defaultFilters);
   const [page, setPage] = useState(1);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(defaultSettings);
-  const [data, setData] = useState({
-    transactions: [],
-    pagination: { currentPage: 1, totalPages: 1, totalRecords: 0, recordsPerPage: 20, hasNext: false, hasPrev: false },
-    stats: { completed: 0, cancelled: 0 }
-  });
+  const [data, setData] = useState(emptyRecordsData);
 
   const [apiError, setApiError] = useState(null);
   // Removed early return to satisfy React Hook rules; hooks must run on every render
@@ -47,8 +51,13 @@ export default function RecordsPage() {
 
   // Load initial transactions once user is authenticated as superadmin
   useEffect(() => {
-    if (user && user.role === "superadmin") {
+    if (user && user.role === "superadmin" &&
+        (filters.dateFilter !== "date" || filters.date) &&
+        (filters.dateFilter !== "range" || (filters.startDate && filters.endDate))) {
       loadTransactions(1, filters);
+    } else {
+      loadSequence.current += 1;
+      setData(emptyRecordsData);
     }
   }, [user, filters]);
 
@@ -83,6 +92,15 @@ export default function RecordsPage() {
     await exportQueueData(filters);
   }
 
+  async function exportSelectedData() {
+    try {
+      setApiError(null);
+      await exportData(filters);
+    } catch (error) {
+      setApiError(error.message || "Failed to export records");
+    }
+  }
+
   const sidebarLinks = [
     { href: "/?section=home", icon: "fas fa-home", label: "Home", active: false },
     { href: "/?section=queue", icon: "fas fa-list", label: "Queue Management", active: false },
@@ -93,22 +111,30 @@ export default function RecordsPage() {
   // Removed duplicate data load effect; main effect will handle when user becomes available
 
   async function loadTransactions(nextPage = page, nextFilters = filters) {
+    const sequence = ++loadSequence.current;
     const MAX_RETRIES = 3;
     let attempt = 0;
     // Reset API error when making a new request
     setApiError(null);
+    setData(emptyRecordsData);
     const params = new URLSearchParams({
       page: String(nextPage),
       limit: String(settings.maxQueues || 20),
       status: nextFilters.status,
       service: nextFilters.service,
-      dateFilter: nextFilters.dateFilter
+      dateFilter: nextFilters.dateFilter,
+      date: nextFilters.date,
+      startDate: nextFilters.startDate,
+      endDate: nextFilters.endDate,
+      doctor: nextFilters.doctor
     });
 
     const run = async () => {
+      if (sequence !== loadSequence.current) return;
       attempt++;
       try {
         const response = await request(`/transactions?${params.toString()}`);
+        if (sequence !== loadSequence.current) return;
         if (response && response.error) {
           setApiError(response.error);
           return;
@@ -116,6 +142,7 @@ export default function RecordsPage() {
         setData(response);
         setPage(nextPage);
       } catch (err) {
+        if (sequence !== loadSequence.current) return;
         console.error(err);
         if (attempt < MAX_RETRIES) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -191,32 +218,53 @@ export default function RecordsPage() {
           <div className="flex flex-wrap gap-2 md:gap-3 items-end">
             <div className="flex-1 min-w-[140px]">
               <label className="block text-xs font-medium brand-text-muted mb-1">Status</label>
-              <select className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+              <select aria-label="Status" className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
                 <option value="">All Status</option>
                 <option value="waiting">Waiting</option>
                 <option value="serving">Serving</option>
                 <option value="completed">Completed</option>
                 <option value="cancelled">Cancelled</option>
+                <option value="no-show">No-show</option>
               </select>
             </div>
             <div className="flex-1 min-w-[140px]">
               <label className="block text-xs font-medium brand-text-muted mb-1">Service</label>
-              <select className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.service} onChange={(e) => setFilters({ ...filters, service: e.target.value })} suppressHydrationWarning>
+              <select aria-label="Service" className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.service} onChange={(e) => setFilters({ ...filters, service: e.target.value })} suppressHydrationWarning>
                 {serviceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </div>
             <div className="flex-1 min-w-[140px]">
+              <label className="block text-xs font-medium brand-text-muted mb-1">Doctor</label>
+              <select aria-label="Doctor" className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.doctor} onChange={(e) => setFilters({ ...filters, doctor: e.target.value })}>
+                <option value="">All Doctors</option>
+                {[1, 2, 3].map((number) => <option key={number} value={`Doctor ${number}`}>Doctor {number}</option>)}
+              </select>
+            </div>
+            <div className="flex-1 min-w-[140px]">
               <label className="block text-xs font-medium brand-text-muted mb-1">Date range</label>
-              <select className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.dateFilter} onChange={(e) => setFilters({ ...filters, dateFilter: e.target.value })}>
+              <select aria-label="Date filter" className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.dateFilter} onChange={(e) => setFilters({ ...filters, dateFilter: e.target.value, date: "", startDate: "", endDate: "" })}>
                 <option value="">All Time</option>
                 <option value="today">Today</option>
                 <option value="week">This Week</option>
                 <option value="month">This Month</option>
+                <option value="date">Specific Date</option>
+                <option value="range">Date Range</option>
               </select>
             </div>
+            {filters.dateFilter === "date" && <label className="flex-1 min-w-[140px] text-xs brand-text-muted">Specific date
+              <input aria-label="Specific date" type="date" className="mt-1 w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} />
+            </label>}
+            {filters.dateFilter === "range" && <>
+              <label className="flex-1 min-w-[140px] text-xs brand-text-muted">Start date
+                <input aria-label="Start date" type="date" className="mt-1 w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
+              </label>
+              <label className="flex-1 min-w-[140px] text-xs brand-text-muted">End date
+                <input aria-label="End date" type="date" className="mt-1 w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
+              </label>
+            </>}
             <div className="flex gap-2 w-full sm:w-auto">
               <button type="button" onClick={() => loadTransactions(1, filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition flex-1 sm:flex-none"><i className="fas fa-filter mr-1" />Apply</button>
-              <button type="button" onClick={() => { const nextFilters = { status: "", service: "", dateFilter: "" }; setFilters(nextFilters); loadTransactions(1, nextFilters); }} className="bg-gray-600 text-white text-sm px-3 py-1.5 rounded-md hover:bg-gray-700 transition flex-1 sm:flex-none"><i className="fas fa-undo mr-1" />Reset</button>
+              <button type="button" onClick={() => { setFilters(defaultFilters); loadTransactions(1, defaultFilters); }} className="bg-gray-600 text-white text-sm px-3 py-1.5 rounded-md hover:bg-gray-700 transition flex-1 sm:flex-none"><i className="fas fa-undo mr-1" />Reset</button>
             </div>
           </div>
         </div>
@@ -224,7 +272,10 @@ export default function RecordsPage() {
         <div className="bg-white rounded-lg shadow-md p-3 md:p-4 card-hover">
           <div className="flex flex-wrap gap-2 justify-between items-center mb-3">
             <h2 className="text-base md:text-lg font-bold brand-text"><i className="fas fa-history mr-2 brand-text-primary" />Patient Records</h2>
-            <button type="button" onClick={() => loadTransactions(page, filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-sync-alt mr-1" />Refresh</button>
+            <div className="flex gap-2">
+              <button type="button" onClick={exportSelectedData} className="brand-button text-sm px-3 py-1.5 rounded-md transition"><i className="fas fa-download mr-1" />Export Records</button>
+              <button type="button" onClick={() => loadTransactions(page, filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition"><i className="fas fa-sync-alt mr-1" />Refresh</button>
+            </div>
           </div>
           <div className="overflow-x-auto rounded-md border brand-border max-w-full">
             <table className="w-full min-w-[600px] md:min-w-[880px] table-auto text-left">

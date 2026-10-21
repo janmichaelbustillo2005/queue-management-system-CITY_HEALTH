@@ -1,5 +1,6 @@
 import { defaultQueueSettings } from "../components/SettingsModal";
 import { API_BASE_URL, request } from "./api";
+import { getManilaDate } from "./historyFilters";
 
 export function mergeQueueSettings(raw = {}) {
   return { ...defaultQueueSettings, ...(raw || {}) };
@@ -72,7 +73,11 @@ export async function exportQueueData(filters = {}) {
   const params = new URLSearchParams({
     status: filters.status || "",
     service: filters.service || "",
-    dateFilter: filters.dateFilter || "today",
+    dateFilter: filters.dateFilter ?? "today",
+    date: filters.date || "",
+    startDate: filters.startDate || "",
+    endDate: filters.endDate || "",
+    doctor: filters.doctor || "",
     format: filters.format || "csv"
   });
   const token = typeof window !== "undefined" ? localStorage.getItem("city_health_token") : null;
@@ -93,7 +98,7 @@ export async function exportQueueData(filters = {}) {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `queue_data_${new Date().toISOString().split("T")[0]}.csv`;
+  link.download = `queue_data_${getManilaDate()}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();

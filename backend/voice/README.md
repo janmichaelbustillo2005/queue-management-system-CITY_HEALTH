@@ -4,7 +4,7 @@ The [project README](../../README.md#run-the-pyttsx3-voice-announcer-on-windows)
 
 ## Where to run it
 
-Run this service on the same computer that opens the Queue Display page, from the logged-in Windows desktop session that owns its speakers. Python produces the speech on the computer running this process; running it on the backend computer does not send audio to another display computer.
+Run this service on the same computer that opens the Queue Display page, from the logged-in Windows desktop session that owns its speakers. Python produces both the bell and speech on the computer running this process; running it on the backend computer does not send audio to another display computer. The selected slow 880 Hz → 660 Hz chime plays synchronously before speech on the same worker. Bell playback uses Windows `winsound` and needs no browser audio activation. The service must be started separately; the application does not start it automatically.
 
 The normal local service URL is `http://127.0.0.1:8765`. If the application is hosted elsewhere, this address still refers to the computer running the browser. Each display computer needs its own local Python service.
 
@@ -46,6 +46,10 @@ Start the service in a terminal and keep it open:
 
 The startup line should include `listening on http://127.0.0.1:8765` and `dry_run=False`. Stop it with `Ctrl+C` in that terminal.
 
+Queue Display can recover recent unconsumed announcements after a short reload or return to the same tab. It stores only a two-minute timestamp checkpoint in `sessionStorage`; patient details and event keys are not stored there. A first visit still skips older calls, and withdrawn events remain excluded. Pausing Voice clears the recovery checkpoint.
+
+Reloaded displays keep the original announcement key. For `wait: True`, a duplicate of pending work now waits for that work's actual result; completed keys return immediately without repeating the bell or speech. Restart the service after updating this script. Deduplication is in memory, so it does not guarantee exactly-once playback if the Python process also restarts during delivery.
+
 In another PowerShell terminal, request engine initialization and inspect the response:
 
 ```powershell
@@ -61,6 +65,8 @@ Expected fields:
 | `ready` | `True` | The dependency and requested engine initialization succeeded. |
 | `dry_run` | `False` | The service will attempt actual playback. |
 | `last_error` | Empty/null | No current engine error was reported. |
+| `chime_supported` | `True` on Windows | The running service supports the local descending bell. |
+| `last_chime_error` | Empty/null | No bell playback error was reported. A bell error does not stop speech. |
 | `process_id` | A process ID | Identifies the service instance. |
 
 Health initialization does not prove sound reaches the speakers. Send this synthetic phrase and listen:
@@ -69,6 +75,7 @@ Health initialization does not prove sound reaches the speakers. Send this synth
 $voiceTestBody = @{
     key = 'manual-test-' + [guid]::NewGuid().ToString()
     text = 'Voice announcement test. Please proceed to Doctor 1, Room 1.'
+    play_chime = $true
     wait = $true
     timeout_seconds = 45
 } | ConvertTo-Json
@@ -78,22 +85,33 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/speak' -Method Post `
     Format-List
 ```
 
-Successful playback should return `success: True`, `queued: True`, and `duplicate: False`, and the phrase should be audible on the intended output device. `wait: True` waits for the service's playback attempt to finish. This request goes directly to Python and does not change patient records.
+Successful playback should return `success: True`, `queued: True`, and `duplicate: False`, and the descending bell followed by the phrase should be audible on the intended output device. `wait: True` waits for the service's playback attempt to finish. This request goes directly to Python and does not change patient records. Direct requests that omit `play_chime` retain speech-only behavior; Queue Display supplies it from **Sound Notifications**.
 
 Each test uses a new key. Reusing a successful key produces `duplicate: True` and suppresses playback for the configured deduplication period, one hour by default. To test again, rerun the block that creates `$voiceTestBody`.
 
 ## Connect it to the Queue Display
 
 1. Run the application's backend and frontend in separate terminals as described in the [project README](../../README.md#run-the-application).
-2. In the Superadmin dashboard, open **System Settings → Announcements**. Set **Voice Announcements** and **Announce Doctor & Room** to **Enabled**, then click **Save Settings**. **Sound Notifications** controls the browser bell separately from Python speech.
+2. In the Superadmin dashboard, open **System Settings → Announcements**. Set **Voice Announcements** and **Announce Doctor & Room** to **Enabled**, then click **Save Settings**. Enable **Sound Notifications** for the local Python bell; disabling it suppresses only the bell.
 3. Open `http://localhost:3000/queue-display` on the computer running Python. When using a remotely hosted frontend, open that application's `/queue-display` URL instead.
-4. Confirm the top button reads **Voice Enabled** and the status reports the local service as ready/listening. The display starts enabled by default; if it is paused, click **Voice Disabled** to enable it. The global setting must also allow voice announcements.
+4. Confirm the top button reads **Voice Enabled** and the status reports the local service as ready/listening. The display starts enabled by default; if it is paused, click **Voice Disabled** to resume it. The global setting must also allow voice announcements. There is no separate **Enable Bell** button or activation step, including after registration polls or a display reload.
 5. Keep the page open before the doctor accepts a new patient. Registration creates a waiting patient; Frontdesk **Call Now** assigns the eligible patient to the doctor without announcing. **Doctor Accept** creates the announcement event.
 6. For an already accepted current patient, use **Re-Call** to create another announcement event. Each event has a unique key; repeated display polling does not create another announcement for the same key.
 
 The announcement reads the queue number character by character, includes the patient name, and ends with the assigned doctor and room when that setting is enabled. The existing acceptance and re-call workflow supplies these details; do not send direct patient speech requests from Frontdesk.
 
-On initial page load, events older than the page opening time are seeded as historical rather than spoken. Opening or reloading the display after acceptance does not automatically replay that old event. Use **Re-Call** or a new development patient acceptance for a manual workflow test. Keep backend and display clocks synchronized for this timestamp check.
+Announcement behavior depends on the same-tab recovery checkpoint:
+
+- **Fresh visit without a checkpoint:** events older than the page opening time are treated as historical. Keep Queue Display open before the next Doctor Accept.
+- **Short reload or return with a valid checkpoint:** eligible pending/unconsumed Accept and Re-Call events from the supported two-minute window can resume automatically. The checkpoint cannot advance past eligible queued, active or retrying work. The display sends the original event key; Python joins pending work or deduplicates completed work instead of starting a second announcement for that key.
+- **Already completed announcements:** the display checkpoint and service deduplication suppress replay. Cancelled/completed patient events withdrawn from the authoritative display response are excluded even when a checkpoint exists.
+- **Missing, blocked, malformed or expired checkpoint:** the display uses fresh-visit history suppression. A page that remains open can still announce new events, but recovery across reload is unavailable for the earlier events. Explicit Voice pause clears the checkpoint.
+
+Authorized staff may use **Re-Call** through the doctor's normal interface when an already accepted, current serving patient needs another announcement—for example, after a fresh visit skipped an earlier Accept or after staff have checked a reported delivery failure. Re-Call intentionally creates a new event and can produce another bell and voice; it is not required merely because a pending event is recovering. Use an approved development patient for manual workflow testing, and keep backend and display clocks synchronized for timestamp comparisons.
+
+Reload recovery does not guarantee exactly-once physical audio. The service keeps its deduplication state in memory; if the Python process also restarts, that state is lost. A successful API response or positive utterance completion confirms the software's playback result, not that sound reached the intended speakers. Listen on the display computer to verify actual output.
+
+Pending events are checked against the latest valid display state before their combined bell/speech request is posted. Withdrawn events still in the browser backlog are pruned. Once posted, the Python worker finishes that combined announcement; cancellation during its bell does not interrupt the speech already submitted with it.
 
 ## Change the local voice port
 
@@ -183,7 +201,9 @@ Rerun the pinned requirements install through the environment's Python. Read `la
 
 Check that `dry_run` is `False`; `--dry-run` or `PYTTSX3_TTS_DRY_RUN=1` intentionally disables actual speech even if health says ready. Stop the service, remove that dry-run setting, and restart it.
 
-Verify the Windows output device, speaker power, volume, and Volume Mixer for the Python process. Confirm the service runs in the same logged-in desktop session, then repeat the unique-key synthetic `/speak` test. A bell without speech means browser audio works, but does not verify Python's audio output. Speech without a bell can occur when Sound Notifications is disabled or browser audio has not been unlocked; toggling voice off/on provides a user click for the bell.
+Verify the Windows output device, speaker power, volume, and Volume Mixer for the Python process. Confirm the service runs in the same logged-in desktop session, then repeat the unique-key synthetic `/speak` test with `play_chime: True`. A bell without speech does not verify the speech engine. Speech without a bell can occur when **Sound Notifications** is disabled, the request omits `play_chime`, or local chime playback fails. Inspect `chime_supported` and `last_chime_error` in health. A bell failure is logged while speech still proceeds; browser activation clicks cannot fix a local Python audio error.
+
+After updating the script, stop and restart the existing voice service, then confirm `chime_supported: True`. A missing capability field identifies an older running service that ignores `play_chime`; refreshing Queue Display alone does not update that process. Windows bell support and a healthy engine do not prove physical speaker output, so listen to the synthetic test before checking patient announcements.
 
 If the terminal reports `runAndWait returned too quickly` or a playback error, the service detected an apparently silent/failed attempt. Keep the default engine reset behavior, restart the service, and repeat the synthetic test before testing patients. A JSON success response is useful evidence about the service, but listening remains necessary to verify the physical speakers.
 
@@ -199,6 +219,6 @@ Run only the intended display instances for a set of speakers. Multiple displays
 
 ## Diagnostic logs
 
-The Python terminal prints structured stages such as `health`, `speak-request`, `enqueue-ok`, `speak-run-start`, `speak-run-ok`, and `queue-item-error`. The Queue Display browser console uses the prefix `[QueueDisplay TTS]` and the backend logs acceptance/re-call events. Match the `key` across the browser and Python logs to trace one announcement.
+The Python terminal prints structured health, enqueue, chime and speech stages. The Queue Display browser console uses the prefix `[QueueDisplay TTS]` and the backend logs acceptance/re-call events. Match the `key` across the browser and Python logs to trace one combined announcement. Duplicate keys are suppressed before either bell or speech playback.
 
 Browser TTS diagnostics are enabled by default. To disable them, set `NEXT_PUBLIC_TTS_DEBUG=0` in the frontend environment, then restart development or rebuild/restart production. Logs may contain patient details; use synthetic test output when sharing setup diagnostics.

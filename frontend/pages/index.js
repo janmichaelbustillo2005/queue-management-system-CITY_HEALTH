@@ -81,6 +81,7 @@ export default function HomePage() {
   const pendingActionsRef = useRef(new Map());
   const [pendingActions, setPendingActions] = useState(() => new Map());
   const [loadingData, setLoadingData] = useState(false);
+  const registrationPendingRef = useRef(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [residencySuggestions, setResidencySuggestions] = useState([]);
@@ -100,6 +101,19 @@ export default function HomePage() {
     sex: "",
     vulnerabilityFlags: []
   });
+
+  const hasUnsavedRegistration = Object.values(form).some((value) =>
+    Array.isArray(value) ? value.length > 0 : String(value).length > 0
+  );
+  useEffect(() => {
+    if (!hasUnsavedRegistration || user?.role !== "superadmin") return undefined;
+    const warnBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = true;
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [hasUnsavedRegistration, user?.role]);
 
   const filteredRows = useMemo(() => {
     let rows = queueRows ?? [];
@@ -418,6 +432,8 @@ export default function HomePage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (registrationPendingRef.current) return;
+    registrationPendingRef.current = true;
     setLoadingData(true);
     setError("");
 
@@ -427,15 +443,15 @@ export default function HomePage() {
         body: JSON.stringify(form)
       });
 
-      if (data.error) {
-        setError(data.error);
+      if (data.error || data.success === false || !data.queue_number) {
+        setError(data.error || data.message || "Registration could not be confirmed. Check Patient Management before retrying.");
         refreshAll();
-        setLoadingData(false);
         return;
       }
 
       setGeneratedQueue({ number: data.queue_number, score: data.priority_score || 0 });
       setForm({ fullName: "", service_type: "", mobile_number: "", residency: "", philhealth_id: "", birthdate: "", sex: "", vulnerabilityFlags: [] });
+      setShowAddForm(false);
       refreshAll();
 
       window.setTimeout(() => {
@@ -445,6 +461,7 @@ export default function HomePage() {
       setError(submitError.message);
       refreshAll();
     } finally {
+      registrationPendingRef.current = false;
       setLoadingData(false);
     }
   }
@@ -556,7 +573,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
             <div
               className="bg-white border brand-border rounded-lg p-3 md:p-6 card-hover cursor-pointer shadow-sm"
-              onClick={() => setActiveSection("queue")}
+              onClick={() => handleSectionChange("queue")}
             >
               <div className="flex items-center justify-between gap-2 md:gap-3">
                 <div className="min-w-0">
@@ -936,7 +953,9 @@ export default function HomePage() {
                   Queue Management
                 </h2>
                 <div className="flex gap-2 w-full sm:w-auto">
-                  <button type="button" onClick={() => setShowAddForm(!showAddForm)} className="brand-button text-sm px-3 py-1.5 rounded-md transition flex-1 sm:flex-none flex items-center justify-center gap-2">
+                  <button type="button" disabled={loadingData} onClick={() => {
+                    if (!registrationPendingRef.current) setShowAddForm(!showAddForm);
+                  }} className="brand-button text-sm px-3 py-1.5 rounded-md transition flex-1 sm:flex-none flex items-center justify-center gap-2">
                     <i className={`fas fa-${showAddForm ? "times" : "plus"}`} />
                     {showAddForm ? "Cancel" : "Add Patient"}
                   </button>
@@ -953,10 +972,7 @@ export default function HomePage() {
                     <i className="fas fa-user-plus brand-text-primary" />
                     Manual Queue Entry
                   </h3>
-                  <form onSubmit={(e) => {
-                    handleSubmit(e);
-                    setShowAddForm(false);
-                  }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Full Name</label>
                       <input
@@ -965,6 +981,7 @@ export default function HomePage() {
                         placeholder="Enter full name"
                         className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.fullName}
+                        disabled={loadingData}
                         onChange={(e) => setForm({ ...form, fullName: e.target.value })}
                       />
                     </div>
@@ -974,6 +991,7 @@ export default function HomePage() {
                         required
                         className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.service_type}
+                        disabled={loadingData}
                         onChange={(e) => setForm({ ...form, service_type: e.target.value })}
                         suppressHydrationWarning
                       >
@@ -990,6 +1008,7 @@ export default function HomePage() {
                         placeholder="9123456789"
                         className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.mobile_number}
+                        disabled={loadingData}
                         onChange={(e) => setForm({ ...form, mobile_number: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) })}
                       />
                     </div>
@@ -1000,6 +1019,7 @@ export default function HomePage() {
                         placeholder="Enter PhilHealth ID"
                         className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.philhealth_id}
+                        disabled={loadingData}
                         onChange={(e) => setForm({ ...form, philhealth_id: e.target.value })}
                       />
                     </div>
@@ -1010,6 +1030,7 @@ export default function HomePage() {
                         required
                         className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.birthdate}
+                        disabled={loadingData}
                         onChange={(e) => setForm({ ...form, birthdate: e.target.value })}
                       />
                     </div>
@@ -1019,6 +1040,7 @@ export default function HomePage() {
                         required
                         className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.sex}
+                        disabled={loadingData}
                         onChange={(e) => setForm({ ...form, sex: e.target.value })}
                       >
                         <option value="">Select</option>
@@ -1034,11 +1056,12 @@ export default function HomePage() {
                         placeholder="Search address..."
                         className="w-full px-3 py-2 text-sm brand-input border rounded-md"
                         value={form.residency}
+                        disabled={loadingData}
                         onChange={(e) => handleResidencySearch(e.target.value)}
                         onFocus={() => residencySuggestions.length > 0 && setShowSuggestions(true)}
                         autoComplete="off"
                       />
-                      {showSuggestions && residencySuggestions.length > 0 && (
+                      {!loadingData && showSuggestions && residencySuggestions.length > 0 && (
                         <div className="absolute w-full mt-1 bg-white border brand-border rounded-md shadow-lg z-[100] max-h-48 overflow-y-auto">
                           {residencySuggestions.map((item, index) => (
                             <div
@@ -1063,7 +1086,7 @@ export default function HomePage() {
                               className="brand-focus-ring rounded accent-[var(--brand-primary)]"
                               checked={form.vulnerabilityFlags.includes(opt.value)}
                               onChange={() => handleVulnerabilityToggle(opt.value)}
-                              disabled={loading}
+                              disabled={loadingData}
                             />
                             <span>{opt.label}</span>
                             <span className="brand-text-muted">(+{opt.weight})</span>
@@ -1079,10 +1102,10 @@ export default function HomePage() {
                     <div className="sm:col-span-2 lg:col-span-4 flex justify-end">
                       <button
                         type="submit"
-                        disabled={loading}
+                        disabled={loadingData}
                         className="brand-button px-4 py-2 rounded-md text-sm font-bold transition disabled:opacity-50"
                       >
-                        {loading ? "Adding..." : "Add to Queue"}
+                        {loadingData ? "Adding..." : "Add to Queue"}
                       </button>
                     </div>
                   </form>

@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { describe, test, before, beforeEach, after } = require("node:test");
 const { createHarness, createDatabase, clone } = require("./helpers/queueHarness");
+const { basePostgresSchema } = require("./helpers/postgresSchema");
 
 let PGlite;
 let unavailable;
@@ -22,17 +23,12 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
   const migration = fs.readFileSync(path.join(__dirname, "../scripts/20261012-phase21-stale-recovery.sql"), "utf8");
   const verification = fs.readFileSync(path.join(__dirname, "../scripts/20261012-phase21-verify.sql"), "utf8");
   const lifecycleMigration = fs.readFileSync(path.join(__dirname, "../scripts/20261010-phase2-consultation-lifecycle.sql"), "utf8");
-  const originalSchema = fs.readFileSync(path.join(__dirname, "../supabase/City_health--Queuing.sql"), "utf8")
-    .split("-- Initial Data Seeding")[0];
   const recoverySignature = "public.recover_patient_visit(bigint,text,text,uuid,text,timestamptz,timestamptz,timestamptz,timestamptz,text,text)";
 
   before(async () => {
     db = await PGlite.create();
     await db.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
-    await db.exec(originalSchema);
-    // Existing deployments may already support the project's no-show route.
-    // This isolated fixture adds that established value; Phase 2.1 does not.
-    await db.exec("ALTER TYPE public.queue_status ADD VALUE IF NOT EXISTS 'no-show'");
+    await db.exec(basePostgresSchema);
     await db.exec(lifecycleMigration);
     await db.exec("ALTER TABLE public.patients ENABLE ROW LEVEL SECURITY; ALTER TABLE public.counters ENABLE ROW LEVEL SECURITY; ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;");
     await db.exec(migration);
@@ -125,7 +121,7 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
       clock: { now: Date.now() },
       rpc: async (name, args) => {
         database.calls.push({ action: "rpc", function: name, args: clone(args) });
-        assert.equal(name, "recover_patient_visit");
+        assert.ok(["recover_patient_visit", "undo_patient_visit_waiting"].includes(name));
         assert.ok(Object.keys(args).every(key => Object.hasOwn(argsFor(database.patients[0]), key)));
         if (beforeRpc) await beforeRpc(name, args);
         try {
@@ -157,7 +153,7 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
     const upgrade = await PGlite.create();
     try {
       await upgrade.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
-      await upgrade.exec(originalSchema);
+      await upgrade.exec(basePostgresSchema);
       await upgrade.exec(lifecycleMigration);
       await upgrade.exec(`INSERT INTO public.patients (id_num, first_name, last_name, mobile_number,
         queue_number, service_type, status, counter_id, created_at, called_at, consultation_started_at, completed_at) VALUES
@@ -181,7 +177,7 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
     const uninstalled = await PGlite.create();
     try {
       await uninstalled.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
-      await uninstalled.exec(originalSchema);
+      await uninstalled.exec(basePostgresSchema);
       await uninstalled.exec(lifecycleMigration);
       const results = await uninstalled.exec(verification);
       const checks = results.find(result => result.rows.some(row => Object.hasOwn(row, "check_name")))?.rows;
@@ -206,7 +202,7 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
     const incompatible = await PGlite.create();
     try {
       await incompatible.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
-      await incompatible.exec(originalSchema);
+      await incompatible.exec(basePostgresSchema);
       await incompatible.exec(lifecycleMigration);
       await incompatible.exec(`INSERT INTO public.patients (id_num, first_name, last_name, mobile_number,
         queue_number, service_type, status, consultation_started_at, completed_at) VALUES
@@ -280,13 +276,14 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
       assert.deepEqual(await snapshot(), before);
     });
 
-    test(`backend ${action} passes its actual named payload to the migrated SQL function`, async () => {
+    test(`backend ${action} sends trusted named payload and respects the installed migration version`, async () => {
       const before = await patient();
+      const stateBefore = await snapshot();
       const h = await serviceHarness();
       const response = await h.request("POST", `/queue/${action}`, { patient_id: 1, reason: "Recovery note",
         p_expected_revision: "00000000-0000-0000-0000-000000000000", p_expected_started_at: "1990-01-01T00:00:00Z" });
-      assert.equal(response.status, 200, response.body.message);
-      const rpc = h.database.calls.find(entry => entry.function === "recover_patient_visit");
+      assert.equal(response.status, action === "undo" ? 503 : 200, response.body.message);
+      const rpc = h.database.calls.find(entry => entry.function === (action === "undo" ? "undo_patient_visit_waiting" : "recover_patient_visit"));
       const expectedArgs = argsFor(before, action, "frontdesk", action === "requeue" ? "Recovery note" : null);
       // The optional reason may be omitted by Undo; every required attestation
       // must be the trusted server-read value, including full timestamp digits.
@@ -294,12 +291,19 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
         if (key === "p_reason" && action === "undo" && !Object.hasOwn(rpc.args, key)) continue;
         assert.equal(rpc.args[key], value, key);
       }
+      if (action === "undo") {
+        // This suite deliberately installs only Phase 2.1. New backend Undo
+        // must fail before writing until its Phase 2.2 entry point exists.
+        assert.match(response.body.message, /Phase 2\.2 database migration/);
+        assert.deepEqual(await snapshot(), stateBefore);
+        return;
+      }
       assert.equal((await patient()).status, "waiting");
       assert.equal((await patient()).consultation_started_at, null);
-      assert.equal((await counters())[0].current_patient_id, action === "undo" ? 1 : null);
+      assert.equal((await counters())[0].current_patient_id, null);
     });
 
-    test(`HTTP ${action} paused before SQL rejects the old snapshot after a newer real completion`, { timeout: 10000 }, async () => {
+    test(`HTTP ${action} paused before SQL preserves newer completion with the installed migration version`, { timeout: 10000 }, async () => {
       let signalEntered;
       let resume;
       const entered = new Promise(resolve => { signalEntered = resolve; });
@@ -317,7 +321,7 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
         resume();
       }
       const response = await pending;
-      assert.equal(response.status, 409, response.body.message);
+      assert.equal(response.status, action === "undo" ? 503 : 409, response.body.message);
       assert.equal(response.body.success, false);
       assert.deepEqual(await snapshot(), before);
       assert.equal(await duration(), savedDuration);

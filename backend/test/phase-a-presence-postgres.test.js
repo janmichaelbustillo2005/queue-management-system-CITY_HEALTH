@@ -6,6 +6,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { randomUUID } = require("node:crypto");
 const { describe, test, before, beforeEach, after } = require("node:test");
+const { basePostgresSchema } = require("./helpers/postgresSchema");
 
 let PGlite;
 let unavailable;
@@ -20,8 +21,6 @@ describe("Phase A persisted sessions and doctor presence PostgreSQL", { skip: un
   let db;
   let service;
   const migration = fs.readFileSync(path.join(__dirname, "../scripts/20261012-phase-a-auth-presence.sql"), "utf8");
-  const schema = fs.readFileSync(path.join(__dirname, "../supabase/City_health--Queuing.sql"), "utf8")
-    .split("-- Initial Data Seeding")[0];
   const users = {
     admin1: { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" },
     admin2: { id_num: "admin2", role: "admin", doctor_name: "Doctor 2" },
@@ -48,7 +47,7 @@ describe("Phase A persisted sessions and doctor presence PostgreSQL", { skip: un
   before(async () => {
     db = await PGlite.create();
     await db.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
-    await db.exec(schema);
+    await db.exec(basePostgresSchema);
     await db.exec(migration);
     const module = { exports: {} };
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../src/services/presenceService.js"), "utf8"), {

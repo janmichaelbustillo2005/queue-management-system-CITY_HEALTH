@@ -2,6 +2,7 @@ const supabase = require("../lib/supabase");
 const env = require("../config/env");
 const { randomUUID } = require("node:crypto");
 const bcrypt = require("bcryptjs");
+const { getBusinessDate, getBusinessDayRange, getDateFilterRange } = require("../lib/businessDay");
 const {
   sendQueueCreatedNotification,
   sendQueueCalledNotification
@@ -85,16 +86,7 @@ function isMissingCancellationTableError(error) {
 }
 
 function getTodayRange() {
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-
-  return {
-    start: start.toISOString(),
-    end: end.toISOString()
-  };
+  return getBusinessDayRange(getBusinessDate(new Date()));
 }
 
 function formatError(error, fallback) {
@@ -235,40 +227,67 @@ function getServiceDurationSeconds(patient) {
   return Number(ended - started) / 1000000;
 }
 
-async function getTodayPatients() {
+function isCreatedInRange(patient, { start, end }) {
+  const timestamp = Date.parse(patient.created_at);
+  return Number.isFinite(timestamp) && (!start || timestamp >= Date.parse(start)) && (!end || timestamp < Date.parse(end));
+}
+
+function comparePatientCreation(a, b) {
+  const first = timestampMicroseconds(a.created_at);
+  const second = timestampMicroseconds(b.created_at);
+  return (first != null && second != null && first !== second ? (first < second ? -1 : 1) : 0)
+    || Number(a.id) - Number(b.id);
+}
+
+async function fetchPatientPages(createQuery, message) {
+  const rows = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await createQuery()
+      .order("created_at", { ascending: true }).order("id", { ascending: true })
+      .range(offset, offset + 999);
+    if (error) throw formatError(error, message);
+    if (!data?.length) return rows;
+    rows.push(...data);
+    // A project may cap responses below 1000. Advance by what actually arrived
+    // and read until an empty page instead of treating a short page as the end.
+    offset += data.length;
+  }
+}
+
+async function getTodayPatients(range = getTodayRange()) {
   if (useLocalFallback) {
-    return localData.patients.map(parsePatientPriority);
+    return localData.patients
+      .filter((patient) => patient.status === "serving" || isCreatedInRange(patient, range))
+      .sort(comparePatientCreation).map(parsePatientPriority);
   }
   
   try {
-    const { start, end } = getTodayRange();
-    const { data, error } = await supabase
-      .from("patients")
-      .select("*")
-      .gte("created_at", start)
-      .lte("created_at", end)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      enableLocalFallback(error);
-      return getTodayPatients();
-    }
-
-    return (data || []).map(parsePatientPriority);
+    const { start, end } = range;
+    const [today, serving] = await Promise.all([
+      fetchPatientPages(() => supabase.from("patients").select("*")
+        .gte("created_at", start).lt("created_at", end), "Failed to load today's patients"),
+      fetchPatientPages(() => supabase.from("patients").select("*").eq("status", "serving"),
+        "Failed to load active consultations")
+    ]);
+    const patients = new Map([...today, ...serving].map((patient) => [patient.id, patient]));
+    return [...patients.values()].sort(comparePatientCreation).map(parsePatientPriority);
   } catch (err) {
     enableLocalFallback(err);
-    return getTodayPatients();
+    return getTodayPatients(range);
   }
 }
 
 async function getQueueStats() {
-  const patients = await getTodayPatients();
+  const range = getTodayRange();
+  const patients = await getTodayPatients(range);
+  const today = patients.filter((patient) => isCreatedInRange(patient, range));
 
   return {
     waiting: patients.filter((patient) => patient.status === "waiting").length,
     serving: patients.filter((patient) => patient.status === "serving").length,
-    completed: patients.filter((patient) => patient.status === "completed").length,
-    today_total_patients: patients.length
+    completed: today.filter((patient) => patient.status === "completed").length,
+    today_total_patients: today.length
   };
 }
 
@@ -626,25 +645,24 @@ async function callPatient(patientId, counterId = null) {
     let servingPatients;
     if (localCall) {
       counters = localData.counters;
-      waitingPatients = localData.patients.filter((p) => p.status === "waiting");
+      waitingPatients = localData.patients.filter((p) => p.status === "waiting" && isCreatedInRange(p, getTodayRange()));
       servingPatients = localData.patients.filter((p) => p.status === "serving" &&
         (p.counter_id === doctorName || (p.counter_id == null && getDoctorForService(p.service_type) === doctorName)));
     } else {
       const { start, end } = getTodayRange();
-      const [counterResult, waitingResult, servingResult] = await Promise.all([
+      const [counterResult, waiting, serving] = await Promise.all([
         supabase.from("counters").select("id, id_num, is_online, current_patient_id"),
-        supabase.from("patients").select("*").eq("status", "waiting")
-          .gte("created_at", start).lte("created_at", end),
-        supabase.from("patients").select("id, counter_id, service_type").eq("status", "serving")
+        fetchPatientPages(() => supabase.from("patients").select("*").eq("status", "waiting")
+          .gte("created_at", start).lt("created_at", end), "Failed to check queue priority"),
+        fetchPatientPages(() => supabase.from("patients").select("*").eq("status", "serving"),
+          "Failed to check doctor's current patient")
       ]);
       if (counterResult.error) throw formatError(counterResult.error, "Failed to check doctor availability");
-      if (waitingResult.error) throw formatError(waitingResult.error, "Failed to check queue priority");
-      if (servingResult.error) throw formatError(servingResult.error, "Failed to check doctor's current patient");
       counters = counterResult.data || [];
-      waitingPatients = waitingResult.data || [];
+      waitingPatients = waiting;
       // Legacy Superadmin calls could leave serving rows without a counter.
       // Block their service's doctor until an explicit existing recovery action.
-      servingPatients = (servingResult.data || []).filter((p) =>
+      servingPatients = serving.filter((p) =>
         p.counter_id === doctorName || (p.counter_id == null && getDoctorForService(p.service_type) === doctorName));
     }
     if (localCall !== useLocalFallback) {
@@ -1131,8 +1149,14 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
       patient.called_at = null;
       patient.counter_id = null;
       patient.reason = reason;
+    } else {
+      patient.called_at = null;
+      patient.counter_id = null;
+      for (const counter of localData.counters) {
+        if (counter.current_patient_id === patient.id) counter.current_patient_id = null;
+      }
     }
-    // Preserve the existing local Undo semantics (no counter reservation).
+    // Waiting patients reserve their service's doctor through the normal Call.
     return parsePatientPriority(patient);
   }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(existing.visit_state_revision || "")) {
@@ -1140,7 +1164,9 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
   }
   let result;
   try {
-    result = await supabase.rpc("recover_patient_visit", {
+    // Versioned Undo entry point fails before writes on a Phase 2.1-only DB.
+    // Its existing recovery RPC has the same payload but reserves a free slot.
+    result = await supabase.rpc(action === "undo" ? "undo_patient_visit_waiting" : "recover_patient_visit", {
       p_patient_id: existing.id,
       p_action: action,
       p_user_id_num: actor.id_num,
@@ -1160,7 +1186,9 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
   if (result?.error) {
     const error = result.error;
     if (["PGRST202", "PGRST204", "42883", "42703"].includes(error.code)) {
-      throw consultationError("Phase 2.1 database migration is required before Requeue or Undo.", 503);
+      throw consultationError(action === "undo"
+        ? "Phase 2.2 database migration is required before Undo."
+        : "Phase 2.1 database migration is required before Requeue.", 503);
     }
     const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
       ["P0001", "22023"].includes(error.code) ? 400 : 503;
@@ -1169,7 +1197,8 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
   const patient = Array.isArray(result?.data) ? result.data[0] : result?.data;
   if (!patient || patient.id !== existing.id || patient.status !== "waiting" ||
       !patient.visit_state_revision || patient.visit_state_revision === existing.visit_state_revision ||
-      patient.consultation_started_at != null || patient.completed_at != null) {
+      patient.consultation_started_at != null || patient.completed_at != null ||
+      (action === "undo" && (patient.called_at != null || patient.counter_id != null))) {
     throw consultationError("Could not confirm recovery. Refresh the queue before retrying.", 503);
   }
   return parsePatientPriority(patient);
@@ -1221,10 +1250,13 @@ async function clearTodaysQueues() {
   // Safe reset: archive active patients (waiting/serving) instead of deleting history.
   const archiveReason = "System queue reset";
   const completedAt = new Date().toISOString();
+  const { start, end } = getTodayRange();
 
   if (useLocalFallback) {
+    const archivedPatientIds = [];
     localData.patients = localData.patients.map((patient) => {
-      if (patient.status === "waiting" || patient.status === "serving") {
+      if (["waiting", "serving"].includes(patient.status) && isCreatedInRange(patient, { start, end })) {
+        archivedPatientIds.push(patient.id);
         return {
           ...patient,
           status: "cancelled",
@@ -1235,74 +1267,38 @@ async function clearTodaysQueues() {
       return patient;
     });
     for (const counter of localData.counters) {
-      counter.current_patient_id = null;
+      if (archivedPatientIds.includes(counter.current_patient_id)) counter.current_patient_id = null;
     }
-    return { archived: true };
+    return { archived: true, archivedPatientIds };
   }
   
-  const { start, end } = getTodayRange();
-  const { error: counterError } = await supabase
-    .from("counters")
-    .update({ current_patient_id: null })
-    .not("id", "is", null);
-
-  if (counterError) {
-    throw formatError(counterError, "Failed to clear counters");
+  const candidates = await fetchPatientPages(() => supabase.from("patients").select("id")
+    .gte("created_at", start).lt("created_at", end).in("status", ["waiting", "serving"]),
+    "Failed to load today's reset candidates");
+  const archivedPatientIds = [];
+  // A mutation response can be capped too. Single-row conditional updates let
+  // us identify every row actually archived even when the server cap is one.
+  for (const candidate of candidates) {
+    const archive = (withReason) => supabase.from("patients")
+      .update({ status: "cancelled", completed_at: completedAt, ...(withReason ? { reason: archiveReason } : {}) })
+      .eq("id", candidate.id).gte("created_at", start).lt("created_at", end)
+      .in("status", ["waiting", "serving"]).select("id").maybeSingle();
+    let { data, error } = await archive(true);
+    // Preserve compatibility with databases lacking the existing reason field.
+    if (error && /reason/i.test(String(error.message || ""))) ({ data, error } = await archive(false));
+    if (error) throw formatError(error, "Failed to clear queues");
+    if (data) archivedPatientIds.push(data.id);
   }
-
-  // Prefer archiving with reason; fall back if reason column is missing
-  let { error } = await supabase
-    .from("patients")
-    .update({ status: "cancelled", completed_at: completedAt, reason: archiveReason })
-    .gte("created_at", start)
-    .lte("created_at", end)
-    .in("status", ["waiting", "serving"]);
-
-  if (error && /reason/i.test(String(error.message || ""))) {
-    ({ error } = await supabase
-      .from("patients")
-      .update({ status: "cancelled", completed_at: completedAt })
-      .gte("created_at", start)
-      .lte("created_at", end)
-      .in("status", ["waiting", "serving"]));
+  if (archivedPatientIds.length) {
+    const { error: counterError } = await supabase.from("counters")
+      .update({ current_patient_id: null }).in("current_patient_id", archivedPatientIds);
+    if (counterError) throw formatError(counterError, "Failed to clear archived patient counters");
   }
-
-  if (error) {
-    throw formatError(error, "Failed to clear queues");
-  }
-
-  return { archived: true };
+  return { archived: true, archivedPatientIds };
 }
 
-async function getPatientsForExport({ status = "", service = "", dateFilter = "" } = {}) {
-  if (useLocalFallback) {
-    return getFilteredPatients({ status, service, dateFilter });
-  }
-
-  let query = supabase.from("patients").select("*").order("created_at", { ascending: false });
-
-  const now = new Date();
-  if (dateFilter === "today") {
-    const { start, end } = getTodayRange();
-    query = query.gte("created_at", start).lte("created_at", end);
-  } else if (dateFilter === "week") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 7);
-    query = query.gte("created_at", start.toISOString());
-  } else if (dateFilter === "month") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 30);
-    query = query.gte("created_at", start.toISOString());
-  }
-
-  if (status) query = query.eq("status", status);
-  if (service) query = query.eq("service_type", service);
-
-  const { data, error } = await query.limit(5000);
-  if (error) {
-    throw formatError(error, "Failed to export patients");
-  }
-  return (data || []).map(parsePatientPriority);
+async function getPatientsForExport(filters = {}) {
+  return getFilteredPatients(filters);
 }
 
 async function setCounterOnline(idNum, isOnline) {
@@ -1357,22 +1353,50 @@ function buildCsv(rows) {
   return [headers.join(","), ...lines].join("\n");
 }
 
-async function getFilteredPatients({ status = "", service = "", dateFilter = "", startDate = "", endDate = "" } = {}) {
-  let patients = await getTodayPatients();
-  
-  if (status) {
-    patients = patients.filter(p => p.status === status);
+async function getFilteredPatients({ status = "", service = "", doctor = "", ...dateFilters } = {}) {
+  const range = getDateFilterRange(dateFilters, new Date());
+  let counters = [];
+  let selectedDoctor;
+  if (doctor) {
+    counters = await getCounters();
+    selectedDoctor = resolveDoctorCounter(doctor, counters);
+    if (!selectedDoctor) throw consultationError("A valid doctor filter is required");
   }
-  
-  if (service) {
-    patients = patients.filter(p => p.service_type === service);
+  let patients;
+  if (useLocalFallback) {
+    patients = localData.patients.filter((patient) => (!range || isCreatedInRange(patient, range)) &&
+      (!status || patient.status === status) && (!service || patient.service_type === service));
+  } else {
+    try {
+      patients = await fetchPatientPages(() => {
+        let query = supabase.from("patients").select("*");
+        if (range?.start) query = query.gte("created_at", range.start);
+        if (range?.end) query = query.lt("created_at", range.end);
+        if (status) query = query.eq("status", status);
+        if (service) query = query.eq("service_type", service);
+        return query;
+      }, "Failed to load filtered patient records");
+    } catch (error) {
+      enableLocalFallback(error);
+      return getFilteredPatients({ status, service, doctor, ...dateFilters });
+    }
   }
-  
-  return patients;
+  if (selectedDoctor) patients = patients.filter((patient) => {
+    // Stored ownership wins for historical visits. Older unassigned rows use
+    // the established service mapping; aliases resolve against real counters.
+    const assignment = patient.counter_id != null && String(patient.counter_id).trim()
+      ? resolveDoctorCounter(patient.counter_id, counters)?.id_num
+      : getDoctorForService(patient.service_type);
+    return assignment === selectedDoctor.id_num;
+  });
+  return patients.sort(comparePatientCreation).map(parsePatientPriority);
 }
 
-async function getTransactions({ page = 1, limit = 20, status = "", service = "", dateFilter = "" }) {
-  let patients = await getFilteredPatients({ status, service, dateFilter });
+async function getTransactions({ page = 1, limit = 20, ...filters } = {}) {
+  if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1) {
+    throw consultationError("Page and limit must be positive integers");
+  }
+  const patients = await getFilteredPatients(filters);
   
   const from = (page - 1) * limit;
   const to = from + limit;
@@ -1524,13 +1548,15 @@ async function getDisplayData() {
 
 function getDateLabel(dateValue) {
   return new Date(dateValue).toLocaleDateString("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
     month: "short",
     day: "numeric"
   });
 }
 
-async function getAnalytics(startDate, endDate) {
-  const rows = await getFilteredPatients({ startDate, endDate });
+async function getAnalytics(startDate, endDate, filters = {}) {
+  const rows = await getFilteredPatients({ ...filters, startDate, endDate });
   const serviceGroups = new Map();
   const dayGroups = new Map();
   const hourGroups = new Map();
@@ -1549,7 +1575,7 @@ async function getAnalytics(startDate, endDate) {
     const dayLabel = getDateLabel(createdAt);
     dayGroups.set(dayLabel, (dayGroups.get(dayLabel) || 0) + 1);
 
-    const hourLabel = `${String(createdAt.getHours()).padStart(2, "0")}:00`;
+    const hourLabel = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "2-digit", hourCycle: "h23" }).format(createdAt) + ":00";
     hourGroups.set(hourLabel, (hourGroups.get(hourLabel) || 0) + 1);
 
     if (row.called_at) {

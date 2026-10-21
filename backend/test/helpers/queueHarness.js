@@ -46,6 +46,8 @@ function fakeSupabase(database, now, localFallback) {
       this.filters = [];
       this.orders = [];
       this.maximum = Infinity;
+      this.offset = 0;
+      this.rangeEnd = Infinity;
       this.columns = "*";
     }
     select(columns = "*") { this.columns = columns; return this; }
@@ -56,11 +58,21 @@ function fakeSupabase(database, now, localFallback) {
     neq(key, value) { this.filters.push((row) => row[key] !== value); return this; }
     is(key, value) { this.filters.push((row) => row[key] === value); return this; }
     in(key, values) { this.filters.push((row) => values.includes(row[key])); return this; }
-    gte(key, value) { this.filters.push((row) => row[key] >= value); return this; }
-    lte(key, value) { this.filters.push((row) => row[key] <= value); return this; }
+    compare(key, value, accepts) {
+      this.filters.push((row) => {
+        const actual = timestampMicroseconds(row[key]);
+        const expected = timestampMicroseconds(value);
+        return accepts(actual != null && expected != null ? actual : row[key], actual != null && expected != null ? expected : value);
+      });
+      return this;
+    }
+    gte(key, value) { return this.compare(key, value, (actual, expected) => actual >= expected); }
+    lte(key, value) { return this.compare(key, value, (actual, expected) => actual <= expected); }
+    lt(key, value) { return this.compare(key, value, (actual, expected) => actual < expected); }
     like(key, value) { this.filters.push((row) => String(row[key]).startsWith(value.replace(/%$/, ""))); return this; }
     order(key, options = {}) { this.orders.push({ key, ascending: options.ascending !== false }); return this; }
     limit(value) { this.maximum = value; return this; }
+    range(from, to) { this.offset = from; this.rangeEnd = to; return this; }
     single() { this.singular = true; this.required = true; return this.execute(); }
     maybeSingle() { this.singular = true; return this.execute(); }
     then(resolve, reject) { return this.execute().then(resolve, reject); }
@@ -108,9 +120,15 @@ function fakeSupabase(database, now, localFallback) {
       }
       for (let i = this.orders.length - 1; i >= 0; i -= 1) {
         const { key, ascending } = this.orders[i];
-        rows.sort((a, b) => (a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0) * (ascending ? 1 : -1));
+        rows.sort((a, b) => {
+          const first = timestampMicroseconds(a[key]);
+          const second = timestampMicroseconds(b[key]);
+          const left = first != null && second != null ? first : a[key];
+          const right = first != null && second != null ? second : b[key];
+          return (left < right ? -1 : left > right ? 1 : 0) * (ascending ? 1 : -1);
+        });
       }
-      rows = rows.slice(0, this.maximum).map((row) => {
+      rows = rows.slice(this.offset, Math.min(this.rangeEnd + 1, this.offset + this.maximum, this.offset + (database.maxRows || Infinity))).map((row) => {
         if (this.columns === "*") return clone(row);
         return Object.fromEntries(this.columns.split(",").map((key) => [key.trim(), clone(row[key.trim()] ?? null)]));
       });
@@ -141,7 +159,10 @@ function fakeSupabase(database, now, localFallback) {
       const counter = counters.find((row) => row.id_num === args.p_doctor_name);
       const user = database.users.find((row) => row.id_num === args.p_user_id_num);
       const timestamp = new Date(database.clock ? database.clock.now : now()).toISOString();
-      if (name === "recover_patient_visit") {
+      if (["recover_patient_visit", "undo_patient_visit_waiting"].includes(name)) {
+        if (name === "undo_patient_visit_waiting" && args.p_action !== "undo") {
+          return { data: null, error: { code: "22023", message: "This recovery entry point only permits Undo" } };
+        }
         if (!user || !["admin", "superadmin"].includes(user.role)) {
           return { data: null, error: { code: "42501", message: "An authenticated queue operator is required" } };
         }
@@ -176,9 +197,11 @@ function fakeSupabase(database, now, localFallback) {
           patient.counter_id = null;
           patient.reason = args.p_reason ?? null;
         } else {
-          const available = counters.filter((row) => ["Doctor 1", "Doctor 2", "Doctor 3"].includes(row.id_num))
-            .sort((a, b) => a.id - b.id).find((row) => row.is_online && row.current_patient_id == null);
-          if (available) available.current_patient_id = patient.id;
+          patient.called_at = null;
+          patient.counter_id = null;
+          for (const row of counters) {
+            if (row.current_patient_id === patient.id) row.current_patient_id = null;
+          }
         }
         patient.visit_state_revision = crypto.randomUUID();
         if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
@@ -288,6 +311,7 @@ function createHarness(options = {}) {
     "../lib/supabase": supabase,
     "../config/env": options.localFallback ? {} : { supabaseUrl: "https://isolated-test.invalid", supabaseServiceRoleKey: "isolated-test-key" },
     bcryptjs: {},
+    "../lib/businessDay": require("../../src/lib/businessDay"),
     "node:crypto": crypto,
     "./notificationService": {
       sendQueueCreatedNotification: (...args) => notifications.push({ type: "created", args }),
@@ -305,6 +329,7 @@ function createHarness(options = {}) {
     jsonwebtoken: {},
     "node:crypto": crypto,
     "../config/env": {},
+    "../lib/businessDay": require("../../src/lib/businessDay"),
     "../middleware/auth": {
       // Requests provide an already verified identity. JWT cryptography itself
       // is outside this isolated route/service harness.
@@ -323,11 +348,15 @@ function createHarness(options = {}) {
     async initialize() {
       if (options.localFallback) await service.getDisplaySettings();
     },
-    async request(method, route, body = {}, user = { id_num: "frontdesk", role: "admin", doctor_name: null }) {
+    async request(method, route, body = {}, user = { id_num: "frontdesk", role: "admin", doctor_name: null }, query = {}) {
       const middleware = handlers.get(`${method.toUpperCase()} ${route}`);
       if (!middleware) throw new Error(`Missing route ${method} ${route}`);
-      const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(data) { this.body = clone(data); return this; } };
-      const request = { body, user, query: {}, params: {} };
+      const response = {
+        statusCode: 200, headers: {}, status(code) { this.statusCode = code; return this; },
+        json(data) { this.body = clone(data); return this; }, send(data) { this.body = data; return this; },
+        setHeader(name, value) { this.headers[name] = value; return this; }
+      };
+      const request = { body, user, query, params: {} };
       const run = async (index) => {
         const handler = middleware[index];
         if (!handler) return;
@@ -336,7 +365,7 @@ function createHarness(options = {}) {
         if (nextResult) await nextResult;
       };
       await run(0);
-      return { status: response.statusCode, body: response.body };
+      return { status: response.statusCode, body: response.body, headers: response.headers };
     },
     advance(milliseconds = 1000) { clock.now += milliseconds; }
   };

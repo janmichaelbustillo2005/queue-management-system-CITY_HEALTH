@@ -85,10 +85,10 @@ Keep three PowerShell terminals open in the project root:
 **Terminal 1 — voice service:**
 
 ```powershell
-.\.venv-voice\Scripts\python.exe backend\voice\pyttsx3_tts_service.py
+.\start-voice.cmd
 ```
 
-Expect a startup line containing `listening on http://127.0.0.1:8765` and `dry_run=False`. Leave this terminal running.
+You can also double-click `start-voice.cmd` in the project folder. It reuses an already healthy local service, or checks the local Python environment and Windows speech engine before starting one. Expect a startup line containing `listening on http://127.0.0.1:8765` and `dry_run=False`. Leave the service terminal running. The launcher reports setup errors without installing dependencies or stopping an existing process.
 
 **Terminal 2 — backend:**
 

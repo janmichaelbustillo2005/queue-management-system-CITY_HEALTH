@@ -175,15 +175,10 @@ function fakeSupabase(database, now, localFallback) {
           patient.called_at = null;
           patient.counter_id = null;
           patient.reason = args.p_reason ?? null;
-        } else {
-          const available = counters.filter((row) => ["Doctor 1", "Doctor 2", "Doctor 3"].includes(row.id_num))
-            .sort((a, b) => a.id - b.id).find((row) => row.is_online && row.current_patient_id == null);
-          if (available) available.current_patient_id = patient.id;
         }
         patient.visit_state_revision = crypto.randomUUID();
         if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
         database.patients.splice(0, database.patients.length, ...patients);
-        database.counters.splice(0, database.counters.length, ...counters);
         return { data: database.rpcReturnsArray ? [clone(patient)] : clone(patient), error: null };
       }
       if (!user || user.role !== "admin" || user.doctor_name !== args.p_doctor_name) {

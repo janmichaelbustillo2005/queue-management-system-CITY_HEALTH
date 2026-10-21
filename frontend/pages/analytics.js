@@ -3,6 +3,8 @@ import { useRouter } from "next/router";
 import { useAuth } from "../context/AuthContext";
 import Script from "next/script";
 import SiteFrame from "../components/SiteFrame";
+import DailyTrends from "../components/DailyTrends";
+import StatusAnalytics from "../components/StatusAnalytics";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { API_BASE_URL, request } from "../lib/api";
 import Link from "next/link";
@@ -160,13 +162,10 @@ export default function AnalyticsPage() {
       charts.push(drawChart("sexDistributionChart", "pie", data?.charts?.sexDistribution?.labels ?? [], data?.charts?.sexDistribution?.data ?? [], ["#3b82f6", "#ec4899"]));
       charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], statusColors));
     }
-    if (activeTab === "all" || activeTab === "trends") {
-      charts.push(drawChart("dailyTrendsChart", "line", data?.charts?.dailyTrends?.labels ?? [], data?.charts?.dailyTrends?.data ?? [], `rgba(${brandColor("primary-rgb")}, 0.18)`, primary));
-    }
     if (activeTab === "all" || activeTab === "hourly") {
       charts.push(drawChart("hourlyChart", "bar", data?.charts?.hourly?.labels ?? [], data?.charts?.hourly?.data ?? [], forest));
     }
-    if (activeTab === "all" || activeTab === "status") {
+    if (activeTab === "all") {
       charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], statusColors));
     }
 
@@ -241,13 +240,13 @@ export default function AnalyticsPage() {
               </div>
             )}
             {activeTab === "trends" && (
-              <ChartCard title="Daily Trends" icon="fas fa-chart-line" canvasId="dailyTrendsChart" fullWidth={true} />
+              <DailyTrends enabled={!loading && user?.role === "superadmin"} />
             )}
             {activeTab === "hourly" && (
               <ChartCard title="Hourly Distribution" icon="fas fa-chart-bar" canvasId="hourlyChart" fullWidth={true} />
             )}
             {activeTab === "status" && (
-              <ChartCard title="Patient Status" icon="fas fa-tasks" canvasId="statusChart" fullWidth={true} />
+              <StatusAnalytics enabled={!loading && user?.role === "superadmin"} />
             )}
 
             {activeTab === "all" && (

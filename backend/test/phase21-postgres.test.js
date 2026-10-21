@@ -282,6 +282,7 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
 
     test(`backend ${action} passes its actual named payload to the migrated SQL function`, async () => {
       const before = await patient();
+      const countersBefore = await counters();
       const h = await serviceHarness();
       const response = await h.request("POST", `/queue/${action}`, { patient_id: 1, reason: "Recovery note",
         p_expected_revision: "00000000-0000-0000-0000-000000000000", p_expected_started_at: "1990-01-01T00:00:00Z" });
@@ -296,7 +297,7 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
       }
       assert.equal((await patient()).status, "waiting");
       assert.equal((await patient()).consultation_started_at, null);
-      assert.equal((await counters())[0].current_patient_id, action === "undo" ? 1 : null);
+      assert.deepEqual(await counters(), countersBefore);
     });
 
     test(`HTTP ${action} paused before SQL rejects the old snapshot after a newer real completion`, { timeout: 10000 }, async () => {
@@ -392,17 +393,15 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
   });
 
   for (const status of ["completed", "cancelled", "no-show"]) {
-    test(`normal ${status} Undo preserves existing fields and first-free-online counter reservation`, async () => {
+    test(`normal ${status} Undo preserves existing fields without reserving a counter`, async () => {
       await db.query("UPDATE public.patients SET status = $1::public.queue_status WHERE id = 1", [status]);
       if (status !== "completed") await db.exec("UPDATE public.patients SET consultation_started_at = '2000-01-01 00:00:01.223456+00' WHERE id = 1");
       const before = await patient();
+      const countersBefore = await counters();
       const result = await recover(before, "undo");
       assert.deepEqual({ ...result, status: before.status, completed_at: before.completed_at,
         consultation_started_at: before.consultation_started_at, visit_state_revision: before.visit_state_revision }, before);
-      const savedCounters = await counters();
-      assert.equal(savedCounters[0].current_patient_id, 1);
-      assert.equal(savedCounters[1].current_patient_id, 2);
-      assert.equal(savedCounters[2].current_patient_id, 3);
+      assert.deepEqual(await counters(), countersBefore);
     });
 
     if (status !== "completed") {
@@ -423,13 +422,13 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
     assert.deepEqual(await counters(), before);
   });
 
-  test("Undo retains the existing first-free counter choice without implementing Phase 2.2 doctor remapping", async () => {
+  test("Undo preserves its doctor reference without reserving any free or occupied counter", async () => {
     await db.exec("UPDATE public.patients SET counter_id = 'Doctor 2', service_type = 'prenatal' WHERE id = 1");
     const before = await patient();
+    const countersBefore = await counters();
     const result = await recover(before, "undo");
     assert.equal(result.counter_id, "Doctor 2");
-    assert.equal((await counters())[0].current_patient_id, 1);
-    assert.equal((await counters())[1].current_patient_id, 2);
+    assert.deepEqual(await counters(), countersBefore);
   });
 
   test("queued duplicate Requeues cannot both overwrite one expected state", async () => {
@@ -443,27 +442,25 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
 
   test("queued competing Undo/Requeue requests have one winner and no losing counter side effect", async () => {
     const expected = await patient();
+    const countersBefore = await counters();
     const results = await Promise.allSettled([recover(expected, "undo"), recover(expected, "requeue")]);
     assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
     assert.equal(results.find(result => result.status === "rejected").reason.code, "40001");
     assert.deepEqual(await patient(), results.find(result => result.status === "fulfilled").value);
-    const savedCounters = await counters();
-    assert.equal(savedCounters[0].current_patient_id, results[0].status === "fulfilled" ? 1 : null);
-    assert.equal(savedCounters[1].current_patient_id, 2);
-    assert.equal(savedCounters[2].current_patient_id, 3);
+    assert.deepEqual(await counters(), countersBefore);
   });
 
   for (const mode of ["raise", "suppress"]) {
-    test(`Undo counter reservation ${mode} failure rolls back both patient and revision`, async () => {
+    test(`Undo patient update ${mode} failure preserves the patient, revision and counters`, async () => {
       const before = await snapshot();
-      await db.exec(`CREATE FUNCTION public.phase21_test_counter_failure() RETURNS trigger LANGUAGE plpgsql AS $$
-        BEGIN IF NEW.current_patient_id = 1 THEN ${mode === "raise" ? "RAISE EXCEPTION 'Injected reservation failure';" : "RETURN NULL;"} END IF; RETURN NEW; END $$;
-        CREATE TRIGGER phase21_test_counter_failure BEFORE UPDATE ON public.counters FOR EACH ROW EXECUTE FUNCTION public.phase21_test_counter_failure();`);
+      await db.exec(`CREATE FUNCTION public.phase21_test_patient_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF NEW.status::text = 'waiting' THEN ${mode === "raise" ? "RAISE EXCEPTION 'Injected patient update failure';" : "RETURN NULL;"} END IF; RETURN NEW; END $$;
+        CREATE TRIGGER phase21_test_patient_failure BEFORE UPDATE ON public.patients FOR EACH ROW EXECUTE FUNCTION public.phase21_test_patient_failure();`);
       try {
-        await assert.rejects(recover(before.patient, "undo"), mode === "raise" ? /Injected reservation failure/ : /counter|reserve|assign/i);
+        await assert.rejects(recover(before.patient, "undo"), mode === "raise" ? /Injected patient update failure/ : /Unable|changed|recover|update/i);
         assert.deepEqual(await snapshot(), before);
       } finally {
-        await db.exec("DROP TRIGGER phase21_test_counter_failure ON public.counters; DROP FUNCTION public.phase21_test_counter_failure();");
+        await db.exec("DROP TRIGGER phase21_test_patient_failure ON public.patients; DROP FUNCTION public.phase21_test_patient_failure();");
       }
     });
   }

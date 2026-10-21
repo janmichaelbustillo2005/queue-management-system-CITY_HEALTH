@@ -203,3 +203,82 @@ test("Frontdesk cancellation retains the existing reason and doctor payload duri
   assert.equal(h.refreshes, 1);
   assert.equal(h.props.queueRows[0].completed_at, null, "only backend refresh can change patient timestamps");
 });
+
+test("Frontdesk shows the carryover visit blocking today's call and can cancel it explicitly", async () => {
+  let confirmation;
+  const previous = { ...patient(1), status: "serving", counter_id: "Doctor 1", called_at: "2026-10-09T01:00:00Z", awaiting_accept: true };
+  const h = harness([previous, patient(2)], { confirm: value => { confirmation = value; } });
+  h.props.counters[0].current_patient_id = previous.id;
+  const tree = h.render();
+  assert.ok(text(tree).includes("Test 1"));
+  assert.ok(text(tree).includes("Serving GP-1"));
+  assert.equal(buttons(tree, "Call Now").length, 0);
+  buttons(tree, "Cancel")[0].props.onClick();
+  await confirmation.onConfirm("Previous visit did not proceed");
+  assert.equal(h.calls[0].body.patient_id, previous.id);
+});
+
+test("an unassigned serving patient stays visible and blocks the next call until explicitly cancelled", async () => {
+  let confirmation;
+  const h = harness([{ ...patient(1), status: "serving", counter_id: null }, patient(2)], {
+    confirm: value => { confirmation = value; }
+  });
+  assert.ok(text(h.render()).includes("Test 1"));
+  assert.ok(text(h.render()).includes("Serving 1"));
+  assert.equal(buttons(h.render(), "Call Now").length, 0);
+  buttons(h.render(), "Cancel")[0].props.onClick();
+  await confirmation.onConfirm("Resolve legacy unassigned visit");
+  assert.deepEqual(h.calls[0].body, { patient_id: 1, counter_id: "Doctor 1", reason: "Resolve legacy unassigned visit" });
+});
+
+test("active search finds patients beyond the first 20 without letting them bypass queue priority", () => {
+  const h = harness(Array.from({ length: 25 }, (_, index) => patient(index + 1)));
+  h.props.search = "Test 25";
+  assert.ok(text(h.render()).includes("Test 25"));
+  assert.equal(buttons(h.render(), "Call Now").length, 0);
+});
+
+test("a disabled Call Now explains the doctor's occupied counter", () => {
+  const h = harness([patient(1)]);
+  h.props.counters[0].current_patient_id = 99;
+  h.props.counters[0].current_patient_queue_number = "GP-099";
+  const button = buttons(h.render(), "Call Now")[0];
+  assert.equal(button.props.disabled, true);
+  assert.match(button.props.title, /GP-099/);
+});
+
+test("frontdesk cancellation of a carryover visit enables today's Call Now through the real route and service", async () => {
+  const { createHarness } = require("../../backend/test/helpers/queueHarness");
+  const backend = createHarness();
+  const previous = await backend.service.createQueueEntry({ idNum: "Previous visit", serviceType: "checkup", vulnerabilityFlags: [] });
+  await backend.service.callPatient(previous.id, "Doctor 1");
+  backend.advance(24 * 60 * 60 * 1000);
+  const next = await backend.service.createQueueEntry({ idNum: "Today's visit", serviceType: "checkup", vulnerabilityFlags: [] });
+  const overview = await backend.service.getQueueOverview();
+  let confirmation;
+  const h = harness(overview.patients, {
+    props: { counters: overview.counters },
+    confirm: value => { confirmation = value; },
+    request: async (route, init) => {
+      const response = await backend.request(init.method, route, JSON.parse(init.body), {
+        id_num: "frontdesk", role: "admin", doctor_name: "Front Desk"
+      });
+      return response.status === 200 ? response.body : { error: response.body.message };
+    },
+    refresh: async props => {
+      const refreshed = await backend.service.getQueueOverview();
+      props.queueRows = refreshed.patients;
+      props.counters = refreshed.counters;
+    }
+  });
+
+  assert.equal(buttons(h.render(), "Call Now").length, 0);
+  buttons(h.render(), "Cancel")[0].props.onClick();
+  await confirmation.onConfirm("Previous visit did not proceed");
+  const call = buttons(h.render(), "Call Now")[0];
+  assert.equal(call.props.disabled, false);
+  await call.props.onClick();
+  assert.equal((await backend.service.getPatientById(next.id)).status, "serving");
+  assert.equal((await backend.service.getQueueOverview()).counters[0].current_patient_id, next.id);
+  assert.equal(h.notices.some(([type]) => type === "error"), false);
+});

@@ -186,9 +186,10 @@ test("Phase 2.1: unchanged legacy Requeue recovers at the end of its priority ti
   assert.deepEqual(clone(first.database.counters), counters);
 });
 
-test("Phase 2.1: unchanged legacy Undo preserves its queue position and retains first-free counter reservation", async () => {
+test("Phase 2.1: unchanged legacy Undo preserves its queue position without reserving a counter", async () => {
   const { first } = setup();
   const original = await legacyPatient(first);
+  const counters = clone(first.database.counters);
   const response = await first.request("POST", "/queue/undo", { patient_id: original.id });
   assert.equal(response.status, 200, response.body.message);
   const recovered = await first.service.getPatientById(original.id);
@@ -199,13 +200,14 @@ test("Phase 2.1: unchanged legacy Undo preserves its queue position and retains 
   assert.equal(recovered.counter_id, original.counter_id);
   assert.equal(recovered.completed_at, null);
   assert.equal(recovered.consultation_started_at, null);
-  assert.equal(first.database.counters[0].current_patient_id, original.id);
+  assert.deepEqual(clone(first.database.counters), counters);
 });
 
 for (const actions of [["requeue", "requeue"], ["undo", "undo"], ["requeue", "undo"]]) {
   test(`Phase 2.1: concurrent ${actions.join(" / ")} requests cannot both consume one expected terminal state`, { timeout: 10000 }, async () => {
     const { first, second, database } = setup();
     const original = await legacyPatient(first);
+    const counters = clone(database.counters);
     const arrived = deferred();
     const resume = deferred();
     let waiting = 0;
@@ -232,11 +234,10 @@ for (const actions of [["requeue", "requeue"], ["undo", "undo"], ["requeue", "un
     assert.deepEqual(results.map((response) => response.status).sort(), [200, 409]);
     const winner = results.findIndex((response) => response.status === 200);
     assert.equal(database.patients[0].status, "waiting");
+    assert.deepEqual(clone(database.counters), counters);
     if (actions[winner] === "undo") {
-      assert.equal(database.counters.filter((counter) => counter.current_patient_id === original.id).length, 1);
       assert.equal(database.patients[0].created_at, original.created_at);
     } else {
-      assert.equal(database.counters.filter((counter) => counter.current_patient_id === original.id).length, 0);
       assert.equal(database.patients[0].reason, `Recovery ${winner + 1}`);
     }
   });
@@ -317,15 +318,16 @@ for (const action of ["requeue", "undo"]) {
   });
 }
 
-test("Phase 2.1: failed Undo commit rolls back both patient recovery and first-free counter reservation", async () => {
+test("Phase 2.1: failed Undo commit preserves the patient revision and all counters", async () => {
   const { first } = setup();
   const original = await legacyPatient(first);
   const counters = clone(first.database.counters);
   first.database.beforeRpcCommit = ({ name, patients, counters: pendingCounters }) => {
     if (name !== "recover_patient_visit") return;
     assert.equal(patients[0].status, "waiting");
-    assert.equal(pendingCounters[0].current_patient_id, original.id);
-    throw new Error("Injected counter commit failure");
+    assert.notEqual(patients[0].visit_state_revision, original.visit_state_revision);
+    assert.deepEqual(pendingCounters, counters);
+    throw new Error("Injected patient commit failure");
   };
   const response = await first.request("POST", "/queue/undo", { patient_id: original.id });
   assert.equal(response.status, 400, response.body.message);

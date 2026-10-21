@@ -1,0 +1,166 @@
+.statusAnalytics { color: #172033; font-size: 13px; min-width: 0; padding: 2px 0 10px; }
+.header { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; margin-bottom: 18px; }
+.heading { flex: 1 1 260px; min-width: 0; }
+.eyebrow { align-items: center; color: #64748b; display: flex; font-size: 10px; font-weight: 700; gap: 6px; letter-spacing: 1.2px; margin-bottom: 7px; }
+.eyebrow span { background: #3b82f6; border-radius: 2px; height: 5px; width: 5px; }
+.heading h2 { color: #172033; font-size: 25px; font-weight: 750; letter-spacing: -.7px; line-height: 1.3; margin: 0 0 6px; }
+.heading p { color: #64748b; font-size: 12px; line-height: 1.7; margin: 0; }
+.filters { align-items: flex-end; display: flex; flex: 0 1 auto; flex-wrap: wrap; gap: 9px; max-width: 100%; }
+.filters label { color: #475569; display: flex; flex-direction: column; font-size: 10px; font-weight: 600; gap: 5px; min-width: 0; }
+.filters input, .filters select { background: #fff; border: 1px solid #dce3ec; border-radius: 8px; color: #334155; font-family: inherit; font-size: 12px; font-weight: 500; height: 37px; line-height: 1.4; margin: 0; max-width: 100%; min-width: 0; padding: 7px 9px; }
+.filters input[type="date"] { width: 143px; }
+.filters select { width: 122px; }
+.filters input[type="time"] { width: 116px; }
+.filters input:focus, .filters select:focus { border-color: #3b82f6; outline: 2px solid #3b82f626; outline-offset: 1px; }
+.applyButton, .refreshButton { align-items: center; border: 1px solid #2563eb; border-radius: 8px; cursor: pointer; display: inline-flex; flex-shrink: 0; font-family: inherit; font-size: 11px; font-weight: 600; gap: 6px; height: 37px; justify-content: center; padding: 7px 12px; }
+.applyButton { background: #2563eb; color: #fff; }
+.applyButton:hover { background: #1d4ed8; }
+.refreshButton { background: #fff; border-color: #dce3ec; color: #475569; }
+.refreshButton:hover { background: #f8fafc; }
+.refreshButton:disabled { cursor: default; opacity: .6; }
+.applyButton:focus-visible, .refreshButton:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+.shiftHint, .filterError { flex-basis: 100%; font-size: 10px; line-height: 1.5; }
+.shiftHint { color: #64748b; }
+.filterError { color: #b91c1c; }
+.rangeBar { align-items: center; color: #64748b; display: flex; flex-wrap: wrap; font-size: 10px; gap: 8px 16px; justify-content: space-between; line-height: 1.6; margin-bottom: 15px; }
+.rangeBar > span { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; }
+.timeZone { background: #eaf0f6; border-radius: 4px; color: #58687c; font-size: 9px; padding: 1px 5px; }
+.liveDot, .refreshingDot { background: #10b981; border-radius: 50%; flex-shrink: 0; height: 5px; width: 5px; }
+.refreshingDot { background: #3b82f6; }
+.errorBanner, .emptyBanner { align-items: center; border: 1px solid; border-radius: 9px; display: flex; font-size: 11px; gap: 9px; line-height: 1.6; margin-bottom: 16px; padding: 11px 13px; }
+.errorBanner { background: #fff4f1; border-color: #fed7cc; color: #a13521; }
+.errorBanner > span { flex: 1; }
+.errorBanner button { background: #fff; border: 1px solid #fec4b4; border-radius: 6px; color: #a13521; cursor: pointer; flex-shrink: 0; font-size: 10px; font-weight: 600; padding: 5px 9px; }
+.errorBanner button:disabled { cursor: default; opacity: .6; }
+.emptyBanner { background: #eff6ff; border-color: #dbeafe; color: #355579; }
+.metricsGrid { display: grid; gap: 12px; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.metricCard { border: 1px solid var(--metric-border); border-radius: 12px; background: var(--metric-bg); min-width: 0; padding: 14px 13px 12px; }
+.blue { --metric-bg: #eff6ff; --metric-border: #dceafe; --metric-color: #2563eb; --metric-icon: #dbeafe; }
+.orange { --metric-bg: #fff7ed; --metric-border: #ffead2; --metric-color: #ea580c; --metric-icon: #ffedd5; }
+.sky { --metric-bg: #effaff; --metric-border: #d9f0fc; --metric-color: #0284c7; --metric-icon: #dff3ff; }
+.green { --metric-bg: #effbf5; --metric-border: #d9f4e5; --metric-color: #059669; --metric-icon: #d8f5e6; }
+.purple { --metric-bg: #f6f2ff; --metric-border: #eae0ff; --metric-color: #7c3aed; --metric-icon: #ebe0ff; }
+.gray { --metric-bg: #f4f6f9; --metric-border: #e7ecf2; --metric-color: #64748b; --metric-icon: #e8edf3; }
+.metricTop { align-items: flex-start; display: flex; gap: 6px; justify-content: space-between; min-height: 34px; }
+.metricTop h3 { color: #536176; font-size: 10px; font-weight: 650; line-height: 1.5; margin: 2px 0 0; }
+.metricIcon { align-items: center; background: var(--metric-icon); border-radius: 8px; color: var(--metric-color); display: inline-flex; flex-shrink: 0; font-size: 12px; height: 28px; justify-content: center; width: 28px; }
+.metricValue { color: #22314a; font-size: clamp(24px, 2.5vw, 31px); font-weight: 750; letter-spacing: -.8px; line-height: 1.3; margin: 6px 0 8px; overflow-wrap: anywhere; }
+.metricValue small { color: #7b8799; font-size: 10px; font-weight: 500; letter-spacing: 0; margin-left: 4px; }
+.missingMetric { color: #7b8799; font-size: 13px; font-weight: 500; letter-spacing: 0; min-height: 40px; }
+.comparison { color: #718096; font-size: 9px; line-height: 1.6; margin: 0; min-height: 29px; }
+.summaryNote { color: #8995a6; font-size: 9px; line-height: 1.7; margin: 9px 0 17px; }
+.panelGrid { align-items: stretch; display: grid; gap: 17px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.panel { background: #fff; border: 1px solid #e8edf4; border-radius: 13px; box-shadow: 0 3px 14px #17203304, 0 1px 2px #17203303; display: flex; flex-direction: column; min-width: 0; overflow: hidden; padding: 18px 18px 14px; }
+.panelHeading { margin-bottom: 14px; min-width: 0; }
+.panelTitle { align-items: center; display: flex; gap: 8px; margin-bottom: 7px; }
+.panelTitle > span { align-items: center; border-radius: 7px; display: inline-flex; flex-shrink: 0; font-size: 12px; height: 29px; justify-content: center; width: 29px; }
+.panelTitle h3 { color: #263348; font-size: 13px; font-weight: 700; letter-spacing: -.15px; line-height: 1.45; margin: 0; }
+.panelHeading p { color: #7b8799; font-size: 10px; line-height: 1.6; margin: 0; }
+.legend { align-items: center; display: flex; flex-wrap: wrap; gap: 8px 13px; list-style: none; margin: 0 0 12px; padding: 0; }
+.legend li { align-items: center; color: #64748b; display: flex; font-size: 9px; gap: 6px; line-height: 1.5; }
+.legendDot { border-radius: 3px; display: inline-block; flex-shrink: 0; height: 8px; width: 8px; }
+.legendLine { border-radius: 2px; display: inline-block; flex-shrink: 0; height: 3px; width: 14px; }
+.chartSurface { height: 238px; min-width: 0; position: relative; width: 100%; }
+.chartSurface canvas { display: block; max-width: 100%; }
+.placeholder { align-items: center; color: #94a3b8; display: flex; flex-direction: column; font-size: 11px; gap: 10px; inset: 0; justify-content: center; line-height: 1.7; padding: 20px; position: absolute; text-align: center; }
+.placeholder > i { color: #cbd5e1; font-size: 24px; }
+.methodNote { border-top: 1px solid #f0f3f7; color: #8995a6; font-size: 9px; line-height: 1.7; margin: auto 0 0; padding-top: 10px; }
+.chartSurface + .methodNote { margin-top: 12px; }
+.doughnutWrap { flex-shrink: 0; margin: 0 auto 12px; max-width: 210px; position: relative; width: 100%; }
+.doughnutSurface { height: 184px; }
+.doughnutTotal { align-items: center; display: flex; flex-direction: column; inset: 0; justify-content: center; pointer-events: none; position: absolute; }
+.doughnutTotal strong { color: #263348; font-size: 28px; font-weight: 750; letter-spacing: -1px; line-height: 1.3; }
+.doughnutTotal span { color: #94a3b8; font-size: 9px; }
+.statusLegend { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.statusLegend li { align-items: center; display: flex; gap: 8px; justify-content: space-between; line-height: 1.5; }
+.statusLegend li > span:first-child { align-items: center; color: #64748b; display: flex; font-size: 10px; gap: 7px; min-width: 0; }
+.statusLegend li > span:last-child { align-items: center; display: flex; flex-shrink: 0; gap: 10px; }
+.statusLegend strong { color: #475569; font-size: 10px; font-weight: 600; }
+.statusLegend small { color: #94a3b8; font-size: 9px; min-width: 34px; text-align: right; }
+.ratePanel { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.rateRow { align-items: flex-start; border-bottom: 1px solid #eff3f8; display: flex; gap: 12px; justify-content: space-between; padding: 13px 0; }
+.rateRow > span { color: #64748b; font-size: 10px; line-height: 1.7; min-width: 0; }
+.rateRow > span i { color: #3b82f6; margin-right: 6px; }
+.rateRow:nth-child(2) > span i { color: #10b981; }
+.rateRow strong { color: #263348; font-size: 20px; font-weight: 700; line-height: 1.3; max-width: 51%; overflow-wrap: anywhere; text-align: right; }
+.rateRow small { color: #94a3b8; display: block; font-size: 8px; font-weight: 400; margin-top: 3px; }
+.completionRow { align-items: baseline; color: #64748b; display: flex; font-size: 10px; gap: 10px; justify-content: space-between; margin: 16px 0 5px; }
+.completionRow strong { color: #059669; font-size: 20px; font-weight: 700; }
+.completionNote, .rateDescription { color: #94a3b8; font-size: 9px; line-height: 1.7; margin: 0 0 10px; }
+.operationalIndicator { align-items: center; align-self: flex-start; background: #f1f5f9; border: 1px solid #e4eaf1; border-radius: 6px; color: #64748b; display: inline-flex; font-size: 10px; gap: 6px; margin: 5px 0 9px; padding: 5px 8px; }
+.operationalIndicator > span { background: #94a3b8; border-radius: 50%; height: 5px; width: 5px; }
+.operationalIndicator strong { font-weight: 600; }
+.rateDescription { margin-bottom: 15px; }
+.listPlaceholder { align-items: center; color: #94a3b8; display: flex; flex: 1; font-size: 11px; justify-content: center; min-height: 240px; padding: 20px 0; text-align: center; }
+.counterList { display: flex; flex-direction: column; gap: 18px; list-style: none; margin: 6px 0 20px; max-height: 280px; overflow-y: auto; padding: 0 2px 0 0; }
+.counterLabel { align-items: baseline; display: flex; gap: 8px; justify-content: space-between; margin-bottom: 8px; }
+.counterLabel > span { color: #475569; font-size: 11px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.counterLabel strong { color: #059669; flex-shrink: 0; font-size: 11px; font-weight: 700; }
+.counterLabel .unknownValue { color: #94a3b8; font-size: 9px; font-weight: 500; }
+.progressTrack { background: #eef2f7; border-radius: 5px; height: 6px; overflow: hidden; width: 100%; }
+.progressTrack > span { background: linear-gradient(90deg, #34d399, #10b981); border-radius: inherit; display: block; height: 100%; transition: width .3s; }
+.counterReason { color: #94a3b8; font-size: 9px; line-height: 1.6; margin: 6px 0 0; overflow-wrap: anywhere; }
+.tablePanel { margin-top: 17px; }
+.tableWrap { min-width: 0; overflow-x: auto; width: 100%; }
+.tableWrap:focus-visible { outline: 2px solid #93c5fd; outline-offset: -2px; }
+.counterTable { border-collapse: collapse; min-width: 690px; text-align: left; width: 100%; }
+.counterTable caption { caption-side: bottom; color: #94a3b8; font-size: 9px; line-height: 1.7; padding: 12px 0 0; text-align: left; }
+.counterTable thead { background: #f8fafc; }
+.counterTable th, .counterTable td { border-bottom: 1px solid #edf1f6; font-size: 11px; line-height: 1.6; padding: 12px 11px; }
+.counterTable thead th { color: #7b8799; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.counterTable tbody th { color: #475569; font-weight: 600; }
+.counterTable tbody th i { color: #94a3b8; margin-right: 8px; }
+.counterTable td { color: #64748b; }
+.counterTable tbody tr:last-child th, .counterTable tbody tr:last-child td { border-bottom: 0; }
+.counterTable .tableEmpty { color: #94a3b8; height: 120px; text-align: center; }
+.counterStatus { align-items: center; border-radius: 5px; display: inline-flex; font-size: 9px; font-weight: 500; gap: 5px; padding: 4px 7px; white-space: nowrap; }
+.counterStatus > span { background: currentColor; border-radius: 50%; height: 4px; width: 4px; }
+.enabledStatus { background: #ecfdf5; color: #059669; }
+.disabledStatus { background: #fff1f2; color: #e11d48; }
+.unknownStatus { background: #f1f5f9; color: #94a3b8; }
+.dataNotes { background: #f8fafc; border: 1px solid #e8edf4; border-radius: 9px; color: #7b8799; font-size: 10px; line-height: 1.8; margin-top: 17px; padding: 10px 13px; }
+.dataNotes summary { color: #64748b; cursor: pointer; font-size: 10px; font-weight: 500; }
+.dataNotes summary i { margin-right: 6px; }
+.dataNotes ul { list-style: disc; margin: 9px 0 0; padding-left: 19px; }
+.dataNotes li + li { margin-top: 5px; }
+@media (max-width: 1100px) {
+  .header { gap: 15px; }
+  .filters { flex: 1 1 100%; }
+  .metricCard { padding: 12px 10px; }
+  .metricIcon { font-size: 10px; height: 23px; width: 23px; }
+  .panel { padding: 16px 14px 13px; }
+}
+@media (max-width: 900px) {
+  .metricsGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .panelGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metricValue { font-size: 29px; }
+  .missingMetric { font-size: 13px; }
+}
+@media (max-width: 620px) {
+  .heading h2 { font-size: 23px; }
+  .heading p { font-size: 11px; }
+  .metricsGrid { gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metricCard { padding: 12px; }
+  .metricTop h3 { font-size: 10px; }
+  .panelGrid { gap: 14px; grid-template-columns: minmax(0, 1fr); }
+  .panel { border-radius: 11px; padding: 15px 13px 12px; }
+  .panelTitle h3 { font-size: 13px; }
+  .chartSurface { height: 235px; }
+  .doughnutSurface { height: 195px; }
+  .doughnutWrap { max-width: 225px; }
+  .rangeBar { font-size: 9px; }
+  .errorBanner { flex-wrap: wrap; }
+  .errorBanner > span { flex-basis: calc(100% - 28px); }
+  .tablePanel { margin-top: 14px; }
+  .listPlaceholder { min-height: 190px; }
+}
+@media (max-width: 380px) {
+  .filters { gap: 8px; }
+  .filters label { flex: 1 1 calc(50% - 8px); }
+  .filters input, .filters input[type="date"], .filters input[type="time"], .filters select { width: 100%; }
+  .applyButton, .refreshButton { flex: 1 1 calc(50% - 8px); }
+  .metricCard { padding: 11px 9px; }
+  .metricValue { font-size: 27px; }
+  .missingMetric { font-size: 12px; }
+  .counterLabel { align-items: flex-start; }
+}

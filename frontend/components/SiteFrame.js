@@ -46,6 +46,19 @@ export default function SiteFrame({
     )
   );
 
+  if (showSidebar && user?.role === 'superadmin') {
+    sidebarLinks = [
+      { href: '/?section=home', icon: 'fas fa-home', label: 'Dashboard' },
+      { href: '/?section=queue', icon: 'fas fa-list', label: 'Queue Management' },
+      { href: '/?section=home#doctor-monitoring', icon: 'fas fa-user-md', label: 'Doctor & Counter Monitoring' },
+      { href: '/records', icon: 'fas fa-folder', label: 'Records' },
+      { href: '/records?category=patients', icon: 'fas fa-history', label: '  Patients' },
+      { href: '/records?category=staff', icon: 'fas fa-id-card', label: '  Staff' },
+      { href: '/records?category=accounts', icon: 'fas fa-users', label: '  User Accounts' },
+      { href: '/analytics', icon: 'fas fa-chart-bar', label: 'Analytics' },
+      ...(!onSettings ? [{ href: '/?section=settings', icon: 'fas fa-cog', label: 'Settings' }] : [])
+    ];
+  }
   const toggleSidebar = () => setSidebarOpen((current) => !current);
   const toggleProfileMenu = () => setProfileMenuOpen((current) => !current);
 

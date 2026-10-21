@@ -134,7 +134,7 @@ test("completed, cancelled and no-show records expose ticket recovery independen
   }
 });
 
-test("all registered patients search recovers tickets beyond the active preview without changing the callable head", async () => {
+test("all and active patient searches recover tickets beyond 20 rows without changing the callable head", async () => {
   const rows = Array.from({ length: 25 }, (_, index) => patient(index + 1));
   rows.push(patient(26, { status: "completed", counter_id: "Doctor 1" }));
   const opened = [];
@@ -149,7 +149,8 @@ test("all registered patients search recovers tickets beyond the active preview 
   assert.equal(buttons(h.render(), "Call Now").length, 0);
   assert.deepEqual(h.requests, [], "recovery never registers or changes queue state");
   h.props.statusFilter = "active";
-  assert.equal(buttons(h.render(), "View Ticket").length, 0, "the existing active preview limit is preserved");
+  assert.equal(buttons(h.render(), "View Ticket").length, 1, "active search includes matching patients beyond the first 20 rows");
+  assert.equal(buttons(h.render(), "Call Now").length, 0, "finding a lower-priority patient does not make them callable");
 });
 
 test("ticket controls stay absent without a staff callback and show disabled loading state", () => {

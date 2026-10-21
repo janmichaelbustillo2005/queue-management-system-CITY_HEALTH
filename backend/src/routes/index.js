@@ -23,6 +23,7 @@ const {
   getServingPatientForDoctor,
   createQueueEntry,
   getAnalytics,
+  getDashboardStats,
   getDisplayData,
   getCounters,
   getPatientById,
@@ -473,6 +474,16 @@ router.put("/settings", authenticateToken, authorizeRole(["superadmin"]), async 
   }
 });
 
+router.get("/stats/dashboard", authenticateToken, authorizeRole(["superadmin"]), async (_req, res) => {
+  try {
+    const data = await getDashboardStats();
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
 router.get("/stats", async (_req, res) => {
   try {
     const data = await getQueueStats();
@@ -504,6 +515,28 @@ router.get("/transactions", authenticateToken, authorizeRole(["superadmin"]), as
     res.json({ success: true, ...data });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/analytics/daily-trends", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const { getDailyTrends } = require("../services/dailyTrendsService");
+    const data = await getDailyTrends(req.query);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(error.statusCode || 503).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/analytics/status", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const { getStatusAnalytics } = require("../services/statusAnalyticsService");
+    const data = await getStatusAnalytics(req.query);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(error.statusCode || 503).json({ success: false, message: error.message });
   }
 });
 

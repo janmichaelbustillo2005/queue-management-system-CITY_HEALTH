@@ -50,10 +50,8 @@ RETURNS public.patients
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $function$
 DECLARE
   v_patient public.patients%ROWTYPE;
-  v_counter public.counters%ROWTYPE;
   v_role TEXT;
   v_updated_count INTEGER;
-  v_counter_count INTEGER;
 BEGIN
   IF p_patient_id IS NULL OR p_patient_id <= 0 OR p_action IS NULL
       OR p_action NOT IN ('requeue', 'undo') OR p_expected_revision IS NULL
@@ -68,14 +66,6 @@ BEGIN
     RAISE EXCEPTION 'An authenticated staff account is required for recovery' USING ERRCODE = '42501';
   END IF;
 
-  IF p_action = 'undo' THEN
-    -- Match the lifecycle counter-before-patient lock order. Lock the small
-    -- canonical counter set deterministically before choosing the first free
-    -- online counter, preserving the legacy selection rule for Phase 2.2.
-    PERFORM c.id FROM public.counters AS c
-      WHERE c.id_num IN ('Doctor 1', 'Doctor 2', 'Doctor 3')
-      ORDER BY c.id FOR UPDATE;
-  END IF;
   SELECT p.* INTO v_patient FROM public.patients AS p
     WHERE p.id = p_patient_id FOR UPDATE;
   IF NOT FOUND THEN
@@ -116,22 +106,8 @@ BEGIN
     RAISE EXCEPTION 'Unable to recover the expected patient visit';
   END IF;
 
-  IF p_action = 'undo' THEN
-    SELECT c.* INTO v_counter FROM public.counters AS c
-      WHERE c.id_num IN ('Doctor 1', 'Doctor 2', 'Doctor 3')
-        AND c.is_online AND c.current_patient_id IS NULL
-      ORDER BY c.id LIMIT 1;
-    IF FOUND THEN
-      UPDATE public.counters AS c SET current_patient_id = p_patient_id
-        WHERE c.id = v_counter.id AND c.is_online AND c.current_patient_id IS NULL;
-      GET DIAGNOSTICS v_counter_count = ROW_COUNT;
-      IF v_counter_count <> 1 OR NOT EXISTS (
-          SELECT 1 FROM public.counters AS c
-          WHERE c.id = v_counter.id AND c.current_patient_id = p_patient_id) THEN
-        RAISE EXCEPTION 'Unable to reserve the recovery counter';
-      END IF;
-    END IF;
-  END IF;
+  -- Preserve local Frontdesk recovery: waiting visits claim their assigned
+  -- service's counter only when Call Now succeeds. Undo reserves no counter.
   RETURN v_patient;
 END;
 $function$;

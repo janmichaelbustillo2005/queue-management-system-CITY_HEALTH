@@ -43,6 +43,7 @@ app.use((req, _res, next) => {
   next();
 });
 
+app.use("/api/records", require("./routes/records"));
 app.use("/api", routes);
 
 app.use((error, _req, res, _next) => {

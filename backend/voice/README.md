@@ -41,10 +41,18 @@ Directly invoking `.venv-voice\Scripts\python.exe` avoids virtual-environment ac
 Start the service in a terminal and keep it open:
 
 ```powershell
-.\.venv-voice\Scripts\python.exe backend\voice\pyttsx3_tts_service.py
+.\start-voice.cmd
 ```
 
-The startup line should include `listening on http://127.0.0.1:8765` and `dry_run=False`. Stop it with `Ctrl+C` in that terminal.
+You can also double-click `start-voice.cmd` in the project root. The launcher checks `/health?init=1` and reuses an existing ready `pyttsx3` service only when `dry_run` is `False` and `last_error` is empty. Otherwise it checks the project-local Python dependencies and initializes Windows speech without speaking before starting the service in the current terminal. It does not install dependencies, stop other processes, or configure automatic startup. Launcher and service diagnostics stay in that terminal.
+
+The startup line should include `listening on http://127.0.0.1:8765` and `dry_run=False`. Keep that terminal open; stop the service with `Ctrl+C` there. Backend and frontend startup do not start this separate Python process. Run the launcher again after rebooting or closing its terminal.
+
+The `.cmd` wrapper permits its bundled PowerShell script for that invocation only; it does not change the machine's execution policy. For direct Python startup or custom speech options, use:
+
+```powershell
+.\.venv-voice\Scripts\python.exe backend\voice\pyttsx3_tts_service.py
+```
 
 In another PowerShell terminal, request engine initialization and inspect the response:
 
@@ -100,8 +108,10 @@ On initial page load, events older than the page opening time are seeded as hist
 If port 8765 is already used by another application, choose another local port, for example 8766:
 
 ```powershell
-.\.venv-voice\Scripts\python.exe backend\voice\pyttsx3_tts_service.py --port 8766
+.\start-voice.cmd -Port 8766
 ```
+
+The launcher also accepts `-BindHost` (default `127.0.0.1`) and honors `PYTTSX3_TTS_HOST` and `PYTTSX3_TTS_PORT` from the current terminal when those arguments are omitted. It does not read either application's `.env` file; the frontend URL must match the chosen service address.
 
 Add or update this line in the frontend's local environment file, `frontend/.env`:
 

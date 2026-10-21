@@ -272,8 +272,100 @@ async function getQueueStats() {
   };
 }
 
+function summarizeDashboardDay(patients, start, end, observedAt) {
+  const summary = { total_tokens: 0, served_tokens: 0, average_wait_minutes: null, wait_samples: 0, walk_ins: 0 };
+  let totalWaitMinutes = 0;
+  const withinDay = (timestamp) => Number.isFinite(timestamp) && timestamp >= start && timestamp < end && timestamp <= observedAt;
+
+  for (const patient of patients) {
+    if (withinDay(Date.parse(patient.created_at))) {
+      summary.total_tokens += 1;
+      // The staff registration route stores "admin"; website and untracked
+      // legacy sources cannot establish a front-desk walk-in registration.
+      if (patient.source === "admin") summary.walk_ins += 1;
+    }
+    if (patient.status === "completed" && withinDay(Date.parse(patient.completed_at))) {
+      summary.served_tokens += 1;
+    }
+    if (!["serving", "completed"].includes(patient.status) || !withinDay(Date.parse(patient.called_at))) continue;
+    const created = timestampMicroseconds(patient.created_at);
+    const called = timestampMicroseconds(patient.called_at);
+    if (created == null || called == null || called < created) continue;
+    totalWaitMinutes += Number(called - created) / 60000000;
+    summary.wait_samples += 1;
+  }
+  if (summary.wait_samples) summary.average_wait_minutes = totalWaitMinutes / summary.wait_samples;
+  return summary;
+}
+
+async function getDashboardStats() {
+  const observedAt = new Date();
+  const observedMilliseconds = observedAt.getTime();
+  const manilaOffset = 8 * 60 * 60 * 1000;
+  const dayMilliseconds = 24 * 60 * 60 * 1000;
+  // Manila business days use UTC+08:00, independently of the backend host's
+  // timezone. Keep the legacy queue/analytics date behavior unchanged.
+  const todayDate = new Date(observedMilliseconds + manilaOffset).toISOString().slice(0, 10);
+  const todayStart = Date.parse(`${todayDate}T00:00:00+08:00`);
+  const yesterdayStart = todayStart - dayMilliseconds;
+  const yesterdayDate = new Date(yesterdayStart + manilaOffset).toISOString().slice(0, 10);
+  let patients = localData.patients;
+
+  if (!useLocalFallback) {
+    try {
+      // Read each event date so calls/completions of an overnight visit are
+      // counted on the day they happen. Pages avoid PostgREST's row cap.
+      const pageSize = 500;
+      const groups = await Promise.all(["created_at", "called_at", "completed_at"].map(async (column) => {
+        const rows = [];
+        for (let offset = 0; ; offset += pageSize) {
+          const { data, error } = await supabase.from("patients")
+            .select("id, source, status, created_at, called_at, completed_at")
+            .gte(column, new Date(yesterdayStart).toISOString())
+            .lte(column, observedAt.toISOString())
+            .order("id", { ascending: true })
+            .range(offset, offset + pageSize - 1);
+          if (error) throw error;
+          rows.push(...(data || []));
+          if (!data || data.length < pageSize) return rows;
+        }
+      }));
+      patients = [...new Map(groups.flat().map((patient) => [patient.id, patient])).values()];
+    } catch (error) {
+      // A configured database fails closed rather than showing empty memory.
+      enableLocalFallback(error);
+      patients = localData.patients;
+    }
+  }
+
+  // Requeue intentionally resets created_at in the existing workflow. These
+  // totals follow the persisted visit date; no issuance history is invented.
+  return {
+    observed_at: observedAt.toISOString(),
+    time_zone: "Asia/Manila",
+    today_date: todayDate,
+    yesterday_date: yesterdayDate,
+    today: summarizeDashboardDay(patients, todayStart, todayStart + dayMilliseconds, observedMilliseconds),
+    yesterday: summarizeDashboardDay(patients, yesterdayStart, todayStart, observedMilliseconds)
+  };
+}
+
 async function getQueueOverview() {
-  const [patients, counters] = await Promise.all([getTodayPatients(), getCounters()]);
+  const [todayPatients, counters] = await Promise.all([getTodayPatients(), getCounters()]);
+  const patientsById = new Map(todayPatients.map((patient) => [patient.id, patient]));
+  if (!useLocalFallback) {
+    // A previous day's unfinished visit still owns its doctor slot.
+    try {
+      const { data, error } = await supabase.from("patients").select("*").eq("status", "serving");
+      if (error) throw error;
+      for (const patient of data || []) {
+        patientsById.set(patient.id, parsePatientPriority(patient));
+      }
+    } catch (error) {
+      enableLocalFallback(error);
+    }
+  }
+  const patients = Array.from(patientsById.values());
   const settings = getQueueSettings();
 
   return {
@@ -493,35 +585,6 @@ async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, p
   }
 
   throw lastError || new Error("Failed to generate a unique queue number after multiple attempts.");
-}
-
-async function assignCounter(patientId) {
-  const counters = await getCounters();
-  const availableCounter = counters.find((counter) => counter.is_online && !counter.current_patient_id);
-
-  if (!availableCounter) {
-    return null;
-  }
-
-  if (useLocalFallback) {
-    const counterIndex = localData.counters.findIndex(c => c.id_num === availableCounter.id_num);
-    if (counterIndex !== -1) {
-      localData.counters[counterIndex].current_patient_id = patientId;
-      return localData.counters[counterIndex];
-    }
-    return null;
-  }
-
-  const { error } = await supabase
-    .from("counters")
-    .update({ current_patient_id: patientId })
-    .eq("id", availableCounter.id);
-
-  if (error) {
-    throw formatError(error, "Failed to assign counter");
-  }
-
-  return availableCounter;
 }
 
 async function getPatientById(id) {
@@ -1214,6 +1277,7 @@ async function undoPatientAction(patientId, actor) {
     throw new Error("Only completed, cancelled, or no-show patients can be undone");
   }
 
+  // Waiting patients claim their service's doctor only when Call Now succeeds.
   return recoverPatientVisit(existing, "undo", actor);
 }
 
@@ -2148,6 +2212,7 @@ module.exports = {
   createQueueEntry,
   findActiveDuplicate,
   getAnalytics,
+  getDashboardStats,
   getCounters,
   getDisplayData,
   getDisplaySettings,

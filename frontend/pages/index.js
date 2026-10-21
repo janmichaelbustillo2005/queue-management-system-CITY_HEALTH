@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
@@ -63,6 +62,75 @@ function areSettingsEqual(left = {}, right = {}) {
   return leftKeys.every((key) => left[key] === right[key]);
 }
 
+function formatDashboardChange(current, previous) {
+  if (!Number.isFinite(current)) return "No data yet";
+  if (!Number.isFinite(previous) || (previous === 0 && current !== 0)) return "No prior baseline";
+  const change = previous === 0 ? 0 : ((current - previous) / previous) * 100;
+  const rounded = Number(change.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}% vs yesterday`;
+}
+
+function isDashboardSummary(data) {
+  if (data?.time_zone !== "Asia/Manila" || !Number.isFinite(Date.parse(data?.observed_at)) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(data?.today_date || "") ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(data?.yesterday_date || "")) return false;
+  return [data.today, data.yesterday].every((day) => day &&
+    ["total_tokens", "served_tokens", "walk_ins", "wait_samples"].every((key) =>
+      Number.isInteger(day[key]) && day[key] >= 0) &&
+    (day.average_wait_minutes === null ||
+      (Number.isFinite(day.average_wait_minutes) && day.average_wait_minutes >= 0)));
+}
+
+function buildDashboardCards(summary, counters, doctorPresence, now) {
+  const today = summary?.today;
+  const yesterday = summary?.yesterday;
+  const countValue = (value) => Number.isFinite(value) ? value.toLocaleString("en-US") : "—";
+  const comparison = (key) => today ? formatDashboardChange(today[key], yesterday?.[key]) : "Awaiting statistics";
+  const enabledCounters = Array.isArray(counters) ? counters.filter((counter) => counter.is_online === true) : [];
+  const counterPresence = enabledCounters.map((counter) =>
+    doctorPresenceStatus(doctorPresence, counter.id_num || counter.name, now).label);
+  const countersKnown = Array.isArray(counters) && !counterPresence.includes("Unknown");
+  const active = counterPresence.filter((label) => label === "Online").length;
+  const total = Array.isArray(counters) ? counters.length : null;
+  const operational = total ? (active / total) * 100 : 0;
+
+  return [
+    {
+      key: "total", title: "Total Tokens Today", value: countValue(today?.total_tokens),
+      comparison: comparison("total_tokens"), icon: "fas fa-file-lines",
+      gradient: "linear-gradient(135deg, #2563eb, #1e40af)",
+      description: "Queue registrations today, compared with the full previous day. Dates use Asia/Manila."
+    },
+    {
+      key: "served", title: "Served Tokens", value: countValue(today?.served_tokens),
+      comparison: comparison("served_tokens"), icon: "fas fa-circle-check",
+      gradient: "linear-gradient(135deg, #16a34a, #15803d)",
+      description: "Completed tokens by completion date, including visits registered on earlier days."
+    },
+    {
+      key: "waiting", title: "Average Waiting Time",
+      value: Number.isFinite(today?.average_wait_minutes) ? `${today.average_wait_minutes.toFixed(1)} min` : "—",
+      comparison: today ? (Number.isFinite(today.average_wait_minutes)
+        ? formatDashboardChange(today.average_wait_minutes, yesterday?.average_wait_minutes) : "No calls yet") : "Awaiting statistics",
+      icon: "fas fa-clock", gradient: "linear-gradient(135deg, #ea580c, #c2410c)",
+      description: "Registration to call, averaged over serving/completed tokens called today. Cancelled and no-show visits are excluded."
+    },
+    {
+      key: "counters", title: "Active Counters",
+      value: countersKnown ? `${countValue(active)}/${countValue(total)}` : total === null ? "—" : `—/${countValue(total)}`,
+      comparison: countersKnown ? `${operational.toFixed(1)}% operational` : total === null ? "Counters unavailable" : "Presence unavailable",
+      icon: "fas fa-users", gradient: "linear-gradient(135deg, #9333ea, #6b21a8)",
+      description: "Enabled counters with a verified online doctor session. Counters serving a patient remain active."
+    },
+    {
+      key: "walkins", title: "No. of Walk-ins", value: countValue(today?.walk_ins),
+      comparison: comparison("walk_ins"), icon: "fas fa-person-walking",
+      gradient: "linear-gradient(135deg, #0891b2, #0e7490)",
+      description: "Registered at the front desk: tokens stored with source admin. Website registrations are excluded."
+    }
+  ];
+}
+
 export default function HomePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -70,6 +138,11 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(defaultSettings);
   const [stats, setStats] = useState({ waiting: 0, serving: 0, completed: 0, today_total_patients: 0 });
+  const [dashboardSummary, setDashboardSummary] = useState(null);
+  const [dashboardStatsError, setDashboardStatsError] = useState("");
+  const [dashboardCountersReady, setDashboardCountersReady] = useState(false);
+  const dashboardGenerationRef = useRef(0);
+  const dashboardRequestRef = useRef(null);
   const [queueRows, setQueueRows] = useState([]);
   const [counters, setCounters] = useState([]);
   const [doctorPresence, setDoctorPresence] = useState(null);
@@ -138,6 +211,9 @@ export default function HomePage() {
   }));
   const verifiedPresence = doctorStatuses.every((doctor) => doctor.label !== "Unknown");
   const onlineDoctorCount = doctorStatuses.filter((doctor) => doctor.label === "Online").length;
+  const dashboardCards = buildDashboardCards(
+    dashboardSummary, dashboardCountersReady ? counters : null, doctorPresence, presenceNow
+  );
 
   const inconsistentServing = queueRows.filter((patient) => {
     if (patient.status !== "serving") return false;
@@ -161,7 +237,8 @@ export default function HomePage() {
 
   useEffect(() => {
     if (router.isReady) {
-      if (router.query.section === "queue") {
+      if (router.query.section === "settings") { setSettingsOpen(true);
+      } else if (router.query.section === "queue") {
         setActiveSection("queue");
       } else if (router.query.section === "home") {
         setActiveSection("home");
@@ -219,6 +296,22 @@ export default function HomePage() {
   }, [settings.autoRefresh, settings.refreshInterval, user?.id_num, user?.role]);
 
   useEffect(() => {
+    dashboardGenerationRef.current += 1;
+    setDashboardSummary(null);
+    setDashboardStatsError("");
+    setDashboardCountersReady(false);
+    if (user?.role !== "superadmin") return undefined;
+    refreshDashboardStats();
+    // Only the new summary cards keep refreshing when queue auto-refresh is paused.
+    const timer = setInterval(refreshDashboardStats, 5000);
+    return () => {
+      dashboardGenerationRef.current += 1;
+      dashboardRequestRef.current?.controller.abort();
+      clearInterval(timer);
+    };
+  }, [user?.id_num, user?.role]);
+
+  useEffect(() => {
     presenceGenerationRef.current += 1;
     setDoctorPresence(null);
     if (user?.role !== "superadmin") return undefined;
@@ -246,6 +339,7 @@ export default function HomePage() {
 
   async function refreshAll() {
     refreshDoctorPresence();
+    refreshDashboardStats();
     try {
       const [queueData, statsData] = await Promise.all([request("/queue"), request("/stats")]);
       
@@ -253,11 +347,13 @@ export default function HomePage() {
         setError(queueData.error);
         setQueueRows([]);
         setCounters([]);
+        setDashboardCountersReady(false);
         return;
       }
       
       setQueueRows(queueData.patients || []);
       setCounters(queueData.counters || []);
+      setDashboardCountersReady(Array.isArray(queueData.counters));
       if (queueData.queue_settings) {
         setSettings((prev) => {
           const next = applyCounterAvailability(
@@ -278,6 +374,35 @@ export default function HomePage() {
     }
   }
 
+  async function refreshDashboardStats() {
+    if (user?.role !== "superadmin") return;
+    const generation = dashboardGenerationRef.current;
+    if (dashboardRequestRef.current?.generation === generation) return;
+    const controller = new AbortController();
+    const pending = { generation, controller };
+    dashboardRequestRef.current = pending;
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await request("/stats/dashboard", { signal: controller.signal, cache: "no-store" });
+      if (generation !== dashboardGenerationRef.current) return;
+      if (response?.success !== true || !isDashboardSummary(response.data)) {
+        throw new Error(response?.error || response?.message || "Dashboard statistics are unavailable. Retrying automatically.");
+      }
+      setDashboardSummary(response.data);
+      setDashboardStatsError("");
+    } catch (statsError) {
+      if (generation === dashboardGenerationRef.current) {
+        setDashboardSummary(null);
+        setDashboardStatsError(statsError?.name === "AbortError"
+          ? "Dashboard statistics timed out. Retrying automatically."
+          : statsError.message || "Dashboard statistics are unavailable. Retrying automatically.");
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (dashboardRequestRef.current === pending) dashboardRequestRef.current = null;
+    }
+  }
+
   async function refreshDoctorPresence() {
     if (user?.role !== "superadmin") return;
     const generation = presenceGenerationRef.current;
@@ -293,7 +418,10 @@ export default function HomePage() {
       setPresenceNow(now);
       const snapshot = captureDoctorPresence(data, now);
       setDoctorPresence(snapshot);
-      if (snapshot && Array.isArray(data.counters)) setCounters(data.counters);
+      if (snapshot && Array.isArray(data.counters)) {
+        setCounters(data.counters);
+        setDashboardCountersReady(true);
+      }
     } catch {
       if (generation === presenceGenerationRef.current) setDoctorPresence(null);
     } finally {
@@ -553,44 +681,92 @@ export default function HomePage() {
             <i className="fas fa-home mr-2 md:mr-3 brand-text-primary" />
             Superadmin Dashboard
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-6">
-            <div
-              className="bg-white border brand-border rounded-lg p-3 md:p-6 card-hover cursor-pointer shadow-sm"
-              onClick={() => setActiveSection("queue")}
-            >
-              <div className="flex items-center justify-between gap-2 md:gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-sm md:text-lg font-bold brand-text mb-0.5 md:mb-1 truncate">Queue Management</h3>
-                  <p className="text-[10px] md:text-xs brand-text-muted truncate">Manage patient queues</p>
+          <div className="dashboard-stat-grid" aria-label="Today's queue statistics">
+            {dashboardCards.map((card) => (
+              <article key={card.key} className="dashboard-stat-card" aria-label={card.title}
+                title={card.description} style={{ background: card.gradient }}>
+                <div className="dashboard-stat-copy">
+                  <h3 className="dashboard-stat-title">{card.title}</h3>
+                  <p className="dashboard-stat-value">{card.value}</p>
+                  <p className="dashboard-stat-comparison">
+                    {dashboardStatsError && card.key !== "counters" ? "Statistics unavailable" : card.comparison}
+                  </p>
                 </div>
-                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full brand-bg-subtle flex items-center justify-center brand-text-primary shrink-0">
-                  <i className="fas fa-users text-base md:text-xl" />
-                </div>
-              </div>
-            </div>
-            <Link href="/analytics" className="bg-white border brand-border rounded-lg p-3 md:p-6 card-hover cursor-pointer no-underline shadow-sm">
-              <div className="flex items-center justify-between gap-2 md:gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-sm md:text-lg font-bold brand-text mb-0.5 md:mb-1 truncate">Analytics</h3>
-                  <p className="text-[10px] md:text-xs brand-text-muted truncate">View statistics</p>
-                </div>
-                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full brand-bg-subtle flex items-center justify-center brand-text-primary shrink-0">
-                  <i className="fas fa-chart-bar text-base md:text-xl" />
-                </div>
-              </div>
-            </Link>
-            <Link href="/records" className="bg-white border brand-border rounded-lg p-3 md:p-6 card-hover cursor-pointer no-underline shadow-sm">
-              <div className="flex items-center justify-between gap-2 md:gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-sm md:text-lg font-bold brand-text mb-0.5 md:mb-1 truncate">Records</h3>
-                  <p className="text-[10px] md:text-xs brand-text-muted truncate">View history</p>
-                </div>
-                <div className="w-9 h-9 md:w-12 md:h-12 rounded-full brand-bg-subtle flex items-center justify-center brand-text-primary shrink-0">
-                  <i className="fas fa-folder text-base md:text-xl" />
-                </div>
-              </div>
-            </Link>
+                <span className="dashboard-stat-icon" aria-hidden="true"><i className={card.icon} /></span>
+              </article>
+            ))}
           </div>
+          {dashboardStatsError ? <p className="dashboard-stat-error" role="status">{dashboardStatsError}</p> : null}
+          <style jsx>{`
+            .dashboard-stat-grid {
+              display: grid;
+              grid-template-columns: repeat(5, minmax(0, 1fr));
+              gap: 12px;
+            }
+            .dashboard-stat-card {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              min-width: 0;
+              min-height: 144px;
+              padding: 16px 14px;
+              border-radius: 14px;
+              color: #fff;
+              box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+            }
+            .dashboard-stat-copy { flex: 1; min-width: 0; }
+            .dashboard-stat-title {
+              margin: 0 0 8px;
+              min-height: 30px;
+              color: #fff;
+              font-size: 11px;
+              font-weight: 600;
+              line-height: 1.35;
+            }
+            .dashboard-stat-value {
+              margin: 0 0 8px;
+              min-height: 32px;
+              color: #fff;
+              font-size: clamp(22px, 2vw, 28px);
+              font-weight: 700;
+              line-height: 1.15;
+              font-variant-numeric: tabular-nums;
+              overflow-wrap: anywhere;
+            }
+            .dashboard-stat-comparison {
+              margin: 0;
+              min-height: 29px;
+              color: rgba(255, 255, 255, 0.95);
+              font-size: 10px;
+              line-height: 1.4;
+              overflow-wrap: anywhere;
+            }
+            .dashboard-stat-icon {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+              width: 34px;
+              height: 34px;
+              border-radius: 10px;
+              background: rgba(255, 255, 255, 0.2);
+              font-size: 17px;
+            }
+            .dashboard-stat-error { margin: 8px 0 0; color: #b91c1c; font-size: 12px; }
+            @media (max-width: 1199px) {
+              .dashboard-stat-card { padding: 14px 12px; gap: 8px; }
+              .dashboard-stat-icon { width: 30px; height: 30px; font-size: 15px; }
+            }
+            @media (max-width: 1023px) {
+              .dashboard-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            }
+            @media (max-width: 639px) {
+              .dashboard-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+            }
+            @media (max-width: 359px) {
+              .dashboard-stat-grid { grid-template-columns: minmax(0, 1fr); }
+            }
+          `}</style>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
@@ -1090,7 +1266,7 @@ export default function HomePage() {
               )}
 
               <div className="mb-3">
-                <h3 className="text-sm font-semibold brand-text mb-2">Doctor / Counter Status</h3>
+                <h3 id="doctor-monitoring" className="text-sm font-semibold brand-text mb-2">Doctor / Counter Status</h3>
                 {!verifiedPresence && <p className="text-xs brand-text-muted mb-2">Doctor session status cannot currently be verified. Presence is shown as Unknown until a fresh server update arrives.</p>}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
                   {doctorStatuses.map(({ doctorName, label, lastSeenAt }) => {

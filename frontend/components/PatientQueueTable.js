@@ -43,21 +43,17 @@ function compareQueue(a, b) {
 // cancellations still inside the Undo window (hidden once the doctor calls the next patient).
 function buildActiveQueue(queueRows, doctorName) {
   const queue = (queueRows ?? []).filter((row) => {
-    if (row.status === "completed") return false;
-    if (row.counter_id === doctorName) return true;
-    if (row.status === "waiting" && matchesDoctor(row.service_type, doctorName)) return true;
-    if (row.status === "cancelled" && matchesDoctor(row.service_type, doctorName)) return true;
-    return false;
+    return ["waiting", "serving", "cancelled", "no-show"].includes(row.status) && belongsToDoctor(row, doctorName);
   });
 
-  const hasActiveServing = queue.some((row) => row.status === "serving" && row.counter_id === doctorName);
+  const hasActiveServing = queue.some((row) => row.status === "serving");
 
   const rows = queue.filter((row) => {
     if (row.status === "cancelled") return !hasActiveServing;
     return true;
   });
 
-  return rows.slice().sort(compareQueue).slice(0, 20);
+  return rows.slice().sort(compareQueue);
 }
 
 function isDoctorOnline(counters, queueSettings, doctorName) {
@@ -92,14 +88,24 @@ export default function PatientQueueTable({
     for (const doctor of doctors) {
       const activeRows = buildActiveQueue(queueRows, doctor.name);
       const serving = activeRows.find((row) => row.status === "serving");
+      const counter = (counters ?? []).find((item) => item.id_num === doctor.name);
+      const activePatientId = serving?.id ?? activeRows.find((row) => row.status === "waiting")?.id ?? null;
+      const online = isDoctorOnline(counters, queueSettings, doctor.name);
+      const callBlockedReason = !online
+        ? `${doctor.name} is offline.`
+        : counter?.current_patient_id != null && counter.current_patient_id !== activePatientId
+          ? `${doctor.name} is assigned to ${counter.current_patient_queue_number || "another patient"}.`
+          : "";
       states[doctor.name] = {
         activeRows,
+        serving,
         // Only the head of each doctor's queue (serving first, else first waiting) may be acted on
-        activePatientId: serving?.id ?? activeRows.find((row) => row.status === "waiting")?.id ?? null,
+        activePatientId,
         undoableIds: new Set(
           activeRows.filter((row) => ["cancelled", "no-show"].includes(row.status)).map((row) => row.id)
         ),
-        online: isDoctorOnline(counters, queueSettings, doctor.name)
+        online,
+        callBlockedReason
       };
     }
     return states;
@@ -145,7 +151,7 @@ export default function PatientQueueTable({
     const total = { waiting: 0, serving: 0, completed: 0, cancelled: 0 };
     for (const { name } of doctors) {
       total.waiting += rows.filter((row) => row.status === "waiting" && matchesDoctor(row.service_type, name)).length;
-      total.serving += rows.filter((row) => row.status === "serving" && row.counter_id === name).length;
+      total.serving += rows.filter((row) => row.status === "serving" && belongsToDoctor(row, name)).length;
       total.completed += rows.filter((row) => row.status === "completed" && row.counter_id === name).length;
       total.cancelled += rows.filter((row) => row.status === "cancelled" && belongsToDoctor(row, name)).length;
     }
@@ -255,7 +261,10 @@ export default function PatientQueueTable({
     const calling = callingDoctors.has(doctorName);
     if (row.status === "waiting") {
       if (!isHead(row, doctorName)) {
-        return <span className="text-[11px] brand-text-muted font-semibold italic px-1">Waiting for turn</span>;
+        const serving = doctorStates[doctorName].serving;
+        return <span className="text-[11px] brand-text-muted font-semibold italic px-1">
+          {serving ? `Serving ${serving.queue_number}` : "Waiting for turn"}
+        </span>;
       }
       return (
         <>
@@ -263,6 +272,7 @@ export default function PatientQueueTable({
             type="button"
             onClick={() => handleCall(row, doctorName)}
             disabled={calling || !doctorStates[doctorName].online || (counters ?? []).some((counter) => counter.id_num === doctorName && counter.current_patient_id != null && counter.current_patient_id !== row.id)}
+            title={doctorStates[doctorName].callBlockedReason || "Call this patient"}
             aria-busy={calling}
             className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
@@ -374,6 +384,9 @@ export default function PatientQueueTable({
                   </td>
                   <td className="px-4 py-4">
                     <div className="font-semibold brand-text truncate" title={row.id_num}>{row.id_num}</div>
+                    {row.created_at && (
+                      <div className="text-[10px] brand-text-muted mt-1">Registered {new Date(row.created_at).toLocaleDateString()}</div>
+                    )}
                     <div className="flex flex-wrap gap-2 mt-1">
                       {row.sex && (
                         <span className="text-[10px] brand-bg-subtle brand-text-primary px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">

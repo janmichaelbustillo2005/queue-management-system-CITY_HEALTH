@@ -1,319 +1,77 @@
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/router";
-import { useAuth } from "../context/AuthContext";
-import SiteFrame from "../components/SiteFrame";
-import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
-import { request } from "../lib/api";
-import {
-  clearActiveQueues,
-  exportQueueData,
-  fetchQueueSettings,
-  loadLocalQueueSettings,
-  saveQueueSettings as persistQueueSettings
-} from "../lib/queueSettings";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { useAuth } from '../context/AuthContext';
+import SiteFrame from '../components/SiteFrame';
+import { request } from '../lib/api';
 
-const serviceOptions = [
-  { value: "", label: "All Services" },
-  { value: "consultation", label: "General Consultation" },
-  { value: "checkup", label: "Medical Check-up" },
-  { value: "prenatal", label: "Prenatal" },
-  { value: "maternity", label: "Maternity" }
-];
-
-const defaultSettings = defaultQueueSettings;
-
+const stamp = value => value ? new Date(value).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'Unavailable';
+const patientColumns = [['patient_name','Patient'],['queue_number','Ticket'],['service_type','Service'],['doctor','Assigned doctor'],['priority_score','Priority score'],['status','Status'],['created_at','Registered'],['called_at','Called'],['consultation_started_at','Consultation started'],['completed_at','Completed / cancelled']];
+const identityColumns = [['id','Account / staff ID'],['display_name','Display name'],['role','Stored role'],['position','Position'],['doctor','Assigned doctor / counter'],['account_status','Account status'],['online','Presence'],['authenticated','Authentication'],['last_login','Last login'],['last_seen','Last seen'],['created_at','Account created']];
+const activityColumns = [['account','Account'],['event','Activity'],['occurred_at','Time']];
+function cell(row,key) {
+  if (['created_at','called_at','consultation_started_at','completed_at','last_login','last_seen','occurred_at'].includes(key)) return stamp(row[key]);
+  if (key==='online') return row.online ? 'Online' : 'Offline';
+  if (key==='authenticated') return row.authenticated ? 'Active session' : 'No active session';
+  return row[key] ?? 'Unavailable';
+}
 export default function RecordsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [filters, setFilters] = useState({ status: "", service: "", dateFilter: "" });
-  const [page, setPage] = useState(1);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState(defaultSettings);
-  const [data, setData] = useState({
-    transactions: [],
-    pagination: { currentPage: 1, totalPages: 1, totalRecords: 0, recordsPerPage: 20, hasNext: false, hasPrev: false },
-    stats: { completed: 0, cancelled: 0 }
-  });
-
-  const [apiError, setApiError] = useState(null);
-  // Removed early return to satisfy React Hook rules; hooks must run on every render
-
+  const category = ['patients','staff','accounts'].includes(router.query.category) ? router.query.category : 'patients';
+  const [filters,setFilters] = useState({});
+  const [applied,setApplied] = useState({});
+  const [page,setPage] = useState(1);
+  const [data,setData] = useState({ rows:[],total:0 });
+  const [busy,setBusy] = useState(true);
+  const [error,setError] = useState('');
+  const [detail,setDetail] = useState(null);
+  const [refresh,setRefresh] = useState(0);
+  useEffect(() => { if (!loading && user?.role!=='superadmin') router.replace('/login'); },[loading,user,router]);
+  useEffect(() => { setFilters({});setApplied({});setPage(1);setDetail(null); },[category]);
   useEffect(() => {
-    if (!loading && (!user || user.role !== "superadmin")) {
-      router.push("/login");
-    }
-  }, [user, loading, router]);
-
-  // Load initial transactions once user is authenticated as superadmin
+    if (user?.role!=='superadmin') return;
+    let stale=false;
+    setBusy(true);setError('');setData({rows:[],total:0});
+    const params=new URLSearchParams({...applied,page:String(page),limit:'20'});
+    request(`/records/${category}?${params}`).then(result => { if (result?.error) throw new Error(result.error); if (!stale) setData(result); }).catch(err => { if (!stale) setError(err.message); }).finally(() => { if (!stale) setBusy(false); });
+    return () => { stale=true; };
+  },[user,category,applied,page,refresh]);
   useEffect(() => {
-    if (user && user.role === "superadmin") {
-      loadTransactions(1, filters);
-    }
-  }, [user, filters]);
-
-  // Removed duplicate data load effect; main effect will handle when user becomes available
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const local = loadLocalQueueSettings();
-      if (!cancelled) setSettings(local);
-      const remote = await fetchQueueSettings();
-      if (!cancelled) setSettings(remote);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function saveSettings(nextSettings = settings) {
-    const saved = await persistQueueSettings(nextSettings || settings);
-    setSettings(saved);
-    return saved;
+    if (user?.role!=='superadmin') return;
+    const timer=setInterval(() => setRefresh(value=>value+1),30000);
+    return () => clearInterval(timer);
+  },[user]);
+  async function inspect(row, detailPage=1) {
+    setDetail({title:category==='patients' ? 'Stored ticket' : 'Login / logout activity',busy:true});
+    try {
+      const path=category==='patients' ? `/records/patients?visit=${encodeURIComponent(row.id)}` : `/records/activity?account=${encodeURIComponent(row.id)}&limit=20&page=${detailPage}`;
+      const result=await request(path);
+      if (result?.error) throw new Error(result.error);
+      setDetail({title:category==='patients' ? 'Stored ticket' : 'Login / logout activity',rows:result.rows,total:result.total,patient:category==='patients',account:row.id,page:detailPage});
+    } catch(err) { setDetail({title:'Details',error:err.message}); }
   }
-
-  async function clearAllQueues() {
-    const data = await clearActiveQueues();
-    await loadTransactions(1, filters);
-    return data;
+  const field = (key,label,type='text') => <label className="text-sm" key={key}>{label}<input className="block border brand-input rounded p-2 w-full" type={type} value={filters[key]||''} onChange={event=>setFilters({...filters,[key]:event.target.value})}/></label>;
+  const select = (key,label,options) => <label className="text-sm" key={key}>{label}<select className="block border brand-input rounded p-2 w-full" value={filters[key]||''} onChange={event=>setFilters({...filters,[key]:event.target.value})}><option value="">All</option>{options.map(value=><option key={value} value={value}>{value}</option>)}</select></label>;
+  const columns=category==='patients' ? patientColumns : identityColumns;
+  function table(rows,cols,actions=false) {
+    return <div className="overflow-x-auto border brand-border rounded"><table className="w-full text-sm text-left"><thead className="brand-bg-subtle"><tr>{cols.map(([key,label])=><th className="p-3 whitespace-nowrap" key={key}>{label}</th>)}{actions&&<th className="p-3">Details</th>}</tr></thead><tbody>{rows.map(row=><tr key={row.id} className="border-t brand-border">{cols.map(([key])=><td className="p-3 whitespace-nowrap" key={key}>{cell(row,key)}</td>)}{actions&&<td className="p-3"><button className="brand-button rounded px-3 py-1" onClick={()=>inspect(row)}>{category==='patients' ? 'Retrieve ticket' : 'Activity'}</button></td>}</tr>)}{!rows.length&&<tr><td className="p-6 text-center" colSpan={cols.length+1}>No records found.</td></tr>}</tbody></table></div>;
   }
-
-  async function exportData(filters = {}) {
-    await exportQueueData(filters);
-  }
-
-  const sidebarLinks = [
-    { href: "/?section=home", icon: "fas fa-home", label: "Home", active: false },
-    { href: "/?section=queue", icon: "fas fa-list", label: "Queue Management", active: false },
-    { href: "/analytics", icon: "fas fa-chart-bar", label: "Analytics", active: false },
-    { href: "/records", icon: "fas fa-history", label: "Records", active: true }
-  ];
-
-  // Removed duplicate data load effect; main effect will handle when user becomes available
-
-  async function loadTransactions(nextPage = page, nextFilters = filters) {
-    const MAX_RETRIES = 3;
-    let attempt = 0;
-    // Reset API error when making a new request
-    setApiError(null);
-    const params = new URLSearchParams({
-      page: String(nextPage),
-      limit: String(settings.maxQueues || 20),
-      status: nextFilters.status,
-      service: nextFilters.service,
-      dateFilter: nextFilters.dateFilter
-    });
-
-    const run = async () => {
-      attempt++;
-      try {
-        const response = await request(`/transactions?${params.toString()}`);
-        if (response && response.error) {
-          setApiError(response.error);
-          return;
-        }
-        setData(response);
-        setPage(nextPage);
-      } catch (err) {
-        console.error(err);
-        if (attempt < MAX_RETRIES) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          await run();
-        } else {
-          setApiError(err?.message || "API request failed after retries");
-        }
-      }
-    };
-    await run();
-  }
-
-  return (
-    <SiteFrame
-      title="Transaction History"
-      icon="fas fa-history"
-      showSidebar={true}
-      sidebarLinks={sidebarLinks}
-      onSettings={() => setSettingsOpen(true)}
-    >
-      {apiError && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4" role="alert">
-          <strong className="mr-2">Error:</strong> {apiError}
-        </div>
-      )}
-      <SettingsModal
-        isOpen={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        settings={settings}
-        setSettings={setSettings}
-        onSave={saveSettings}
-        onClearAll={clearAllQueues}
-        onExport={exportData}
-      />
-      <div className="container mx-auto max-w-6xl px-3 md:px-4">
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 mb-4">
-          <div className="bg-white rounded-lg shadow-md p-2.5 md:p-3 card-hover">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="p-2 rounded-full brand-bg-subtle brand-text-primary shrink-0">
-                <i className="fas fa-list text-base md:text-lg" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{data?.pagination?.totalRecords ?? 0}</p>
-                <p className="text-[11px] md:text-xs brand-text-muted leading-snug">Total Transactions</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-md p-2.5 md:p-3 card-hover">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="p-2 rounded-full bg-green-100 text-green-800 shrink-0">
-                <i className="fas fa-check-circle text-base md:text-lg" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{data?.stats?.completed ?? 0}</p>
-                <p className="text-[11px] md:text-xs brand-text-muted leading-snug">Completed</p>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-md p-2.5 md:p-3 card-hover col-span-2 lg:col-span-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="p-2 rounded-full bg-amber-100 text-amber-900 shrink-0">
-                <i className="fas fa-times-circle text-base md:text-lg" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-base md:text-lg font-bold brand-text leading-tight tabular-nums">{data?.stats?.cancelled ?? 0}</p>
-                <p className="text-[11px] md:text-xs brand-text-muted leading-snug">Cancelled</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-3 md:p-4 mb-4 card-hover">
-          <div className="flex flex-wrap gap-2 md:gap-3 items-end">
-            <div className="flex-1 min-w-[140px]">
-              <label className="block text-xs font-medium brand-text-muted mb-1">Status</label>
-              <select className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
-                <option value="">All Status</option>
-                <option value="waiting">Waiting</option>
-                <option value="serving">Serving</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-            <div className="flex-1 min-w-[140px]">
-              <label className="block text-xs font-medium brand-text-muted mb-1">Service</label>
-              <select className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.service} onChange={(e) => setFilters({ ...filters, service: e.target.value })} suppressHydrationWarning>
-                {serviceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </div>
-            <div className="flex-1 min-w-[140px]">
-              <label className="block text-xs font-medium brand-text-muted mb-1">Date range</label>
-              <select className="w-full px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.dateFilter} onChange={(e) => setFilters({ ...filters, dateFilter: e.target.value })}>
-                <option value="">All Time</option>
-                <option value="today">Today</option>
-                <option value="week">This Week</option>
-                <option value="month">This Month</option>
-              </select>
-            </div>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <button type="button" onClick={() => loadTransactions(1, filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition flex-1 sm:flex-none"><i className="fas fa-filter mr-1" />Apply</button>
-              <button type="button" onClick={() => { const nextFilters = { status: "", service: "", dateFilter: "" }; setFilters(nextFilters); loadTransactions(1, nextFilters); }} className="bg-gray-600 text-white text-sm px-3 py-1.5 rounded-md hover:bg-gray-700 transition flex-1 sm:flex-none"><i className="fas fa-undo mr-1" />Reset</button>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-3 md:p-4 card-hover">
-          <div className="flex flex-wrap gap-2 justify-between items-center mb-3">
-            <h2 className="text-base md:text-lg font-bold brand-text"><i className="fas fa-history mr-2 brand-text-primary" />Patient Records</h2>
-            <button type="button" onClick={() => loadTransactions(page, filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-sync-alt mr-1" />Refresh</button>
-          </div>
-          <div className="overflow-x-auto rounded-md border brand-border max-w-full">
-            <table className="w-full min-w-[600px] md:min-w-[880px] table-auto text-left">
-              <thead>
-                <tr className="brand-bg-subtle border-b brand-border">
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Queue</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide" suppressHydrationWarning>Patient Name</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Service</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide text-center">Priority</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Mobile</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Status</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Doctor</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Reason</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Created</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Called</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Completed / Cancelled</th>
-                  <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Wait</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {(data?.transactions ?? []).length ? data.transactions.map((transaction) => {
-                  const waitTime = transaction.called_at
-                    ? `${Math.max(0, Math.round((new Date(transaction.called_at) - new Date(transaction.created_at)) / 60000))}m`
-                    : "-";
-
-                  const statusClass = transaction.status === "waiting"
-                    ? "bg-yellow-100 text-yellow-800"
-                    : transaction.status === "serving"
-                      ? "bg-teal-100 text-teal-900"
-                      : transaction.status === "completed"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-red-100 text-red-800";
-
-                  return (
-                    <tr key={transaction.id} className="brand-hover-subtle">
-                      <td className="px-2 py-2"><span className="queue-number text-sm font-bold">{transaction.queue_number}</span></td>
-                      <td className="px-2 py-2 text-xs brand-text">{transaction.id_num}</td>
-                      <td className="px-2 py-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium brand-bg-subtle brand-text-primary border brand-border">{transaction.service_type}</span></td>
-                      <td className="px-2 py-2 text-center">
-                        {(transaction.priority_score || 0) >= 3 ? (
-                          <span className="inline-flex items-center gap-1 text-yellow-700 bg-yellow-100 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                            <i className="fas fa-star" /> {transaction.priority_score}
-                          </span>
-                        ) : (transaction.priority_score || 0) > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-100 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                            <i className="fas fa-star" /> {transaction.priority_score}
-                          </span>
-                        ) : (
-                          <span className="brand-text-muted text-[10px]">—</span>
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-xs brand-text">{transaction.mobile_number || "—"}</td>
-                      <td className="px-2 py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>{transaction.status}</span></td>
-                      <td className="px-2 py-2 text-xs brand-text whitespace-nowrap">
-                        {transaction.counter_id || "—"}
-                      </td>
-                      <td className="px-2 py-2 text-xs brand-text max-w-[200px] truncate" title={transaction.reason || ""}>
-                        {transaction.reason || "—"}
-                      </td>
-                      <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{new Date(transaction.created_at).toLocaleString()}</td>
-                      <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{transaction.called_at ? new Date(transaction.called_at).toLocaleString() : "-"}</td>
-                      <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{transaction.completed_at ? new Date(transaction.completed_at).toLocaleString() : "-"}</td>
-                      <td className="px-2 py-2 text-xs brand-text-muted">{waitTime}</td>
-                    </tr>
-                  );
-                }) : (
-                  <tr>
-                    <td colSpan="12" className="px-2 py-6 text-center brand-text-muted text-sm">
-                      <i className="fas fa-inbox text-2xl mb-1 block opacity-60" />
-                      No transactions found
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2 justify-between sm:items-center mt-3 pt-3 border-t brand-border">
-            <div className="text-xs brand-text-muted">
-              Showing {data?.pagination?.totalRecords ? `${(data.pagination.currentPage - 1) * data.pagination.recordsPerPage + 1}-${Math.min(data.pagination.currentPage * data.pagination.recordsPerPage, data.pagination.totalRecords)}` : "0"} of {data?.pagination?.totalRecords ?? 0} transactions
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <button type="button" disabled={!data?.pagination?.hasPrev} onClick={() => loadTransactions(page - 1, filters)} className={data?.pagination?.hasPrev ? "brand-button px-2.5 py-1 rounded text-xs" : "bg-gray-300 brand-text-muted px-2.5 py-1 rounded text-xs cursor-not-allowed"}><i className="fas fa-chevron-left" /> Prev</button>
-              <span className="px-2 py-1 text-xs brand-text">Page {data?.pagination?.currentPage ?? 1}</span>
-              <button type="button" disabled={!data?.pagination?.hasNext} onClick={() => loadTransactions(page + 1, filters)} className={data?.pagination?.hasNext ? "brand-button px-2.5 py-1 rounded text-xs" : "bg-gray-300 brand-text-muted px-2.5 py-1 rounded text-xs cursor-not-allowed"}>Next <i className="fas fa-chevron-right" /></button>
-            </div>
-          </div>
-        </div>
+  if (loading || user?.role!=='superadmin') return <div role="status">Loading authorized records…</div>;
+  return <SiteFrame title="Records Management" icon="fas fa-folder" showSidebar sidebarLinks={[]}>
+    <div className="max-w-7xl mx-auto px-3 space-y-4">
+      <nav aria-label="Records categories" className="flex flex-wrap gap-2">{[['patients','Patient Records'],['staff','Staff Records'],['accounts','User Accounts']].map(([key,label])=><button key={key} aria-current={category===key?'page':undefined} className={`px-4 py-2 rounded ${category===key?'brand-button':'bg-white border brand-border'}`} onClick={()=>router.push(`/records?category=${key}`)}>{label}</button>)}</nav>
+      <p className="text-sm brand-text-muted">{category==='patients' ? 'Each row is a stored visit and its ticket history. The current schema has no separate patient profile; this read-only view creates no duplicate identities or visits.' : 'Staff and user accounts share the existing account identity. Presence expires after 75 seconds; account status, authentication and counter availability are separate. Account disabling and account creation dates are not stored in the current schema.'}</p>
+      <form className="bg-white rounded shadow p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" onSubmit={event=>{event.preventDefault();setPage(1);setApplied({...filters});}}>
+        {field('search',category==='patients'?'Patient name or ticket':'Name or account ID')}
+        {category==='patients' ? <>{field('date','Registration date (Manila)','date')}{field('service','Service type')}{field('doctor','Assigned doctor (exact)')}{select('status','Queue status',['waiting','serving','completed','cancelled'])}</> : <>{select('role','Stored role',['superadmin','admin'])}{select('position','Position',['Super Admin','Admin','Doctor'])}{field('doctor','Doctor assignment (exact)')}{select('presence','Presence',['online','offline'])}</>}
+        <div className="flex gap-2 items-end"><button className="brand-button px-4 py-2 rounded">Search</button><button type="button" className="border px-4 py-2 rounded" onClick={()=>{setFilters({});setApplied({});setPage(1);}}>Reset</button></div>
+      </form>
+      {error&&<p role="alert" className="bg-red-50 text-red-700 p-3">{error}</p>}
+      <div className="bg-white rounded shadow p-3" aria-busy={busy}>
+        {busy?<p role="status" className="p-6">Loading records…</p>:table(data.rows||[],columns,true)}
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-3"><span>{data.total||0} records · Page {page} · Times shown in Manila</span><div className="flex gap-3"><button disabled={busy||page===1} onClick={()=>setPage(page-1)}>Previous</button><button disabled={busy||page*20>=(data.total||0)} onClick={()=>setPage(page+1)}>Next</button><button onClick={()=>setRefresh(refresh+1)}>Refresh</button></div></div>
       </div>
-    </SiteFrame>
-  );
+      {detail&&<section aria-label={detail.title} className="bg-white shadow rounded p-4"><div className="flex justify-between"><h2 className="font-bold">{detail.title}</h2><button onClick={()=>setDetail(null)}>Close</button></div>{detail.busy?<p role="status">Loading…</p>:detail.error?<p role="alert">{detail.error}</p>:<>{table(detail.rows||[],detail.patient?patientColumns:activityColumns)}{!detail.patient&&<p className="text-sm mt-2">Page {detail.page} ? {detail.total} events. Activity recording begins with Phase B; expiry and administrative revocation are not explicit logouts.</p>}{!detail.patient&&<div className="flex gap-4 mt-2"><button disabled={detail.page===1} onClick={()=>inspect({id:detail.account},detail.page-1)}>Previous activity</button><button disabled={detail.page*20>=detail.total} onClick={()=>inspect({id:detail.account},detail.page+1)}>Next activity</button></div>}</>}</section>}
+    </div>
+  </SiteFrame>;
 }

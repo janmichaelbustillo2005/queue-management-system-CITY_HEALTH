@@ -8,13 +8,18 @@ The browser page sends accepted-patient announcements to this local service.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
+import io
 import json
+import math
 import os
 import queue
+import struct
 import sys
 import threading
 import time
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -29,6 +34,11 @@ try:
 except ImportError:  # pragma: no cover - pywin32 is installed with pyttsx3 on Windows
     pythoncom = None
 
+try:
+    import winsound
+except ImportError:  # pragma: no cover - winsound is Windows-only
+    winsound = None
+
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -39,6 +49,47 @@ DEFAULT_RESET_ENGINE_AFTER_SPEAK = True
 MAX_SPEAK_ATTEMPTS = 2
 MIN_AUDIBLE_DURATION_MS = 700
 MAX_BODY_BYTES = 16 * 1024
+CHIME_SAMPLE_RATE = 44100
+CHIME_START_SECONDS = 0.02
+CHIME_NOTE_SECONDS = 1.2
+CHIME_SPACING_SECONDS = 0.8
+CHIME_NOTES = ((880, 0.30), (660, 0.34))
+
+
+@functools.lru_cache(maxsize=1)
+def build_chime_wav() -> bytes:
+    """The selected slow descending bell, as a local mono PCM WAV.
+
+    Match the Queue Display's original sine notes and gain ramps. Keeping this
+    with the speaker worker avoids the browser's AudioContext activation gate.
+    """
+    duration = CHIME_START_SECONDS + CHIME_SPACING_SECONDS + CHIME_NOTE_SECONDS
+    samples = bytearray()
+    attack_seconds = 0.015
+    decay_end_seconds = CHIME_NOTE_SECONDS - 0.02
+    for index in range(round(duration * CHIME_SAMPLE_RATE)):
+        at = index / CHIME_SAMPLE_RATE
+        value = 0.0
+        for note_index, (frequency, peak_gain) in enumerate(CHIME_NOTES):
+            elapsed = at - CHIME_START_SECONDS - note_index * CHIME_SPACING_SECONDS
+            if elapsed < 0 or elapsed >= CHIME_NOTE_SECONDS:
+                continue
+            if elapsed < attack_seconds:
+                envelope = peak_gain * elapsed / attack_seconds
+            elif elapsed < decay_end_seconds:
+                progress = (elapsed - attack_seconds) / (decay_end_seconds - attack_seconds)
+                envelope = peak_gain * (0.0005 ** progress)
+            else:
+                envelope = peak_gain * 0.0005 * (CHIME_NOTE_SECONDS - elapsed) / 0.02
+            value += math.sin(2 * math.pi * frequency * elapsed) * envelope
+        samples.extend(struct.pack("<h", round(max(-1.0, min(1.0, value)) * 32767)))
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(CHIME_SAMPLE_RATE)
+        wav.writeframes(bytes(samples))
+    return output.getvalue()
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -136,10 +187,14 @@ class TtsState:
         self.lock = threading.Lock()
         self.seen: dict[str, float] = {}
         self.pending: set[str] = set()
+        self.pending_items: dict[str, dict[str, Any]] = {}
         self.engine: Any = None
         self.engine_generation = 0
+        self.utterance_sequence = 0
+        self.active_utterance: dict[str, Any] | None = None
         self.speaking_key: str | None = None
         self.last_error: str | None = None
+        self.last_chime_error: str | None = None
         self.stop_event = threading.Event()
         self.audio_thread_name: str | None = None
         self.com_initialized = False
@@ -156,6 +211,7 @@ class TtsState:
         with self.lock:
             speaking_key = self.speaking_key
             last_error = warmup_error or self.last_error
+            last_chime_error = self.last_chime_error
             seen_count = len(self.seen)
             pending_count = len(self.pending)
         return {
@@ -169,6 +225,9 @@ class TtsState:
             "seen_count": seen_count,
             "pending_count": pending_count,
             "last_error": last_error,
+            "chime_supported": winsound is not None,
+            "chime_engine": "winsound" if winsound is not None else None,
+            "last_chime_error": last_chime_error,
             "process_id": os.getpid(),
             "audio_thread": self.audio_thread_name,
             "reset_engine_after_speak": self.reset_engine_after_speak,
@@ -225,51 +284,71 @@ class TtsState:
 
         key = key_for_payload(payload, text)
         wait = bool(payload.get("wait"))
-        done_event = threading.Event() if wait else None
+        # Even a non-waiting caller may be followed by a waiting resubmission
+        # after the display reloads. Both requests must observe the same work.
+        done_event = threading.Event()
         result: dict[str, Any] = {}
-        now = time.time()
-
-        with self.lock:
-            self._prune_seen_locked(now)
-            if key in self.seen or key in self.pending:
-                log_event("enqueue-duplicate", key=key, queue_number=payload.get("queue_number"))
-                return {"success": True, "queued": False, "duplicate": True, "key": key}
-            self.pending.add(key)
-
         item = {
             "key": key,
             "text": text,
             "gap_ms": max(0, safe_int(payload.get("gap_ms"), 0)),
+            # Only a JSON boolean opts in. Existing API callers remain silent
+            # before speech unless they explicitly request the integrated bell.
+            "play_chime": payload.get("play_chime") is True,
             "done_event": done_event,
             "result": result,
         }
-        self.queue.put(item)
-        log_event(
-            "enqueue-ok",
-            key=key,
-            queue_number=payload.get("queue_number"),
-            patient_name=payload.get("patient_name"),
-            doctor_name=payload.get("doctor_name"),
-            room=payload.get("room"),
-            wait=wait,
-            queue_length=self.queue.qsize(),
-            text=text,
-        )
+        duplicate = False
+        now = time.time()
 
-        if done_event:
+        with self.lock:
+            self._prune_seen_locked(now)
+            if key in self.seen:
+                log_event("enqueue-duplicate", key=key, queue_number=payload.get("queue_number"))
+                return {"success": True, "queued": False, "duplicate": True, "key": key}
+            if key in self.pending:
+                item = self.pending_items[key]
+                done_event = item["done_event"]
+                result = item["result"]
+                duplicate = True
+            else:
+                self.pending.add(key)
+                self.pending_items[key] = item
+
+        if duplicate:
+            log_event("enqueue-duplicate", key=key, queue_number=payload.get("queue_number"))
+        else:
+            self.queue.put(item)
+            log_event(
+                "enqueue-ok",
+                key=key,
+                queue_number=payload.get("queue_number"),
+                patient_name=payload.get("patient_name"),
+                doctor_name=payload.get("doctor_name"),
+                room=payload.get("room"),
+                wait=wait,
+                queue_length=self.queue.qsize(),
+                text=text,
+            )
+
+        # Never wait while holding the state lock: the speaker needs it to
+        # publish success/failure and clear the pending entry.
+        if wait:
             timeout_seconds = max(5, safe_float(payload.get("timeout_seconds"), 45.0))
             completed = done_event.wait(timeout_seconds)
             if not completed:
                 return {
                     "success": False,
-                    "queued": True,
+                    "queued": not duplicate,
+                    "duplicate": duplicate,
                     "key": key,
                     "error": "Timed out waiting for pyttsx3 to finish speaking",
                 }
             if result.get("error"):
-                return {"success": False, "queued": True, "key": key, "error": result["error"]}
+                return {"success": False, "queued": not duplicate, "duplicate": duplicate,
+                        "key": key, "error": result["error"]}
 
-        return {"success": True, "queued": True, "duplicate": False, "key": key}
+        return {"success": True, "queued": not duplicate, "duplicate": duplicate, "key": key}
 
     def _prune_seen_locked(self, now: float) -> None:
         cutoff = now - self.dedupe_seconds
@@ -298,24 +377,33 @@ class TtsState:
             )
             self.engine.connect(
                 "finished-utterance",
-                lambda name, completed: log_event(
-                    "utterance-finished",
-                    name=name,
-                    completed=completed,
-                    engine_generation=generation,
-                ),
+                lambda name, completed: self._on_utterance_finished(name, completed, generation),
             )
             self.engine.connect(
                 "error",
-                lambda name, exception: log_event(
-                    "utterance-error",
-                    name=name,
-                    error=str(exception),
-                    engine_generation=generation,
-                ),
+                lambda name, exception: self._on_utterance_error(name, exception, generation),
             )
         except Exception as exc:
             log_event("engine-callback-attach-error", error=str(exc))
+
+    def _on_utterance_finished(self, name: str, completed: bool, generation: int) -> None:
+        with self.lock:
+            outcome = self.active_utterance
+            if outcome and outcome["name"] == name and outcome["generation"] == generation:
+                if completed is True:
+                    outcome["completed"] = True
+                else:
+                    # A later positive callback must not erase a failed one.
+                    outcome["error"] = outcome["error"] or "pyttsx3 reported incomplete utterance playback"
+        log_event("utterance-finished", name=name, completed=completed, engine_generation=generation)
+
+    def _on_utterance_error(self, name: str, exception: Exception, generation: int) -> None:
+        error = str(exception) or exception.__class__.__name__
+        with self.lock:
+            outcome = self.active_utterance
+            if outcome and outcome["name"] == name and outcome["generation"] == generation:
+                outcome["error"] = outcome["error"] or f"pyttsx3 utterance error: {error}"
+        log_event("utterance-error", name=name, error=error, engine_generation=generation)
 
     def _dispose_engine(self, reason: str) -> None:
         if self.engine is None:
@@ -368,20 +456,37 @@ class TtsState:
             engine = self._get_engine()
             started = time.monotonic()
             generation = self.engine_generation
+            with self.lock:
+                self.utterance_sequence += 1
+                utterance_name = f"tts-{generation}-{self.utterance_sequence}"
+                outcome = {"name": utterance_name, "generation": generation, "completed": False, "error": None}
+                self.active_utterance = outcome
             log_event(
                 "speak-run-start",
                 key=key,
                 engine_generation=generation,
                 attempt=attempt,
+                utterance_name=utterance_name,
                 min_duration_ms=minimum_duration_ms,
                 text=text,
             )
 
             try:
-                engine.say(text, name=key or "")
-                engine.runAndWait()
+                try:
+                    engine.say(text, name=utterance_name)
+                    engine.runAndWait()
+                finally:
+                    # Stop/reset can emit late callbacks. Retire this attempt
+                    # before disposing its engine or starting another attempt.
+                    with self.lock:
+                        self.active_utterance = None
+                        outcome = dict(outcome)
                 duration_ms = round((time.monotonic() - started) * 1000)
 
+                if outcome["error"]:
+                    raise RuntimeError(outcome["error"])
+                if not outcome["completed"]:
+                    raise RuntimeError("pyttsx3 did not confirm successful utterance completion")
                 if duration_ms < minimum_duration_ms:
                     raise RuntimeError(
                         "pyttsx3 runAndWait returned too quickly "
@@ -414,6 +519,25 @@ class TtsState:
         if last_error:
             raise last_error
 
+    def _play_chime(self, key: str | None = None) -> None:
+        if self.dry_run:
+            return
+        try:
+            if winsound is None:
+                raise RuntimeError("Integrated bell requires Windows winsound")
+            # No SND_ASYNC: finish the bell before the same worker speaks. No
+            # system fallback sound may replace the selected descending bell.
+            winsound.PlaySound(build_chime_wav(), winsound.SND_MEMORY | winsound.SND_NODEFAULT)
+            with self.lock:
+                self.last_chime_error = None
+            log_event("chime-ok", key=key)
+        except Exception as exc:
+            # A missing audio device or chime failure must not suppress speech.
+            error = str(exc) or exc.__class__.__name__
+            with self.lock:
+                self.last_chime_error = error
+            log_event("chime-error", key=key, error=error)
+
     def stop(self) -> None:
         self.stop_event.set()
         self.queue.put(None)
@@ -441,6 +565,10 @@ class TtsState:
                                 self._dispose_engine("after-warm-up")
                     else:
                         log_event("queue-item-start", key=key)
+                        if item.get("play_chime"):
+                            # Outside _speak's SAPI retry loop: a transient
+                            # speech retry must not replay the patient's bell.
+                            self._play_chime(key=str(key or ""))
                         self._speak(str(item.get("text") or ""), key=str(key or ""))
                     item["result"]["success"] = True
                     if key and not item.get("warm_up"):
@@ -460,6 +588,7 @@ class TtsState:
                         self.speaking_key = None
                         if key:
                             self.pending.discard(str(key))
+                            self.pending_items.pop(str(key), None)
                     done_event = item.get("done_event")
                     if done_event:
                         done_event.set()

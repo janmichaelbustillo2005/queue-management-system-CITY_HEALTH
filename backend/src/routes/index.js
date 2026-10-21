@@ -2,6 +2,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const { randomUUID } = require("node:crypto");
 const env = require("../config/env");
+const { getBusinessDate } = require("../lib/businessDay");
 const { authenticateToken, authorizeRole } = require("../middleware/auth");
 const {
   createAuthSession,
@@ -53,12 +54,27 @@ const {
   markAccepted,
   clearAwaitingAccept,
   resetAcceptState,
-  clearAllAwaitingAccept,
-  recordVoiceAnnouncementEvent,
-  clearAllVoiceAnnouncementEvents
+  recordVoiceAnnouncementEvent
 } = require("../services/settingsService");
 
 const router = express.Router();
+
+function readRecordFilters(query, defaultDateFilter = "") {
+  return {
+    status: String(query.status || ""), service: String(query.service || ""), doctor: String(query.doctor || ""),
+    dateFilter: String(query.dateFilter ?? defaultDateFilter), date: String(query.date || ""),
+    startDate: String(query.startDate || ""), endDate: String(query.endDate || "")
+  };
+}
+
+function readAnalyticsFilters(query) {
+  const filters = readRecordFilters(query);
+  if (query.dateFilter === undefined && !filters.date && !filters.startDate && !filters.endDate) {
+    filters.startDate = getBusinessDate(new Date(Date.now() - 6 * 86400000));
+    filters.endDate = getBusinessDate(new Date());
+  }
+  return filters;
+}
 
 function normalizeDoctorAssignment(value, counters = []) {
   const raw = String(value ?? "").trim();
@@ -408,9 +424,8 @@ router.post("/queue/undo", authenticateToken, async (req, res) => {
 
 router.post("/queue/clear", authenticateToken, authorizeRole(["superadmin"]), async (_req, res) => {
   try {
-    await clearTodaysQueues();
-    clearAllAwaitingAccept();
-    clearAllVoiceAnnouncementEvents();
+    const { archivedPatientIds } = await clearTodaysQueues();
+    for (const patientId of archivedPatientIds) resetAcceptState(patientId);
     res.json({
       success: true,
       message: "Active queues were reset. Transaction history was preserved."
@@ -422,20 +437,16 @@ router.post("/queue/clear", authenticateToken, authorizeRole(["superadmin"]), as
 
 router.get("/queue/export", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    const patients = await getPatientsForExport({
-      status: String(req.query.status || ""),
-      service: String(req.query.service || ""),
-      dateFilter: String(req.query.dateFilter || "today")
-    });
+    const patients = await getPatientsForExport(readRecordFilters(req.query, "today"));
     const csv = buildCsv(patients);
     res.setHeader("Content-Type", "text/csv");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="queue_data_${new Date().toISOString().split("T")[0]}.csv"`
+      `attachment; filename="queue_data_${getBusinessDate(new Date())}.csv"`
     );
     res.send(csv);
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -505,16 +516,14 @@ router.get("/display", async (_req, res) => {
 router.get("/transactions", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
     const data = await getTransactions({
+      ...readRecordFilters(req.query),
       page: Number(req.query.page || 1),
-      limit: Number(req.query.limit || 20),
-      status: String(req.query.status || ""),
-      service: String(req.query.service || ""),
-      dateFilter: String(req.query.dateFilter || "")
+      limit: Number(req.query.limit || 20)
     });
 
     res.json({ success: true, ...data });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -542,30 +551,26 @@ router.get("/analytics/status", authenticateToken, authorizeRole(["superadmin"])
 
 router.get("/analytics", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    const today = new Date().toISOString().split("T")[0];
-    const startDate = String(req.query.startDate || new Date(Date.now() - 6 * 86400000).toISOString().split("T")[0]);
-    const endDate = String(req.query.endDate || today);
-    const data = await getAnalytics(startDate, endDate);
+    const filters = readAnalyticsFilters(req.query);
+    const data = await getAnalytics(filters.startDate, filters.endDate, filters);
 
     res.json({ success: true, ...data });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
 router.get("/analytics/export", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    const today = new Date().toISOString().split("T")[0];
-    const startDate = String(req.query.startDate || new Date(Date.now() - 6 * 86400000).toISOString().split("T")[0]);
-    const endDate = String(req.query.endDate || today);
-    const data = await getAnalytics(startDate, endDate);
+    const filters = readAnalyticsFilters(req.query);
+    const data = await getAnalytics(filters.startDate, filters.endDate, filters);
     const csv = buildCsv(data.tableData);
 
     res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", `attachment; filename="analytics_${startDate}_${endDate}.csv"`);
+    res.setHeader("Content-Disposition", `attachment; filename="analytics_${filters.startDate || filters.date || "all"}_${filters.endDate || filters.date || "dates"}.csv"`);
     res.send(csv);
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 

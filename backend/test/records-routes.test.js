@@ -1,11 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
 const jwt = require('jsonwebtoken');
 function load(file, imports) {
  const module={exports:{}};
- vm.runInNewContext(`(function(require,module,exports){${fs.readFileSync(file,'utf8')}\n})`)((name)=>{if (!(name in imports)) throw Error(name); return imports[name];},module,module.exports);
+ vm.runInNewContext(`(function(require,module,exports){${fs.readFileSync(path.resolve(__dirname, '..', file),'utf8')}\n})`)((name)=>{if (!(name in imports)) throw Error(name); return imports[name];},module,module.exports);
  return module.exports;
 }
 const secret='phase-b-isolated-tests';

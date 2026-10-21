@@ -38,13 +38,25 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 async function harness(initialRows, options = {}) {
-  const hooks = [], effectDeps = [], effects = [], calls = [];
+  const hooks = [], effectDeps = [], effects = [], calls = [], cleanups = [];
+  const windowListeners = new Map(), intervals = new Map(), timeouts = new Map(), navigations = [];
+  let timerId = 0;
   let cursor = 0;
   const backend = { patients: clone(initialRows), counters: clone(options.counters || [doctor(1), doctor(2), doctor(3)]) };
   const settings = { showCompleted: true, maxQueues: 100, autoRefresh: false,
     doctor1Online: true, doctor2Online: true, doctor3Online: true, ...options.settings };
   const user = { id_num: "superadmin", role: "superadmin" };
-  const router = { isReady: true, query: { section: "queue" }, push() {} };
+  const router = { isReady: true, query: { section: options.section || "queue" }, push(...args) {
+    navigations.push(args);
+    if (args[0]?.query) router.query = { ...args[0].query };
+    return Promise.resolve(true);
+  } };
+  const timerApi = {
+    setInterval(callback, delay) { const id = ++timerId; intervals.set(id, { callback, delay }); return id; },
+    clearInterval(id) { intervals.delete(id); },
+    setTimeout(callback, delay) { const id = ++timerId; timeouts.set(id, { callback, delay }); return id; },
+    clearTimeout(id) { timeouts.delete(id); }
+  };
   const jsx = (type, props) => ({ type, props: props || {} });
   const react = {
     useMemo(callback) { cursor++; return callback(); },
@@ -63,7 +75,7 @@ async function harness(initialRows, options = {}) {
       const previous = effectDeps[index];
       if (!previous || !deps || deps.some((value, i) => value !== previous[i])) {
         effectDeps[index] = deps;
-        effects.push(callback);
+        effects.push({ index, callback });
       }
     }
   };
@@ -71,8 +83,17 @@ async function harness(initialRows, options = {}) {
   vm.runInNewContext(componentCode, {
     module, exports: module.exports, Set, Map, console, AbortController,
     document: { addEventListener() {}, removeEventListener() {} },
-    window: { confirm: () => true, prompt: () => options.cancelReason === undefined ? "Test cancellation reason" : options.cancelReason, setTimeout() {} }, confirm: () => true,
-    setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {},
+    window: {
+      confirm: () => true, prompt: () => options.cancelReason === undefined ? "Test cancellation reason" : options.cancelReason,
+      ...timerApi,
+      addEventListener(name, callback) {
+        if (!windowListeners.has(name)) windowListeners.set(name, new Set());
+        windowListeners.get(name).add(callback);
+      },
+      removeEventListener(name, callback) { windowListeners.get(name)?.delete(callback); }
+    }, confirm: () => true,
+    ...timerApi,
+    fetch: async () => ({ json: async () => [] }),
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
@@ -103,7 +124,10 @@ async function harness(initialRows, options = {}) {
   const flush = async () => {
     for (let i = 0; i < 3; i++) {
       render();
-      effects.splice(0).forEach(effect => effect());
+      effects.splice(0).forEach(({ index, callback }) => {
+        cleanups[index]?.();
+        cleanups[index] = callback();
+      });
       await tick();
     }
     return render();
@@ -111,7 +135,11 @@ async function harness(initialRows, options = {}) {
   await flush();
   const baselineReads = calls.filter(call => call.route === "/queue" && call.method === "GET").length;
   return {
-    render, flush, calls, backend,
+    render, flush, calls, backend, router, navigations, intervals,
+    dispatchWindow(name, event) {
+      for (const callback of windowListeners.get(name) || []) callback(event);
+    },
+    unmount() { cleanups.forEach(cleanup => typeof cleanup === "function" && cleanup()); },
     get actions() { return calls.filter(call => call.method === "POST" && call.route.startsWith("/queue/")); },
     get refreshes() { return calls.filter(call => call.route === "/queue" && call.method === "GET").length - baselineReads; },
     get rows() { return clone(hooks.find(value => Array.isArray(value) && value.some(row => row?.id_num && "status" in row)) || []); }
@@ -373,4 +401,131 @@ test("Superadmin registration offers Family Planning and previews the existing b
   assert.match(text(h.render()), /Score:\s*4/);
   toggle("Pregnant");
   assert.match(text(h.render()), /Score:\s*7/);
+});
+
+function manualEntry(h) {
+  return nodes(h.render(), node => node.type === "form" &&
+    nodes(node, child => child.type === "input" && child.props.placeholder === "Enter full name").length)[0];
+}
+function manualField(h, predicate) {
+  return nodes(manualEntry(h), node => ["input", "select"].includes(node.type) && predicate(node))[0];
+}
+async function fillManualEntry(h) {
+  buttons(h.render(), "Add Patient")[0].props.onClick();
+  const change = (predicate, value) => manualField(h, predicate).props.onChange({ target: { value } });
+  change(node => node.props.placeholder === "Enter full name", "Synthetic Registration Patient");
+  change(node => node.type === "select" && nodes(node, child => child.props?.value === "prenatal").length, "prenatal");
+  change(node => node.props.placeholder === "9123456789", "9123456789");
+  change(node => node.props.placeholder === "Enter PhilHealth ID", "SYNTHETIC-ID");
+  change(node => node.props.type === "date", "1990-01-02");
+  change(node => node.type === "select" && nodes(node, child => child.props?.value === "Female").length, "Female");
+  change(node => node.props.placeholder === "Search address...", "Synthetic Development Address");
+  const pregnant = nodes(manualEntry(h), node => node.type === "label" && text(node).startsWith("Pregnant"))[0];
+  nodes(pregnant, node => node.type === "input")[0].props.onChange();
+  await h.flush();
+}
+function manualValues(h) {
+  return clone(nodes(manualEntry(h), node => ["input", "select"].includes(node.type))
+    .map(node => ({ type: node.type, value: node.props.value, checked: node.props.checked })));
+}
+function unloadEvent(h) {
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  h.dispatchWindow("beforeunload", event);
+  return event;
+}
+
+test("Superadmin warns on reload only for unsaved entry and removes the warning on unmount", async () => {
+  const h = await harness([]);
+  assert.equal(unloadEvent(h).prevented, false, "pristine page must not block reload");
+  await fillManualEntry(h);
+  const dirty = unloadEvent(h);
+  assert.equal(dirty.prevented, true);
+  assert.ok(dirty.returnValue === "" || dirty.returnValue === true,
+    "browser unload warning requires returnValue as well as preventDefault");
+  h.unmount();
+  assert.equal(unloadEvent(h).prevented, false, "unmounted page must remove its listener");
+});
+
+test("Superadmin queue and presence polling preserve the open entry and every patient field", async () => {
+  const h = await harness([], { settings: { autoRefresh: true, refreshInterval: 5 } });
+  await fillManualEntry(h);
+  const before = manualValues(h);
+  const beforeNavigations = h.navigations.length;
+  for (const interval of Array.from(h.intervals.values())) await interval.callback();
+  await h.flush();
+  assert.ok(manualEntry(h), "polling must leave the entry form open");
+  assert.deepEqual(manualValues(h), before);
+  assert.equal(h.navigations.length, beforeNavigations);
+  assert.equal(h.calls.some(call => call.route === "/queue" && call.method === "POST"), false);
+  assert.ok(h.refreshes > 0, "queue polling actually ran");
+  assert.ok(h.calls.filter(call => call.route === "/doctors/presence").length > 1, "presence polling actually ran");
+});
+
+test("Superadmin pending and failed registration keep all entered fields visible and block duplicate submits", async () => {
+  let finish;
+  const h = await harness([], { request: () => new Promise(resolve => { finish = resolve; }) });
+  await fillManualEntry(h);
+  const before = manualValues(h);
+  const submit = manualEntry(h).props.onSubmit;
+  const staleCancel = buttons(h.render(), "Cancel")[0].props.onClick;
+  const first = submit({ preventDefault() {} });
+  const duplicate = submit({ preventDefault() {} });
+  assert.equal(h.calls.filter(call => call.route === "/queue" && call.method === "POST").length, 1);
+  assert.ok(manualEntry(h), "entry must remain open until the server confirms success");
+  assert.deepEqual(manualValues(h), before);
+  for (const control of nodes(manualEntry(h), node => ["input", "select", "button"].includes(node.type))) {
+    assert.equal(control.props.disabled, true, "pending registration controls must prevent edits and repeated clicks");
+  }
+  assert.equal(buttons(h.render(), "Cancel")[0].props.disabled, true);
+  staleCancel();
+  assert.ok(manualEntry(h), "a stale Cancel handler cannot hide a pending registration");
+  assert.deepEqual(manualValues(h), before);
+  finish({ error: "Synthetic development registration failure" });
+  await Promise.all([first, duplicate]);
+  await h.flush();
+  assert.ok(manualEntry(h), "failed registration must remain open");
+  assert.deepEqual(manualValues(h), before);
+  assert.match(text(h.render()), /Synthetic development registration failure/);
+  assert.equal(nodes(manualEntry(h), node => node.type === "button" && node.props.type === "submit")[0].props.disabled, false);
+  assert.equal(buttons(h.render(), "Cancel")[0].props.disabled, false);
+  assert.equal(unloadEvent(h).prevented, true);
+});
+
+test("Superadmin successful registration closes and clears entry only after save and removes unload warning", async () => {
+  let finish;
+  const h = await harness([], { request: () => new Promise(resolve => { finish = resolve; }) });
+  await fillManualEntry(h);
+  const submit = manualEntry(h).props.onSubmit({ preventDefault() {} });
+  assert.ok(manualEntry(h));
+  finish({ success: true, queue_number: "OB-SYNTHETIC", priority_score: 3 });
+  await submit;
+  await h.flush();
+  assert.equal(manualEntry(h), undefined);
+  assert.equal(unloadEvent(h).prevented, false, "saved patient must not leave a dirty-entry warning");
+  buttons(h.render(), "Add Patient")[0].props.onClick();
+  for (const control of nodes(manualEntry(h), node => ["input", "select"].includes(node.type))) {
+    if (control.props.type === "checkbox") assert.equal(control.props.checked, false);
+    else assert.equal(control.props.value, "");
+  }
+  const payload = h.calls.find(call => call.route === "/queue" && call.method === "POST").body;
+  assert.deepEqual(payload, {
+    fullName: "Synthetic Registration Patient", service_type: "prenatal", mobile_number: "9123456789",
+    residency: "Synthetic Development Address", philhealth_id: "SYNTHETIC-ID", birthdate: "1990-01-02",
+    sex: "Female", vulnerabilityFlags: ["pregnant"]
+  });
+});
+
+test("Superadmin dashboard Queue Management action synchronizes the section URL", async () => {
+  const h = await harness([], { section: "home" });
+  const frame = nodes(h.render(), node => Array.isArray(node.props?.sidebarLinks))[0];
+  const action = frame.props.sidebarLinks.find(link => link.label === "Queue Management");
+  assert.ok(action);
+  action.onClick();
+  const navigation = h.navigations.at(-1);
+  assert.ok(navigation, "dashboard action must use router navigation so a reload retains the queue section");
+  assert.equal(navigation[0].pathname, "/");
+  assert.equal(navigation[0].query.section, "queue");
+  assert.equal(navigation[2].shallow, true);
+  await h.flush();
+  assert.equal(h.router.query.section, "queue");
 });

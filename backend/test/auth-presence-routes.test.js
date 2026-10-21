@@ -65,6 +65,7 @@ function harness() {
   load("routes/index.js", {
     express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto,
     "../config/env": { jwtSecret: secret }, "../middleware/auth": auth,
+    "../lib/businessDay": require("../src/lib/businessDay"),
     "../services/presenceService": presence,
     "../services/queueService": {
       loginUser: async (id, password) => {

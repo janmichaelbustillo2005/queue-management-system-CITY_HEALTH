@@ -1,5 +1,7 @@
 # Phase 2.1 — protect consultation history during Requeue and Undo
 
+The current Phase 2.2 implementation retains these history protections and adds explicit clean waiting ownership and stale-counter release to the no-reservation recovery contract. Its backend requires a separate migration before database Undo can run. See the [Phase 2.2 correction and rollout guide](phase22-audit-corrections.md); installation requires explicit approval for an identified development project.
+
 Phase 2.1 addresses only the stale recovery/history-erasure finding from the Phase 2 audit. It builds on audited Phase 2 commit `1d1be09` and retains the subsequently completed Phase A authentication/presence changes in `2bc917c`. Work is isolated on `fix-phase21-stale-recovery`.
 
 ## Root cause and write-time protection

@@ -207,7 +207,7 @@ export default function SettingsModal({
       await onExport({
         status: draft.exportStatus || "",
         service: draft.exportService || "",
-        dateFilter: draft.exportDateFilter || "today",
+        dateFilter: draft.exportDateFilter ?? "today",
         format: draft.exportFormat || "csv"
       });
       setNotice({ type: "success", message: "Export started. Check your downloads." });

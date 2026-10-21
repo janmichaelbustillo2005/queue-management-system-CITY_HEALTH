@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../context/AuthContext";
 import Script from "next/script";
@@ -6,7 +6,8 @@ import SiteFrame from "../components/SiteFrame";
 import DailyTrends from "../components/DailyTrends";
 import StatusAnalytics from "../components/StatusAnalytics";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
-import { API_BASE_URL, request } from "../lib/api";
+import { request } from "../lib/api";
+import { getDefaultHistoryFilters } from "../lib/historyFilters";
 import Link from "next/link";
 import {
   clearActiveQueues,
@@ -17,6 +18,14 @@ import {
 } from "../lib/queueSettings";
 
 const defaultSettings = defaultQueueSettings;
+const emptyAnalyticsData = {
+  metrics: { totalPatients: 0, avgWaitTime: 0, avgServiceTime: 0, completionRate: 0 },
+  charts: {
+    serviceTypes: { labels: [], data: [] }, sexDistribution: { labels: [], data: [] },
+    dailyTrends: { labels: [], data: [] }, hourly: { labels: [], data: [] }, status: { labels: [], data: [] }
+  },
+  tableData: []
+};
 
 function drawChart(canvasId, type, labels, data, colors, borderColor) {
   if (typeof window === "undefined" || !window.Chart) {
@@ -74,6 +83,8 @@ function drawChart(canvasId, type, labels, data, colors, borderColor) {
 export default function AnalyticsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const loadSequence = useRef(0);
+  const [apiError, setApiError] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -84,18 +95,9 @@ export default function AnalyticsPage() {
   }, [user, loading, router]);
 
   const [settings, setSettings] = useState(defaultSettings);
-  const [filters, setFilters] = useState({ startDate: "", endDate: "" });
-  const [data, setData] = useState({
-    metrics: { totalPatients: 0, avgWaitTime: 0, avgServiceTime: 0, completionRate: 0 },
-    charts: {
-      serviceTypes: { labels: [], data: [] },
-      sexDistribution: { labels: [], data: [] },
-      dailyTrends: { labels: [], data: [] },
-      hourly: { labels: [], data: [] },
-      status: { labels: [], data: [] }
-    },
-    tableData: []
-  });
+  const [filters, setFilters] = useState({ status: "", service: "", doctor: "", dateFilter: "range", date: "", startDate: "", endDate: "" });
+  const [defaultsReady, setDefaultsReady] = useState(false);
+  const [data, setData] = useState(emptyAnalyticsData);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,15 +136,17 @@ export default function AnalyticsPage() {
   ];
 
   useEffect(() => {
-    const today = new Date();
-    const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const nextFilters = {
-      startDate: lastWeek.toISOString().split("T")[0],
-      endDate: today.toISOString().split("T")[0]
-    };
-    setFilters(nextFilters);
-    loadAnalytics(nextFilters);
+    setFilters(getDefaultHistoryFilters());
+    setDefaultsReady(true);
   }, []);
+
+  useEffect(() => {
+    if (defaultsReady && user?.role === "superadmin") loadAnalytics(filters);
+    else {
+      loadSequence.current += 1;
+      setData(emptyAnalyticsData);
+    }
+  }, [user, defaultsReady]);
 
   useEffect(() => {
     if (!data?.charts?.serviceTypes?.labels?.length && !data?.charts?.dailyTrends?.labels?.length) {
@@ -173,13 +177,40 @@ export default function AnalyticsPage() {
   }, [data, activeTab]);
 
   async function loadAnalytics(nextFilters = filters) {
-    const params = new URLSearchParams(nextFilters);
-    const response = await request(`/analytics?${params.toString()}`);
-    setData(response);
+    const sequence = ++loadSequence.current;
+    setData(emptyAnalyticsData);
+    setApiError(null);
+    try {
+      const params = new URLSearchParams(nextFilters);
+      const response = await request(`/analytics?${params.toString()}`);
+      if (sequence !== loadSequence.current) return;
+      if (response.error) throw new Error(response.error);
+      setData(response);
+    } catch (error) {
+      if (sequence === loadSequence.current) setApiError(error.message || "Failed to load analytics");
+    }
   }
 
-  function exportData() {
-    window.open(`${API_BASE_URL}/analytics/export?startDate=${filters.startDate}&endDate=${filters.endDate}`, "_blank");
+  async function exportData() {
+    setApiError(null);
+    try {
+      const response = await request(`/analytics/export?${new URLSearchParams(filters).toString()}`);
+      if (response.error) throw new Error(response.error);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      try {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `analytics_${filters.startDate || filters.date || "all"}_${filters.endDate || filters.date || "dates"}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      setApiError(error.message || "Failed to export analytics");
+    }
   }
 
   return (
@@ -202,12 +233,28 @@ export default function AnalyticsPage() {
           onExport={exportQueueFromSettings}
         />
         <div className="container mx-auto max-w-6xl px-3 md:px-4">
+          {apiError && <div role="alert" className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4">{apiError}</div>}
           <div className="bg-white rounded-lg shadow-md p-3 md:p-4 mb-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-base md:text-lg font-bold brand-text"><i className="fas fa-filter mr-2 text-sm" />Filter Options</h2>
               <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                <input type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
-                <input type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
+                <select aria-label="Date filter" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.dateFilter} onChange={(e) => setFilters({ ...filters, dateFilter: e.target.value, date: "", startDate: "", endDate: "" })}>
+                  <option value="">All Time</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="date">Specific Date</option><option value="range">Date Range</option>
+                </select>
+                {filters.dateFilter === "date" && <input aria-label="Specific date" type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} />}
+                {filters.dateFilter === "range" && <>
+                  <input aria-label="Start date" type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
+                  <input aria-label="End date" type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
+                </>}
+                <select aria-label="Service" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.service} onChange={(e) => setFilters({ ...filters, service: e.target.value })}>
+                  <option value="">All Services</option><option value="consultation">General Consultation</option><option value="checkup">Medical Check-up</option><option value="prenatal">Prenatal</option><option value="maternity">Maternity</option><option value="family_planning">Family Planning</option>
+                </select>
+                <select aria-label="Doctor" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.doctor} onChange={(e) => setFilters({ ...filters, doctor: e.target.value })}>
+                  <option value="">All Doctors</option>{[1, 2, 3].map((number) => <option key={number} value={`Doctor ${number}`}>Doctor {number}</option>)}
+                </select>
+                <select aria-label="Status" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+                  <option value="">All Status</option><option value="waiting">Waiting</option><option value="serving">Serving</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="no-show">No-show</option>
+                </select>
                 <button type="button" onClick={() => loadAnalytics(filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-search mr-1" />Apply</button>
                 <button type="button" onClick={exportData} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-download mr-1" />Export</button>
               </div>

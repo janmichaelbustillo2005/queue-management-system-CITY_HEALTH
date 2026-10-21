@@ -467,6 +467,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     if (pendingActionsRef.current.has(String(patientId))) return;
     try {
       const row = requireServingPatient(patientId);
+      if (!canManageConsultation) throw new Error("Only the assigned doctor can accept this patient.");
       if (!row.awaiting_accept) throw new Error("This patient is not awaiting acceptance.");
       await performPatientAction(patientId, "accept", "/queue/accept", { patient_id: patientId }, "Patient accepted");
     } catch (err) {
@@ -788,17 +789,19 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                         <div className="flex justify-end gap-2">
                           {row.status === "serving" && canProcessPatient(row) && row.awaiting_accept && (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => handleAccept(row.id)}
-                                title="Accept patient"
-                                aria-label="Accept patient"
-                                disabled={isActionPending(row.id)}
-                                aria-busy={pendingActions[String(row.id)] === "accept"}
-                                className={`${iconButtonClass} brand-button ring-2 ring-[var(--brand-primary)] animate-pulse disabled:opacity-50 disabled:cursor-not-allowed`}
-                              >
-                                <i className={pendingActions[String(row.id)] === "accept" ? "fas fa-spinner animate-spin" : "fas fa-user-check"} />
-                              </button>
+                              {canManageConsultation && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAccept(row.id)}
+                                  title="Accept patient"
+                                  aria-label="Accept patient"
+                                  disabled={isActionPending(row.id)}
+                                  aria-busy={pendingActions[String(row.id)] === "accept"}
+                                  className={`${iconButtonClass} brand-button ring-2 ring-[var(--brand-primary)] animate-pulse disabled:opacity-50 disabled:cursor-not-allowed`}
+                                >
+                                  <i className={pendingActions[String(row.id)] === "accept" ? "fas fa-spinner animate-spin" : "fas fa-user-check"} />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleCancel(row.id)}

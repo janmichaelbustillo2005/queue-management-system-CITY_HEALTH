@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { describe, test, before, beforeEach, after } = require("node:test");
 const { createHarness, createDatabase, clone } = require("./helpers/queueHarness");
+const { basePostgresSchema } = require("./helpers/postgresSchema");
 
 let PGlite;
 let unavailable;
@@ -18,13 +19,11 @@ try {
 describe("Phase 2 PostgreSQL migration and consultation RPCs", { skip: unavailable }, () => {
   let db;
   const migration = fs.readFileSync(path.join(__dirname, "../scripts/20261010-phase2-consultation-lifecycle.sql"), "utf8");
-  const originalSchema = fs.readFileSync(path.join(__dirname, "../supabase/City_health--Queuing.sql"), "utf8")
-    .split("-- Initial Data Seeding")[0];
 
   before(async () => {
     db = await PGlite.create();
     await db.exec("CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;");
-    await db.exec(originalSchema);
+    await db.exec(basePostgresSchema);
     await db.exec(migration);
   });
   after(async () => { if (db) await db.close(); });

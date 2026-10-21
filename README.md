@@ -1,4 +1,4 @@
-# Cabadbaran City Health Queuing System
+# Cabadbaran City Health Office and Family Planning Center Queuing System
 
 A web-based queuing system with weighted-priority scheduling and doctor acceptance voice announcements for the Cabadbaran City Health Office and Family Planning Center.
 
@@ -12,7 +12,7 @@ For Phase 2, apply the [versioned consultation migration](backend/scripts/202610
 
 Phase A adds authenticated doctor presence separately from counter enablement and patient occupancy. Apply its [versioned session migration](backend/scripts/20261012-phase-a-auth-presence.sql) before deploying this code, then sign in again. See the [presence and rollout guide](docs/phase-a-doctor-presence.md) for heartbeat/logout behavior, access controls and verification. Live migration application is a separate rollout step; the local implementation does not apply it automatically.
 
-Phase 2.1 protects Requeue/Undo from stale requests that could erase completed consultation history. Apply its [revision and recovery migration](backend/scripts/20261012-phase21-stale-recovery.sql) before using those operations against Supabase, then run the [read-only installation checks](backend/scripts/20261012-phase21-verify.sql). See the [Phase 2.1 guide](docs/phase21-stale-recovery.md) for exact protection, tests and rollout limits. The existing Undo counter-selection issue remains scheduled for Phase 2.2.
+Phase 2.1 protects Requeue/Undo from stale requests that could erase completed consultation history. See its [revision and recovery migration](backend/scripts/20261012-phase21-stale-recovery.sql) and [Phase 2.1 guide](docs/phase21-stale-recovery.md). Phase 2.2 adds the [versioned waiting-only Undo entry point](backend/scripts/20261014-phase22-undo-waiting.sql); use the [development rollout guide](docs/phase22-audit-corrections.md) and [read-only installation checks](backend/scripts/20261015-phase22-verify.sql) before enabling that workflow in an approved environment. Pulling this code does not apply migrations.
 
 Install dependencies when setting up a new checkout:
 
@@ -34,13 +34,13 @@ If your terminal is already inside `backend/`, run `npm.cmd run dev` there; use 
 
 Backend startup seeds only missing doctor counters. Existing counter IDs, availability and active patient assignments are preserved across restarts; Supabase consultations can resume using their saved start time and the existing acceptance file.
 
-The backend loads `backend/.env` regardless of its launch directory. When Supabase is configured, a database outage reports an error and subsequent requests retry the database; it does not replace saved patients with an empty local queue. Temporary in-memory development storage is used only when Supabase is unconfigured.
+The backend loads `backend/.env` regardless of its launch directory. When Supabase is configured, a database outage reports an error and subsequent requests retry the database; it does not replace saved patients with an empty local queue. Temporary in-memory development storage is used only when Supabase is unconfigured. Use a private JWT signing secret rather than the sample placeholder.
 
 To test Frontdesk, Doctor and Superadmin simultaneously, use different browsers or separate browser profiles. Tabs in one browser profile share a login and update their displayed account together. An expired login returns protected pages to sign-in instead of leaving them polling with an invalid token.
 
 ## Run the pyttsx3 voice announcer on Windows
 
-Run the Python voice service on the **same computer and logged-in Windows desktop session as the Queue Display and its speakers**. The backend, frontend, and voice service are three separate processes. Python produces the spoken announcement; the browser plays a slower, descending ding-dong bell before speech. **Sound Notifications** controls the bell. After opening or refreshing Queue Display, click **Enable Bell** if it appears; the click enables browser sound and plays the bell once as a test. Use **Re-Call** for an accepted patient to verify the bell followed by voice.
+Run the Python voice service on the **same computer and logged-in Windows desktop session as the Queue Display and its speakers**. The backend, frontend, and voice service are three separate processes. The Python worker plays the selected slow, descending ding-dong and then the spoken announcement. **Sound Notifications** controls the chime; turning it off still allows speech. The bell needs no browser activation click and stays ready across registration polls and display reloads while the updated local service is running and announcements are enabled. The application does not start the Python service automatically.
 
 ### 1. Open PowerShell in the project root
 
@@ -113,12 +113,13 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/health?init=1' -TimeoutSec 15 |
     Format-List
 ```
 
-Confirm `ready: True`, `dry_run: False`, and an empty/null `last_error`. Then send a synthetic announcement with a new key:
+Confirm `ready: True`, `dry_run: False`, `chime_supported: True`, and empty/null `last_error` and `last_chime_error`. If `chime_supported` is missing, restart the existing Python service with the updated script. Then send a synthetic announcement with a new key:
 
 ```powershell
 $voiceTestBody = @{
     key = 'manual-test-' + [guid]::NewGuid().ToString()
     text = 'Voice announcement test. Please proceed to Doctor 1, Room 1.'
+    play_chime = $true
     wait = $true
     timeout_seconds = 45
 } | ConvertTo-Json
@@ -128,12 +129,12 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/speak' -Method Post `
     Format-List
 ```
 
-Expect `success: True`, `queued: True`, `duplicate: False`, **and listen for the phrase on the intended speakers**. A successful health response alone does not verify audible playback. This direct voice test does not register, call, accept, complete, or otherwise change a patient.
+Expect `success: True`, `queued: True`, `duplicate: False`, **and listen for the descending bell followed by the phrase on the intended speakers**. A successful health response alone does not verify audible playback. This direct voice test does not register, call, accept, complete, or otherwise change a patient.
 
 ### 5. Enable announcements and test the existing workflow
 
-1. In the Superadmin dashboard, open **System Settings → Announcements**. Enable **Voice Announcements** and **Announce Doctor & Room**, then click **Save Settings**. **Sound Notifications** controls the optional browser bell separately.
-2. Open [Queue Display](http://localhost:3000/queue-display) on the display computer. It normally starts with **Voice Enabled**. If it says **Voice Disabled**, click that button to enable it. Check that the status reports the local pyttsx3 service as ready/listening.
+1. In the Superadmin dashboard, open **System Settings → Announcements**. Enable **Voice Announcements** and **Announce Doctor & Room**, then click **Save Settings**. Enable **Sound Notifications** for the local Python bell before speech.
+2. Open [Queue Display](http://localhost:3000/queue-display) on the display computer. It normally starts with **Voice Enabled**. If it says **Voice Disabled**, click that button to resume the intentionally paused announcer. Check that the status reports the local pyttsx3 service as ready/listening. There is no separate **Enable Bell** step.
 3. Keep the display open before generating the new event. Register a development patient, ensure the assigned doctor is online, and use Frontdesk **Call Now** for the eligible next patient.
 4. Confirm the patient appears under the correct doctor. Frontdesk calling does not announce the patient; the doctor must click **Accept**.
 5. Listen for the accepted patient's queue number, name, doctor, and room. The queue number is read character by character, for example `G P 0 0 1`. Repeated display polls should not repeat that same event.
@@ -141,13 +142,13 @@ Expect `success: True`, `queued: True`, `duplicate: False`, **and listen for the
 
 With Phase 2 installed, click **Start Consultation** after acceptance, then **Complete Consultation** when service actually ends. These actions do not announce again. Only the assigned doctor can start or complete; Frontdesk and Superadmin monitor the consultation phase.
 
-Events from before the display page opened are treated as historical and are not replayed automatically. If a patient was already accepted before opening/reloading the display, use **Re-Call** to check playback. Keep the display computer's clock synchronized with the backend computer because the startup history check uses event timestamps.
+On a fresh visit without a recovery checkpoint, earlier events are treated as historical. A short same-tab reload with a valid two-minute checkpoint can recover eligible unfinished Accept/Re-Call events while suppressing completed announcements. Missing, blocked or expired checkpoints retain fresh-visit behavior. Authorized staff can use **Re-Call** when an additional announcement is needed for a current accepted patient. Keep the display and backend clocks synchronized; see the [recovery limits](backend/voice/README.md#connect-it-to-the-queue-display). A positive API/driver result does not prove physical audibility, and restarting both the page and Python process during delivery does not guarantee exactly-once sound.
 
 ### 6. Stop and restart
 
 Press `Ctrl+C` in each service terminal to stop it. On later days, the environment setup and installs are normally unnecessary: start the three commands from step 3, check the speakers, then open the Queue Display.
 
-If a voice service is already running in the background, use it rather than starting another instance. The detailed guide explains how to identify and stop a background service when a restart is needed.
+If a voice service is already running, stop that instance before starting its replacement. After updating the Python script, restart it and confirm `chime_supported: True`; an older running process does not acquire the new bell behavior from a browser refresh. The detailed guide explains how to identify and stop a background service when a restart is needed.
 
 For another voice port, failed health checks, silent playback, and diagnostic logs, see the [detailed voice service guide](backend/voice/README.md). A custom `NEXT_PUBLIC_PYTTSX3_TTS_URL` belongs in the frontend environment; restart the development frontend after changing it, or rebuild and restart a production frontend.
 

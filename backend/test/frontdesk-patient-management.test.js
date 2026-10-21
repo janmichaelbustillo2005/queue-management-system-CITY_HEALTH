@@ -18,7 +18,9 @@ test("Frontdesk can see and cancel yesterday's serving visit before calling toda
   assert.equal(overview.body.patients.filter((row) => row.id === previous.id).length, 1);
   assert.equal(overview.body.patients.find((row) => row.id === previous.id).status, "serving");
   assert.equal(overview.body.counters[0].current_patient_id, previous.id);
-  assert.equal((await h.service.getQueueStats()).serving, 0, "daily statistics keep their date range");
+  const stats = await h.service.getQueueStats();
+  assert.equal(stats.serving, 1, "active serving counts include the carryover visit");
+  assert.equal(stats.today_total_patients, 1, "daily registration totals keep their Manila date range");
   assert.equal((await h.request("POST", "/queue/call", { patient_id: next.id, counterId: "Doctor 1" })).status, 400);
 
   assert.equal((await h.request("POST", "/queue/cancel", {

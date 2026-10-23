@@ -345,7 +345,6 @@ function calledPatient(overrides = {}) {
   return {
     id: 101,
     queue_number: "GP-001",
-    id_num: "Test Patient",
     status: "serving",
     called_at: "2026-10-10T01:00:00.000Z",
     counter_name: "Doctor 1",
@@ -747,14 +746,17 @@ test("enabling voice seeds old acceptances without replaying them", async () => 
   assert.equal(harness.speech.length, 1);
 });
 
-test("existing announcement wording preserves queue number, patient name, doctor and room", async () => {
+test("announcement wording preserves queue number, doctor and room and never includes a patient name or identifier", async () => {
   const harness = createDisplayHarness();
   harness.seed();
-  await harness.poll({ recent_accepted: [calledPatient({ accepted_at: "2026-10-10T01:01:00.000Z" })] });
+  // Even if a stale or non-conforming payload still carried id_num, it is never spoken or forwarded.
+  await harness.poll({ recent_accepted: [calledPatient({ accepted_at: "2026-10-10T01:01:00.000Z", id_num: "Test Patient" })] });
   assert.equal(
     harness.speech[0].text,
-    "Now calling queue number G P 0 0 1, Test Patient, please proceed to Doctor 1, Room 1."
+    "Now calling queue number G P 0 0 1, please proceed to Doctor 1, Room 1."
   );
+  assert.ok(!("patient_name" in harness.speech[0]), "voice request must not carry patient_name");
+  assert.ok(!JSON.stringify(harness.speech).includes("Test Patient"), "patient name must not reach the voice service");
   assert.equal(harness.speech[0].wait, true);
   assert.equal(harness.speech[0].timeout_seconds, 45);
   assert.equal(harness.speech[0].gap_ms, 3000);
@@ -821,6 +823,43 @@ test("muting sound notifications preserves voice and changing the setting restor
   const next = { ...first, announcement_key: "voice-with-chime", announcement_at: "2026-10-10T01:02:00.000Z" };
   await h.poll({ queue_settings: { soundNotifications: true }, voice_announcements: [first, next] });
   assert.equal(h.speech[1].play_chime, true);
+});
+
+test("minimized public events (queue number, doctor/room, event identity only) announce the correct queue number", async () => {
+  const harness = createDisplayHarness();
+  harness.seed();
+  const acceptedAt = "2026-10-10T01:01:00.000Z";
+  const event = {
+    id: 201, queue_number: "PN-007", status: "serving", called_at: "2026-10-10T01:00:00.000Z", accepted_at: acceptedAt,
+    announcement_at: acceptedAt, announcement_key: "201:accepted:2026-10-10T01:01:00.000Z:key-1", event_type: "accepted", counter_name: "Doctor 2"
+  };
+  assert.ok(!("id_num" in event) && !("patient_name" in event));
+  await harness.poll({ voice_announcements: [event], recent_accepted: [] });
+  await harness.poll({ voice_announcements: [event], recent_accepted: [] }); // repeated poll: still once
+  assert.equal(harness.speech.length, 1);
+  assert.equal(harness.speech[0].text, "Now calling queue number P N 0 0 7, please proceed to Doctor 2, Room 2.");
+  assert.deepEqual(Object.keys(harness.speech[0]).filter((key) => /id_num|patient/i.test(key)), [],
+    "the voice request must not carry any patient field (doctor_name is the doctor label)");
+});
+
+test("identifier-like values in a stale payload (citizen, PhilHealth) are never spoken, logged or forwarded", async () => {
+  const harness = createDisplayHarness();
+  harness.seed();
+  const stale = calledPatient({ id: 301, queue_number: "GP-009", accepted_at: "2026-10-10T01:01:00.000Z",
+    id_num: "CIT-1234-5678-SENTINEL", patient_name: "PHILHEALTH-12-345678901-2-SENTINEL" });
+  await harness.poll({ recent_accepted: [stale] });
+  assert.equal(harness.speech.length, 1);
+  assert.equal(harness.speech[0].text, "Now calling queue number G P 0 0 9, please proceed to Doctor 1, Room 1.");
+  assert.ok(!JSON.stringify(harness.speech).includes("SENTINEL"));
+});
+
+test("Queue Display source never reads, renders, logs or speaks a patient name or identifier", () => {
+  const readsOfPatient = [...source.matchAll(/\b(?:patient|row|servingPatient|entry|s|p|event|call)\??\.(?:id_num|ID_Num|patient_name)\b/g)];
+  assert.deepEqual(readsOfPatient, []);
+  assert.ok(!/patient_name|patientName/.test(source));
+  // The only id_num reads left belong to counters (doctor/room labels).
+  for (const match of source.matchAll(/(\w+(?:\.\w+)?)\.id_num/g)) assert.match(match[1], /^(?:counter|page\.counter)$/);
+  assert.match(source, /Now calling queue number \$\{spokenQueue\}, please proceed to \$\{destination\}\./);
 });
 
 test("each accepted patient's announcement keeps its assigned doctor's room", async () => {

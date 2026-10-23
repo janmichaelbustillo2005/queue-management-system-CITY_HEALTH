@@ -512,7 +512,6 @@ export default function QueueDisplayPage() {
         patient: {
           id: patient.id,
           queue_number: patient.queue_number,
-          id_num: patient.id_num,
           counter_name: doctorName,
           room: resolveRoom(doctorName),
           called_at: patient.called_at,
@@ -526,7 +525,6 @@ export default function QueueDisplayPage() {
         key,
         eventType: patient.event_type,
         queueNumber: patient.queue_number,
-        patientName: patient.id_num,
         doctorName,
         room: resolveRoom(doctorName),
         announcementAt: patient.announcement_at || patient.accepted_at
@@ -646,7 +644,6 @@ export default function QueueDisplayPage() {
       url: `${PYTTSX3_TTS_BASE_URL}/speak`,
       key: requestBody.key,
       queueNumber: requestBody.queue_number,
-      patientName: requestBody.patient_name,
       doctorName: requestBody.doctor_name,
       room: requestBody.room,
       text: requestBody.text
@@ -694,17 +691,17 @@ export default function QueueDisplayPage() {
     }
 
     const queueNumber = patient.queue_number || "";
-    const name = patient.id_num || "Patient";
     const doctorName = patient.counter_name || "Doctor";
     const room = patient.room || resolveRoom(doctorName);
     const includeRoom = runtimeQueueSettings?.announceDoctorRoom !== false;
     const destination = includeRoom && room ? `${doctorName}, ${room}` : doctorName;
     const spokenQueue = formatQueueForSpeech(queueNumber);
-    const text = `Now calling queue number ${spokenQueue}, ${name}, please proceed to ${destination}.`;
+    // Public announcements identify the visit by queue number only; patient
+    // names and identifiers are never spoken or sent to the voice service.
+    const text = `Now calling queue number ${spokenQueue}, please proceed to ${destination}.`;
     logTts("announcement-built", {
       key: patient.announcement_key,
       queueNumber,
-      patientName: name,
       doctorName,
       room,
       text
@@ -715,7 +712,6 @@ export default function QueueDisplayPage() {
         key: patient.announcement_key,
         text,
         queue_number: queueNumber,
-        patient_name: name,
         doctor_name: doctorName,
         room,
         accepted_at: patient.accepted_at,
@@ -776,7 +772,6 @@ export default function QueueDisplayPage() {
             key: getAnnouncementKey(patient),
             eventType: patient.event_type,
             queueNumber: patient.queue_number,
-            patientName: patient.id_num,
             doctorName: resolveDoctorName(patient),
             room: resolveRoom(resolveDoctorName(patient)),
             announcementAt: patient.announcement_at || patient.accepted_at
@@ -954,9 +949,6 @@ export default function QueueDisplayPage() {
                   <div className="queue-serving-patient text-center h-12">
                     {servingPatient ? (
                       <>
-                        <h4 className="text-lg font-bold text-white leading-tight truncate max-w-[240px]">
-                          {servingPatient.id_num}
-                        </h4>
                         <p className="text-[10px] text-white/60 uppercase font-black tracking-widest mt-1">
                           {servingPatient.service_type}
                         </p>

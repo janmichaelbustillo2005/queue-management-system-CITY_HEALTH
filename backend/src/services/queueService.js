@@ -1688,6 +1688,79 @@ async function getTransactions({ page = 1, limit = 20, ...filters } = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Public Queue Display serialization (R1).
+// GET /display is unauthenticated, so every object it returns is built
+// field-by-field below. Never spread a patient, counter or event row into a
+// public object: any column added to the database later (contact number,
+// birthdate, residency, PhilHealth, sex, priority/vulnerability data, visit
+// revision, consultation timing, free-text reason, ...) must stay private by
+// default. `patients.id_num` may hold a patient's name or an identifier, so it
+// is never published: the public display and announcements identify a visit by
+// `queue_number` only. (`counters.id_num` is the doctor/room label such as
+// "Doctor 1" and is not patient data.)
+// ---------------------------------------------------------------------------
+function toPublicWaitingEntry(patient) {
+  return {
+    id: patient.id,
+    queue_number: patient.queue_number,
+    service_type: patient.service_type,
+    status: patient.status,
+    counter_id: patient.counter_id,
+    completed_at: patient.completed_at
+  };
+}
+
+function toPublicServingEntry(patient, assignedCounter) {
+  return {
+    id: patient.id,
+    queue_number: patient.queue_number,
+    service_type: patient.service_type,
+    status: patient.status,
+    called_at: patient.called_at,
+    counter_name: assignedCounter?.id_num || patient.counter_id || "TBA",
+    // Keep numeric counter id for display card matching; fall back safely
+    counter_id: assignedCounter?.id ?? patient.counter_id
+  };
+}
+
+function toPublicRecentCalledEntry(patient, assignedCounter) {
+  return {
+    id: patient.id,
+    queue_number: patient.queue_number,
+    service_type: patient.service_type,
+    status: patient.status,
+    called_at: patient.called_at,
+    completed_at: patient.completed_at,
+    counter_id: patient.counter_id,
+    counter_name: assignedCounter?.id_num || patient.counter_id || "TBA"
+  };
+}
+
+// Doctor/counter cards: the doctor/room label (`id_num`/`name`), availability and
+// served services only. The patient currently attached to a counter is
+// intentionally omitted; serving patients are published only through
+// all_serving, by queue number.
+function toPublicCounter(counter) {
+  return {
+    id: counter.id,
+    name: counter.name,
+    id_num: counter.id_num,
+    service_types: counter.service_types,
+    is_online: counter.is_online
+  };
+}
+
+function toPublicDisplaySettings(settings) {
+  return {
+    id: settings?.id,
+    company_name: settings?.company_name,
+    department_name: settings?.department_name,
+    welcome_message: settings?.welcome_message,
+    refresh_interval: settings?.refresh_interval
+  };
+}
+
 async function getDisplayData() {
   const [settings, patients, counters] = await Promise.all([
     getDisplaySettings(),
@@ -1705,12 +1778,7 @@ async function getDisplayData() {
     const assignedCounter =
       counters.find((c) => c.current_patient_id === patient.id) ||
       counters.find((c) => c.id_num === patient.counter_id);
-    return {
-      ...patient,
-      counter_name: assignedCounter?.id_num || patient.counter_id || "TBA",
-      // Keep numeric counter id for display card matching; fall back safely
-      counter_id: assignedCounter?.id ?? patient.counter_id
-    };
+    return toPublicServingEntry(patient, assignedCounter);
   });
 
   const waitingQueue = patients
@@ -1732,10 +1800,7 @@ async function getDisplayData() {
       const assignedCounter =
         counters.find((c) => c.current_patient_id === patient.id) ||
         counters.find((c) => c.id_num === patient.counter_id);
-      return {
-        ...patient,
-        counter_name: assignedCounter?.id_num || patient.counter_id || "TBA"
-      };
+      return toPublicRecentCalledEntry(patient, assignedCounter);
     });
 
   // Voice announcer source: patients the doctor has accepted, oldest acceptance first
@@ -1747,7 +1812,6 @@ async function getDisplayData() {
     .map(({ patient, acceptedAt }) => ({
       id: patient.id,
       queue_number: patient.queue_number,
-      id_num: patient.id_num,
       status: patient.status,
       called_at: patient.called_at,
       accepted_at: acceptedAt,
@@ -1768,7 +1832,6 @@ async function getDisplayData() {
       return {
         id: patient.id,
         queue_number: patient.queue_number || event.queue_number,
-        id_num: patient.id_num || event.id_num,
         status: patient.status,
         called_at: patient.called_at || event.called_at,
         accepted_at: event.event_at,
@@ -1789,7 +1852,6 @@ async function getDisplayData() {
         announcement_key: event.announcement_key,
         event_type: event.event_type,
         queue_number: event.queue_number,
-        patient_name: event.id_num,
         doctor: event.counter_name,
         announcement_at: event.announcement_at
       }))
@@ -1797,7 +1859,7 @@ async function getDisplayData() {
   }
 
   return {
-    settings: settings,
+    settings: toPublicDisplaySettings(settings),
     storage_mode: getQueueStorageMode(),
     queue_settings: getQueueSettings(),
     voice_announcements: voiceAnnouncements,
@@ -1805,11 +1867,11 @@ async function getDisplayData() {
     all_serving: allServing,
     serving_count: allServing.length,
     now_serving: allServing[0] || null,
-    next_in_line: nextInLine,
+    next_in_line: nextInLine ? toPublicWaitingEntry(nextInLine) : null,
     waiting_count: waitingQueue.length,
     recent_called: recentCalled,
-    waiting_queue: waitingQueue,
-    counters: counters
+    waiting_queue: waitingQueue.map(toPublicWaitingEntry),
+    counters: counters.map(toPublicCounter)
   };
 }
 

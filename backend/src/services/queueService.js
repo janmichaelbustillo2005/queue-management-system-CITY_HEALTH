@@ -991,86 +991,242 @@ async function completePatient(patientId, reason = null, counterId = null, actor
   return row;
 }
 
-async function cancelPatient(patientId, reason = null, counterId = null) {
-  const existing = await getPatientById(patientId);
+// ---------------------------------------------------------------------------
+// Cancel: authorization and canonical ownership (R2)
+//
+// Ownership is always derived from persisted records (the stored patient row,
+// the counters and the persisted staff account), never from request fields.
+// Policy: a Superadmin and a Frontdesk account (role "admin" with no doctor
+// assignment) may cancel any active patient, as the staff queue screens already
+// allow. A doctor account may cancel only patients that belong to its own
+// doctor: its serving patient, or a patient routed to it by the service-to-doctor
+// mapping that has not been called yet.
+// ---------------------------------------------------------------------------
+const FRONTDESK_ASSIGNMENT_LABELS = ["front desk", "frontdesk"];
 
-  if (!existing) {
-    throw new Error("Patient not found");
+function isFrontdeskAssignment(value) {
+  const label = String(value ?? "").trim().toLowerCase();
+  return !label || FRONTDESK_ASSIGNMENT_LABELS.includes(label);
+}
+
+async function loadCancellationContext(patientId, actor) {
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
+  const local = useLocalFallback;
+  let patient, counters, user = null;
+  if (local) {
+    patient = localData.patients.find((row) => row.id === patientId);
+    counters = localData.counters;
+    if (actor) user = localData.users.find((row) => row.id_num === actor.id_num) || null;
+  } else {
+    // Mutation validation never silently switches to another storage system.
+    let results;
+    try {
+      results = await Promise.all([
+        supabase.from("patients").select("*").eq("id", patientId).maybeSingle(),
+        supabase.from("counters").select("id, id_num, current_patient_id"),
+        actor
+          ? supabase.from("users").select("id_num, role, doctor_name").eq("id_num", actor.id_num).maybeSingle()
+          : Promise.resolve({ data: null, error: null })
+      ]);
+    } catch (error) {
+      throw consultationError(error.message || "Cancellation database validation is unavailable", 503);
+    }
+    for (const result of results) {
+      if (result.error) throw consultationError(result.error.message || "Failed to validate cancellation", 503);
+    }
+    patient = results[0].data;
+    counters = results[1].data || [];
+    user = results[2].data;
   }
-  if (existing.status === "completed") throw new Error("A completed consultation cannot be cancelled");
+  if (local !== useLocalFallback) throw consultationError("Queue storage changed. Refresh and try again.", 409);
+  return { patient: patient || null, counters, user, local };
+}
+
+// Resolves who the caller is from the verified token claims and the persisted
+// account. Returns { kind: "system" | "superadmin" | "frontdesk" | "doctor", counter? }.
+function resolveCancelActor(actor, user, counters) {
+  if (actor == null) return { kind: "system" }; // trusted in-process caller, never an HTTP request
+  if (!["admin", "superadmin"].includes(actor.role) || !String(actor.id_num || "").trim()) {
+    throw consultationError("An authenticated staff account is required for this patient action.", 403);
+  }
+  if (!user || user.role !== actor.role) {
+    throw consultationError("Your account no longer matches your session. Sign in again.", 403);
+  }
+  if (actor.role === "superadmin") return { kind: "superadmin" };
+  const ownDoctor = resolveDoctorCounter(user.doctor_name, counters);
+  if (isFrontdeskAssignment(user.doctor_name)) {
+    // A token that claims a doctor the persisted account does not have is stale or forged.
+    if (!isFrontdeskAssignment(actor.doctor_name)) {
+      throw consultationError("Your current account is not assigned to this doctor. Sign in again.", 403);
+    }
+    return { kind: "frontdesk" };
+  }
+  const claimed = resolveDoctorCounter(actor.doctor_name, counters);
+  if (!ownDoctor || claimed?.id !== ownDoctor.id) {
+    throw consultationError("Your current account is not assigned to this doctor. Sign in again.", 403);
+  }
+  return { kind: "doctor", counter: ownDoctor };
+}
+
+// The doctor a patient belongs to, from persisted data only: the stored
+// assignment first; a patient never called follows the service mapping. A
+// serving patient with no resolvable assignment is an orphan and has no owner.
+function resolveCancelOwner(patient, counters) {
+  if (String(patient.counter_id ?? "").trim()) return resolveDoctorCounter(patient.counter_id, counters);
+  if (patient.status === "serving") return null;
+  return resolveDoctorCounter(getDoctorForService(patient.service_type), counters);
+}
+
+// Shared by Cancel, No-show, Recall, Re-Call, Requeue and Undo (R2/R2.1). Loads the
+// stored patient, counters and persisted account, identifies the caller, and rejects:
+//   - an unauthenticated or mismatched account (403),
+//   - a doctor account acting on a patient that is not its own (403),
+//   - a client-supplied doctor/counter that contradicts the stored assignment (409/400).
+// Frontdesk and Superadmin keep their existing cross-doctor operational permissions.
+// `actor` undefined means a trusted in-process caller (never an HTTP request).
+// A terminal visit must not be pointed at by any counter. A repeat Cancel/No-show returns without
+// touching the patient row, but if an earlier attempt committed the patient and failed before
+// releasing the counter (two separate writes today), the repeat releases that stale pointer so a
+// retry repairs the doctor's counter. Only counters whose pointer is this patient are cleared.
+async function releaseStaleCounterPointer(patientId, counters, local) {
+  if (!counters.some((counter) => Number(counter.current_patient_id) === patientId)) return;
+  if (local) {
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patientId) counter.current_patient_id = null;
+    }
+    return;
+  }
+  await clearCounterAssignment(patientId);
+}
+
+async function authorizeVisitAction(patientId, actor, counterId = null, { denyMessage } = {}) {
+  const { patient: found, counters, user, local } = await loadCancellationContext(patientId, actor);
+  // Identify the caller first so an unauthorized account learns nothing about a patient.
+  const who = resolveCancelActor(actor, user, counters);
+  if (!found) throw consultationError("Patient not found", 404);
+  const existing = { ...found };
+  const owner = resolveCancelOwner(existing, counters);
+  if (who.kind === "doctor" && (!owner || owner.id !== who.counter.id)) {
+    throw consultationError(denyMessage || "You can only manage patients assigned to your doctor.", 403);
+  }
+  // A client-supplied assignment must agree with the persisted one.
+  const supplied = String(counterId ?? "").trim() ? counterId : null;
+  const requested = supplied ? resolveDoctorCounter(supplied, counters) : null;
+  if (supplied) {
+    if (!requested) throw consultationError("The requested doctor is not a valid counter", 400);
+    if (owner && requested.id !== owner.id) {
+      throw consultationError("The requested doctor does not match this patient's assigned doctor", 409);
+    }
+  }
+  return { existing, who, owner, requested, counters, local };
+}
+
+// Returns the patient after cancelling. A repeated cancel of an already
+// cancelled patient is explicitly idempotent: it returns { already_cancelled: true }
+// and writes nothing. `counterId` is only an optional consistency check against
+// the stored assignment and is never written over it. `actor` is the verified
+// request identity; omit it only for trusted in-process callers.
+async function cancelPatient(patientId, reason = null, counterId = null, actor = undefined) {
+  // No in-process lock: a Cancel may legitimately race a Start/Complete served by
+  // another backend instance, so correctness rests on the conditional write below
+  // (status + visit_state_revision), not on this process's memory.
+  return performCancellation(patientId, reason, counterId, actor);
+}
+
+async function performCancellation(patientId, reason, counterId, actor) {
+  const { existing, owner, requested, counters, local } = await authorizeVisitAction(patientId, actor, counterId, {
+    denyMessage: "You can only cancel patients assigned to your doctor."
+  });
+
+  if (existing.status === "completed") throw consultationError("A completed consultation cannot be cancelled");
+  if (existing.status === "no-show") {
+    throw consultationError("This patient was marked no-show. Undo the no-show before cancelling.", 409);
+  }
+  if (existing.status === "cancelled") {
+    // Terminal and unchanged: original reason, completion time, assignment and history stay as recorded.
+    await releaseStaleCounterPointer(patientId, counters, local);
+    return { ...parsePatientPriority(existing), already_cancelled: true };
+  }
 
   const trimmedReason = reason == null ? null : String(reason).trim() || null;
-  const assignedDoctor = counterId || existing.counter_id || null;
   const completedAt = new Date().toISOString();
+  // Keep the stored assignment. Only a patient with none (never called) takes the
+  // validated doctor, which equals the mapped owner and never another doctor.
+  const stampCounter = !String(existing.counter_id ?? "").trim() && owner && requested?.id === owner.id ? owner.id_num : null;
+  const attributedTo = String(existing.counter_id ?? "").trim() ? existing.counter_id : stampCounter;
 
-  if (useLocalFallback) {
-    const patientIndex = localData.patients.findIndex(p => p.id === patientId);
-    if (patientIndex !== -1) {
-      localData.patients[patientIndex].status = "cancelled";
-      localData.patients[patientIndex].completed_at = completedAt;
-      localData.patients[patientIndex].reason = trimmedReason;
-      if (assignedDoctor) {
-        localData.patients[patientIndex].counter_id = assignedDoctor;
-      }
+  if (local) {
+    // No await between the final validation and the writes in temporary memory.
+    const current = localData.patients.find((row) => row.id === patientId);
+    if (!current || current.status !== existing.status || (current.visit_state_revision ?? null) !== (existing.visit_state_revision ?? null) ||
+        (current.counter_id ?? null) !== (existing.counter_id ?? null)) {
+      throw consultationError("Patient visit changed; refresh before retrying cancellation", 409);
     }
-    await clearCounterAssignment(patientId);
-    return localData.patients[patientIndex];
-  }
-  
-  const updatePayload = {
-    status: "cancelled",
-    completed_at: completedAt,
-    reason: trimmedReason
-  };
-  if (assignedDoctor) {
-    updatePayload.counter_id = assignedDoctor;
+    current.status = "cancelled";
+    current.completed_at = completedAt;
+    current.reason = trimmedReason;
+    if (stampCounter) current.counter_id = stampCounter;
+    current.visit_state_revision = randomUUID();
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patientId) counter.current_patient_id = null;
+    }
+    clearRecallCount(patientId);
+    return parsePatientPriority(current);
   }
 
-  let { data, error } = await supabase
-    .from("patients")
-    .update(updatePayload)
-    .eq("id", patientId)
-    .eq("status", existing.status)
-    .select("*")
-    .single();
+  const updatePayload = { status: "cancelled", completed_at: completedAt, reason: trimmedReason };
+  if (stampCounter) updatePayload.counter_id = stampCounter;
+
+  // Conditional on the row still being the one that was authorized: a changed
+  // status or revision (Undo, Requeue, Call, Start, Complete, another Cancel) matches no row.
+  const conditionalUpdate = (payload) => {
+    let query = supabase.from("patients").update(payload).eq("id", patientId).eq("status", existing.status);
+    if (existing.visit_state_revision) query = query.eq("visit_state_revision", existing.visit_state_revision);
+    return query.select("*").maybeSingle();
+  };
+
+  let { data, error } = await conditionalUpdate(updatePayload);
 
   // Fallback when patients.reason column has not been migrated yet
   if (error && /reason/i.test(String(error.message || ""))) {
     const fallbackPayload = {
       status: "cancelled",
       completed_at: completedAt,
-      vulnerability_flags: withCancelMeta(existing.vulnerability_flags, trimmedReason, assignedDoctor)
+      vulnerability_flags: withCancelMeta(existing.vulnerability_flags, trimmedReason, attributedTo)
     };
-    if (assignedDoctor) {
-      fallbackPayload.counter_id = assignedDoctor;
-    }
-
-    ({ data, error } = await supabase
-      .from("patients")
-      .update(fallbackPayload)
-      .eq("id", patientId)
-      .eq("status", existing.status)
-      .select("*")
-      .single());
+    if (stampCounter) fallbackPayload.counter_id = stampCounter;
+    ({ data, error } = await conditionalUpdate(fallbackPayload));
   }
 
   if (error) {
     throw formatError(error, "Failed to cancel patient");
   }
+  if (!data) {
+    throw consultationError("Patient visit changed; refresh before retrying cancellation", 409);
+  }
 
+  // Releases only a counter whose pointer is this patient.
   await clearCounterAssignment(patientId);
   clearRecallCount(patientId);
   return parsePatientPriority(data);
 }
 
-async function noShowPatient(patientId, reason = null) {
-  const existing = await getPatientById(patientId);
+// Returns the patient after marking no-show. A repeated no-show is idempotent
+// ({ already_no_show: true }) and writes nothing; a cancelled patient must be undone first.
+async function noShowPatient(patientId, reason = null, actor = undefined) {
+  const { existing, counters, local } = await authorizeVisitAction(patientId, actor, null, {
+    denyMessage: "You can only mark no-shows for patients assigned to your doctor."
+  });
 
-  if (!existing) {
-    throw new Error("Patient not found");
-  }
   if (existing.status === "completed") {
     throw new Error("A completed consultation cannot be marked as no-show");
+  }
+  if (existing.status === "no-show") {
+    await releaseStaleCounterPointer(patientId, counters, local);
+    return { ...parsePatientPriority(existing), already_no_show: true };
+  }
+  if (existing.status === "cancelled") {
+    throw consultationError("This patient was cancelled. Undo the cancellation before marking no-show.", 409);
   }
 
   if (existing.status === "serving" && existing.called_at) {
@@ -1083,28 +1239,39 @@ async function noShowPatient(patientId, reason = null) {
     }
   }
 
-  if (useLocalFallback) {
-    const patientIndex = localData.patients.findIndex(p => p.id === patientId);
-    if (patientIndex !== -1) {
-      localData.patients[patientIndex].status = "no-show";
-      localData.patients[patientIndex].completed_at = new Date().toISOString();
-      localData.patients[patientIndex].reason = reason;
+  const completedAt = new Date().toISOString();
+  if (local) {
+    // No await between the final validation and the writes in temporary memory.
+    const current = localData.patients.find((row) => row.id === patientId);
+    if (!current || current.status !== existing.status || (current.visit_state_revision ?? null) !== (existing.visit_state_revision ?? null)) {
+      throw consultationError("Patient visit changed; refresh before retrying", 400);
     }
-    await clearCounterAssignment(patientId);
+    current.status = "no-show";
+    current.completed_at = completedAt;
+    current.reason = reason;
+    current.visit_state_revision = randomUUID();
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patientId) counter.current_patient_id = null;
+    }
     clearRecallCount(patientId);
-    return localData.patients[patientIndex];
+    return current;
   }
-  
-  const { data, error } = await supabase
-    .from("patients")
-    .update({ status: "no-show", completed_at: new Date().toISOString(), reason })
-    .eq("id", patientId)
-    .eq("status", existing.status)
-    .select("*")
-    .single();
 
-  if (error || !data) {
+  // Conditional on the authorized row still being current (status + revision). A stale
+  // write keeps the endpoint's existing 400 contract and changes nothing.
+  let query = supabase
+    .from("patients")
+    .update({ status: "no-show", completed_at: completedAt, reason })
+    .eq("id", patientId)
+    .eq("status", existing.status);
+  if (existing.visit_state_revision) query = query.eq("visit_state_revision", existing.visit_state_revision);
+  const { data, error } = await query.select("*").maybeSingle();
+
+  if (error) {
     throw formatError(error, "Failed to mark patient as no-show");
+  }
+  if (!data) {
+    throw consultationError("Patient visit changed; refresh before retrying", 400);
   }
 
   await clearCounterAssignment(patientId);
@@ -1112,17 +1279,22 @@ async function noShowPatient(patientId, reason = null) {
   return data;
 }
 
-async function recallPatient(patientId, counterId = null) {
-  const patient = await getPatientById(patientId);
-  if (!patient) {
-    throw new Error("Patient not found");
-  }
+// Legacy repeat-call endpoint (before acceptance). The stored assignment is
+// authoritative: the caller's counter is only a consistency check and is never written.
+async function recallPatient(patientId, counterId = null, actor = undefined) {
+  const { existing: patient, owner, local } = await authorizeVisitAction(patientId, actor, counterId, {
+    denyMessage: "You can only recall patients assigned to your doctor."
+  });
   if (patient.status !== "serving") {
     throw new Error("Only a serving patient can be recalled");
   }
   if (patient.consultation_started_at || getAcceptedAt(patientId)) {
     throw new Error("Use Re-Call for an accepted patient; the original call time must be preserved.");
   }
+  if (!owner) {
+    throw consultationError("This serving patient has no assigned doctor. Cancel it or call it again from the queue.", 409);
+  }
+  const doctor = owner.id_num;
 
   const settings = getQueueSettings();
   const maxRecalls = Number(settings.recallAttempts);
@@ -1131,13 +1303,10 @@ async function recallPatient(patientId, counterId = null) {
     throw new Error(`Recall limit reached (${maxRecalls}). Mark as no-show or cancel the patient.`);
   }
 
-  const doctor = counterId || patient.counter_id;
-  if (doctor) {
-    const counters = await getCounters();
-    const counter = counters.find((c) => c.id_num === doctor);
-    if (counter && counter.is_online === false) {
-      throw new Error(`${doctor} is marked offline in System Settings.`);
-    }
+  const counters = await getCounters();
+  const counter = counters.find((c) => c.id_num === doctor);
+  if (counter && counter.is_online === false) {
+    throw new Error(`${doctor} is marked offline in System Settings.`);
   }
 
   // Acceptance can arrive while the availability query above is pending.
@@ -1146,27 +1315,31 @@ async function recallPatient(patientId, counterId = null) {
   }
   const calledAt = new Date().toISOString();
 
-  if (useLocalFallback) {
-    const patientIndex = localData.patients.findIndex((p) => p.id === patientId);
-    if (patientIndex !== -1) {
-      localData.patients[patientIndex].called_at = calledAt;
-      localData.patients[patientIndex].status = "serving";
-      if (doctor) localData.patients[patientIndex].counter_id = doctor;
+  if (useLocalFallback || local) {
+    const current = localData.patients.find((row) => row.id === patientId);
+    if (!current || current.status !== "serving" || current.consultation_started_at ||
+        (current.visit_state_revision ?? null) !== (patient.visit_state_revision ?? null)) {
+      throw consultationError("Patient visit changed; refresh before retrying", 409);
     }
+    current.called_at = calledAt;
+    current.visit_state_revision = randomUUID();
     return { success: true, recall_count: incrementRecallCount(patientId), max_recalls: maxRecalls };
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("patients")
-    .update({ called_at: calledAt, status: "serving", counter_id: doctor || patient.counter_id })
+    .update({ called_at: calledAt })
     .eq("id", patientId)
     .eq("status", "serving")
-    .is("consultation_started_at", null)
-    .select("id")
-    .single();
+    .is("consultation_started_at", null);
+  if (patient.visit_state_revision) query = query.eq("visit_state_revision", patient.visit_state_revision);
+  const { data, error } = await query.select("id").maybeSingle();
 
-  if (error || !data) {
+  if (error) {
     throw formatError(error, "Failed to recall patient");
+  }
+  if (!data) {
+    throw consultationError("Patient visit changed; refresh before retrying", 409);
   }
   const nextCount = incrementRecallCount(patientId);
 
@@ -1197,7 +1370,11 @@ function assertRecoverySnapshot(current, expected) {
   }
 }
 
-async function recoverPatientVisit(existing, action, actor, reason = null) {
+const MISSING_RPC_CODES = ["PGRST202", "PGRST204", "42883", "42703"];
+
+// `counters` is the authorization snapshot's counter list. Requeue uses it to decide whether a
+// stale pointer to this terminal visit must be released together with the recovery (F5).
+async function recoverPatientVisit(existing, action, actor, reason = null, counters = []) {
   requireRecoveryActor(actor);
   if (useLocalFallback) {
     const patient = localData.patients.find((row) => row.id === existing.id);
@@ -1209,15 +1386,13 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
     patient.visit_state_revision = randomUUID();
     if (action === "requeue") {
       patient.created_at = new Date().toISOString();
-      patient.called_at = null;
-      patient.counter_id = null;
       patient.reason = reason;
-    } else {
-      patient.called_at = null;
-      patient.counter_id = null;
-      for (const counter of localData.counters) {
-        if (counter.current_patient_id === patient.id) counter.current_patient_id = null;
-      }
+    }
+    patient.called_at = null;
+    patient.counter_id = null;
+    // A waiting visit owns no counter; release any stale pointer in the same step.
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patient.id) counter.current_patient_id = null;
     }
     // Waiting patients reserve their service's doctor through the normal Call.
     return parsePatientPriority(patient);
@@ -1225,30 +1400,46 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(existing.visit_state_revision || "")) {
     throw consultationError("Phase 2.1 database migration is required before Requeue or Undo.", 503);
   }
+  const args = {
+    p_patient_id: existing.id,
+    p_action: action,
+    p_user_id_num: actor.id_num,
+    p_expected_revision: existing.visit_state_revision,
+    p_expected_status: existing.status,
+    // Pass the original PostgreSQL strings, retaining all microseconds.
+    p_expected_created_at: existing.created_at,
+    p_expected_called_at: existing.called_at ?? null,
+    p_expected_started_at: existing.consultation_started_at ?? null,
+    p_expected_completed_at: existing.completed_at ?? null,
+    p_expected_counter_id: existing.counter_id ?? null,
+    p_reason: reason
+  };
   let result;
   try {
-    // Versioned Undo entry point fails before writes on a Phase 2.1-only DB.
-    // The older same-shaped recovery RPC cannot attest to clean waiting ownership.
-    result = await supabase.rpc(action === "undo" ? "undo_patient_visit_waiting" : "recover_patient_visit", {
-      p_patient_id: existing.id,
-      p_action: action,
-      p_user_id_num: actor.id_num,
-      p_expected_revision: existing.visit_state_revision,
-      p_expected_status: existing.status,
-      // Pass the original PostgreSQL strings, retaining all microseconds.
-      p_expected_created_at: existing.created_at,
-      p_expected_called_at: existing.called_at ?? null,
-      p_expected_started_at: existing.consultation_started_at ?? null,
-      p_expected_completed_at: existing.completed_at ?? null,
-      p_expected_counter_id: existing.counter_id ?? null,
-      p_reason: reason
-    });
-  } catch (_error) {
+    if (action === "undo") {
+      // Versioned Undo entry point fails before writes on a Phase 2.1-only DB.
+      // The older same-shaped recovery RPC cannot attest to clean waiting ownership.
+      result = await supabase.rpc("undo_patient_visit_waiting", args);
+    } else {
+      // F5: the versioned Requeue entry point re-checks terminal-only eligibility and releases
+      // stale counter pointers in the same transaction. Until it is installed, the older RPC is
+      // used only when no counter points at this visit; its snapshot comparison still rejects a
+      // visit whose status changed after this eligibility check.
+      result = await supabase.rpc("requeue_patient_visit", args);
+      if (MISSING_RPC_CODES.includes(result?.error?.code)) {
+        if (counters.some((counter) => Number(counter.current_patient_id) === existing.id)) {
+          throw consultationError("A doctor counter still points at this visit. Use Undo, which releases it safely, or install the F5 Requeue database migration.", 503);
+        }
+        result = await supabase.rpc("recover_patient_visit", args);
+      }
+    }
+  } catch (error) {
+    if (error.statusCode) throw error;
     throw consultationError("Patient recovery storage is unavailable. Please retry.", 503);
   }
   if (result?.error) {
     const error = result.error;
-    if (["PGRST202", "PGRST204", "42883", "42703"].includes(error.code)) {
+    if (MISSING_RPC_CODES.includes(error.code)) {
       throw consultationError(action === "undo"
         ? "Phase 2.2 database migration is required before Undo."
         : "Phase 2.1 database migration is required before Requeue.", 503);
@@ -1261,11 +1452,15 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
   if (!patient || patient.id !== existing.id || patient.status !== "waiting" ||
       !patient.visit_state_revision || patient.visit_state_revision === existing.visit_state_revision ||
       patient.consultation_started_at != null || patient.completed_at != null ||
-      (action === "undo" && (patient.called_at != null || patient.counter_id != null))) {
+      patient.called_at != null || patient.counter_id != null) {
     throw consultationError("Could not confirm recovery. Refresh the queue before retrying.", 503);
   }
   return parsePatientPriority(patient);
 }
+
+// "completed" here is only the legacy completed-without-start case; a completed consultation
+// with a recorded start is refused before this list is consulted.
+const REQUEUE_ELIGIBLE_STATUSES = ["cancelled", "no-show", "completed"];
 
 async function requeuePatient(patientId, reason = null, actor) {
   const settings = getQueueSettings();
@@ -1274,30 +1469,38 @@ async function requeuePatient(patientId, reason = null, actor) {
   }
 
   if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
-  const found = await getPatientById(patientId);
-  const existing = found && { ...found };
-
-  if (!existing) {
-    throw new Error("Patient not found");
-  }
+  requireRecoveryActor(actor);
+  const { existing, counters } = await authorizeVisitAction(patientId, actor, null, {
+    denyMessage: "You can only re-queue patients assigned to your doctor."
+  });
   if (existing.status === "completed" && existing.consultation_started_at) {
     throw new Error("Completed consultation history must be preserved. Register a new visit instead.");
   }
+  // F5: Requeue recovers a finished visit only. An active visit keeps its call, consultation
+  // start and counter. Legacy completed visits without a consultation start keep their
+  // existing recovery behavior pending a policy decision.
+  if (existing.status === "serving") {
+    throw consultationError("This patient is being served. Re-queue is only available after the visit is cancelled or marked no-show.", 409);
+  }
+  if (existing.status === "waiting") {
+    throw consultationError("This patient is already waiting. Re-queue is only available for cancelled or no-show visits.", 409);
+  }
+  if (!REQUEUE_ELIGIBLE_STATUSES.includes(existing.status)) {
+    throw consultationError("Only cancelled or no-show visits can be re-queued.", 409);
+  }
 
   // FRD-04 remains unchanged: move to the bottom of the same priority tier.
-  const data = await recoverPatientVisit(existing, "requeue", actor, reason);
+  const data = await recoverPatientVisit(existing, "requeue", actor, reason, counters);
   clearRecallCount(patientId);
   return data;
 }
 
 async function undoPatientAction(patientId, actor) {
   if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
-  const found = await getPatientById(patientId);
-  const existing = found && { ...found };
-
-  if (!existing) {
-    throw new Error("Patient not found");
-  }
+  requireRecoveryActor(actor);
+  const { existing } = await authorizeVisitAction(patientId, actor, null, {
+    denyMessage: "You can only undo patients assigned to your doctor."
+  });
   if (existing.status === "completed" && existing.consultation_started_at) {
     throw new Error("Completed consultation history must be preserved. Register a new visit instead.");
   }
@@ -2231,6 +2434,7 @@ module.exports = {
   buildCsv,
   callPatient,
   cancelPatient,
+  authorizeVisitAction,
   clearTodaysQueues,
   completePatient,
   startConsultation,

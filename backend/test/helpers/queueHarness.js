@@ -145,6 +145,10 @@ function fakeSupabase(database, now, localFallback) {
       const result = await database.beforeRpc(name, args);
       if (result) return result;
     }
+    // The F5 Requeue entry point is a reviewed, uninstalled migration: absent unless a test opts in.
+    if (name === "requeue_patient_visit" && !database.requeueRpcInstalled) {
+      return { data: null, error: { code: "PGRST202", message: "Could not find the function public.requeue_patient_visit" } };
+    }
     if (name === "complete_patient_consultation" && !Object.hasOwn(args, "p_expected_started_at")) {
       return { data: null, error: { code: "PGRST202", message: "Required completion RPC argument p_expected_started_at is missing" } };
     }
@@ -159,9 +163,15 @@ function fakeSupabase(database, now, localFallback) {
       const counter = counters.find((row) => row.id_num === args.p_doctor_name);
       const user = database.users.find((row) => row.id_num === args.p_user_id_num);
       const timestamp = new Date(database.clock ? database.clock.now : now()).toISOString();
-      if (["recover_patient_visit", "undo_patient_visit_waiting"].includes(name)) {
+      if (["recover_patient_visit", "undo_patient_visit_waiting", "requeue_patient_visit"].includes(name)) {
         if (name === "undo_patient_visit_waiting" && args.p_action !== "undo") {
           return { data: null, error: { code: "22023", message: "This recovery entry point only permits Undo" } };
+        }
+        if (name === "requeue_patient_visit" && args.p_action !== "requeue") {
+          return { data: null, error: { code: "22023", message: "This recovery entry point only permits Requeue" } };
+        }
+        if (name === "requeue_patient_visit" && !["cancelled", "no-show", "completed"].includes(args.p_expected_status)) {
+          return { data: null, error: { code: "P0001", message: "Only cancelled or no-show visits can be re-queued" } };
         }
         if (!user || !["admin", "superadmin"].includes(user.role)) {
           return { data: null, error: { code: "42501", message: "An authenticated queue operator is required" } };
@@ -196,6 +206,11 @@ function fakeSupabase(database, now, localFallback) {
           patient.called_at = null;
           patient.counter_id = null;
           patient.reason = args.p_reason ?? null;
+          if (name === "requeue_patient_visit") {
+            for (const row of counters) {
+              if (row.current_patient_id === patient.id) row.current_patient_id = null;
+            }
+          }
         } else {
           patient.called_at = null;
           patient.counter_id = null;

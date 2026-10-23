@@ -14,6 +14,7 @@ const {
   buildCsv,
   callPatient,
   cancelPatient,
+  authorizeVisitAction,
   noShowPatient,
   recallPatient,
   requeuePatient,
@@ -307,24 +308,22 @@ router.post("/queue/re-call", authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "Accept this patient before using Re-Call." });
     }
 
-    const counters = await getCounters();
-    const requestedDoctor = normalizeDoctorAssignment(
-      req.user?.doctor_name || req.body?.counterId || req.body?.counter_id || patient.counter_id,
-      counters
-    );
-    const assignedDoctor = normalizeDoctorAssignment(patient.counter_id, counters);
-
-    if (!requestedDoctor || !assignedDoctor || assignedDoctor !== requestedDoctor) {
+    // Ownership comes from the stored assignment and the persisted account, not from
+    // the token's doctor_name or the body. Doctors may re-call only their own patient;
+    // Frontdesk and Superadmin keep their existing ability to re-call any accepted patient.
+    try {
+      await authorizeVisitAction(patientId, req.user, req.body?.counterId ?? req.body?.counter_id ?? null, {
+        denyMessage: "You can only re-call your assigned patient."
+      });
+    } catch (denied) {
       console.warn("[voice][re-call-denied]", {
         patient_id: patientId,
         queue_number: patient.queue_number,
         patient_counter_id: patient.counter_id,
-        assigned_doctor: assignedDoctor,
-        requested_doctor: requestedDoctor,
-        user_doctor: req.user?.doctor_name || null,
-        body_counter: req.body?.counterId || req.body?.counter_id || null
+        user_id: req.user?.id_num || null,
+        reason: denied.message
       });
-      return res.status(403).json({ success: false, message: "You can only re-call your assigned patient." });
+      return res.status(denied.statusCode || 403).json({ success: false, message: denied.message });
     }
 
     const announcement = recordVoiceAnnouncementEvent({ patient, eventType: "recall" });
@@ -363,12 +362,22 @@ router.post("/queue/complete", authenticateToken, async (req, res) => {
 
 router.post("/queue/cancel", authenticateToken, async (req, res) => {
   try {
-    const { patient_id, reason, counter_id } = req.body;
+    // Identity comes only from the verified token (req.user). Any role, id_num,
+    // doctor_name or similar field in the body is ignored; counter_id/counterId is
+    // an optional consistency check against the stored assignment, never authority.
+    const { patient_id, reason, counter_id, counterId } = req.body;
+    if (counter_id && counterId && String(counter_id) !== String(counterId)) {
+      return res.status(400).json({ success: false, message: "Conflicting doctor assignments" });
+    }
     const trimmedReason = String(reason || "").trim();
     if (!trimmedReason) {
       return res.status(400).json({ success: false, message: "Reason for cancel is required" });
     }
-    await cancelPatient(Number(patient_id), trimmedReason, counter_id || null);
+    const result = await cancelPatient(Number(patient_id), trimmedReason, counter_id || counterId || null, req.user);
+    if (result?.already_cancelled) {
+      // Idempotent repeat: nothing was written, so no acceptance state is touched either.
+      return res.json({ success: true, already_cancelled: true, message: "Patient was already cancelled; no changes were made" });
+    }
     clearAwaitingAccept(patient_id);
     res.json({ success: true, message: "Patient cancelled successfully" });
   } catch (error) {
@@ -378,8 +387,12 @@ router.post("/queue/cancel", authenticateToken, async (req, res) => {
 
 router.post("/queue/no-show", authenticateToken, async (req, res) => {
   try {
+    // Identity comes only from the verified token; the stored assignment decides ownership.
     const { patient_id, reason } = req.body;
-    await noShowPatient(Number(patient_id), reason);
+    const result = await noShowPatient(Number(patient_id), reason, req.user);
+    if (result?.already_no_show) {
+      return res.json({ success: true, already_no_show: true, message: "Patient was already marked no-show; no changes were made" });
+    }
     res.json({ success: true, message: "Patient marked as no-show" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
@@ -389,7 +402,7 @@ router.post("/queue/no-show", authenticateToken, async (req, res) => {
 router.post("/queue/recall", authenticateToken, async (req, res) => {
   try {
     const { patient_id, counterId } = req.body;
-    const result = await recallPatient(Number(patient_id), counterId || null);
+    const result = await recallPatient(Number(patient_id), counterId || req.body.counter_id || null, req.user);
     res.json({
       success: true,
       message: `Patient recalled (${result.recall_count}/${result.max_recalls} recalls used)`,

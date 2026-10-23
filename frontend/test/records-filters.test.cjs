@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 
-let libCode, toolbarCode, pageCode;
+let libCode, toolbarCode, pageCode, tableCode;
 before(async () => {
   await swc.loadBindings();
   const compile = async relative => {
@@ -16,8 +16,9 @@ before(async () => {
       module: { type: "commonjs" }
     })).code;
   };
-  [libCode, toolbarCode, pageCode] = await Promise.all([
-    compile("../lib/recordsFilters.js"), compile("../components/RecordsFilters.js"), compile("../pages/records.js")
+  [libCode, toolbarCode, pageCode, tableCode] = await Promise.all([
+    compile("../lib/recordsFilters.js"), compile("../components/RecordsFilters.js"), compile("../pages/records.js"),
+    compile("../components/RecordsTable.js")
   ]);
 });
 
@@ -149,10 +150,10 @@ test("cleaning drops other categories' keys, blanks, bad dates and unknown optio
 test("Patient Records shows all five filters with labels, a search icon, a date picker and All defaults", () => {
   const tree = mountToolbar({ category: "patients" }).tree;
   const fields = controls(tree);
-  deepEqual(fields.map(node => labelFor(tree, node.props.id).replace(/Manila date$/, "")),
+  deepEqual(fields.map(node => labelFor(tree, node.props.id).replace(/Manila$/, "")),
     ["Search patients", "Registration date", "Service", "Assigned doctor", "Queue status"]);
   assert.equal(fields[0].props.type, "search");
-  assert.equal(fields[0].props.placeholder, "Patient name or ticket number");
+  assert.equal(fields[0].props.placeholder, "Name or ticket number");
   assert.ok(nodes(tree, node => node.type === "i" && node.props.className === "fas fa-search").length >= 1);
   assert.equal(fields[1].props.type, "date");
   deepEqual(optionsOf(fields[2])[0], ["", "All services"]);
@@ -235,6 +236,19 @@ test("controls report edits, Enter or Apply submits, and chips remove single fil
 
 // --- Records page -------------------------------------------------------------
 
+// The real table and footer helpers; their output is plain markup in the page tree.
+function loadTable(react) {
+  const module = { exports: {} };
+  vm.runInNewContext(tableCode, { module, exports: module.exports, require(name) {
+    if (name === "react") return react;
+    if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+    if (name === "./RecordsTable.module.css") return cssModule;
+    if (name === "../lib/recordsFilters") return loadLib();
+    throw new Error(`Unexpected dependency: ${name}`);
+  } });
+  return module.exports;
+}
+
 async function mountPage({ category = "patients" } = {}) {
   const runtime = hookRuntime();
   const calls = [], intervals = [];
@@ -253,6 +267,7 @@ async function mountPage({ category = "patients" } = {}) {
       if (name === "../context/AuthContext") return { useAuth: () => auth };
       if (name === "../components/SiteFrame") return SiteFrame;
       if (name === "../components/RecordsFilters") return RecordsFilters;
+      if (name === "../components/RecordsTable") return loadTable(runtime.react);
       if (name === "../lib/recordsFilters") return loadLib();
       if (name === "../lib/api") return { request: requestPath => new Promise(resolve => calls.push({ path: requestPath, resolve })) };
       throw new Error(`Unexpected dependency: ${name}`);
@@ -430,4 +445,67 @@ test("Phase B.2 values: missing account creation dates read Not recorded and rou
   assert.doesNotMatch(shown, /Doctor 2 \(/, "a stored assignment carries no qualifier");
   assert.match(shown, /Doctor 9 \(no matching counter\)/);
   assert.doesNotMatch(shown, /Not recorded/, "patient registration times are always stored");
+});
+
+test("the footer follows the server total: Previous and Next stop at the ends and pause while a page loads", async () => {
+  const page = await mountPage({ category: "accounts" });
+  const accounts = (from, count) => Array.from({ length: count }, (_, i) => ({ id: `account-${from + i}` }));
+  assert.equal(button(page.tree, "Next").props.disabled, true, "nothing to page through before the server answers");
+  await page.respond({ rows: accounts(1, 20), total: 25, page: 1, limit: 20 });
+  assert.match(text(page.tree), /Showing 1–20 of 25 records/);
+  assert.match(text(page.tree), /Page 1 of 2/);
+  assert.equal(button(page.tree, "Previous").props.disabled, true);
+  assert.equal(button(page.tree, "Next").props.disabled, false);
+
+  button(page.tree, "Next").props.onClick();
+  await page.settle();
+  assert.equal(page.paths().at(-1), "/records/accounts?page=2&limit=20");
+  for (const label of ["Previous", "Next", "Refresh"]) {
+    assert.equal(button(page.tree, label).props.disabled, true, `${label} waits for page 2`);
+  }
+  await page.respond({ rows: accounts(21, 5), total: 25, page: 2, limit: 20 });
+  assert.match(text(page.tree), /Showing 21–25 of 25 records/);
+  assert.match(text(page.tree), /Page 2 of 2/);
+  assert.equal(button(page.tree, "Next").props.disabled, true, "the last page has no Next");
+  button(page.tree, "Previous").props.onClick();
+  await page.settle();
+  assert.equal(page.paths().at(-1), "/records/accounts?page=1&limit=20");
+});
+
+const toolbarCss = fs.readFileSync(path.join(__dirname, "../components/RecordsFilters.module.css"), "utf8");
+
+test("the fields and the Reset/Apply pair share one row, with each field sized for its longest option", () => {
+  const tree = mountToolbar({ category: "patients" }).tree;
+  const row = nodes(tree, hasClass("primary"))[0];
+  const children = row.props.children.flat().filter(Boolean);
+  const pair = children.at(-1);
+  assert.ok(hasClass("buttons")(pair), "Reset and Apply are the last item of the field row");
+  assert.deepEqual(nodes(pair, node => node.type === "button").map(node => text(node)), ["Reset", "Apply filters"]);
+  const minimums = nodes(row, hasClass("field")).map(field => [field.props.className.split(" ")[1], field.props.style["--field-min"]]);
+  assert.deepEqual(minimums, [["searchField", "200px"], ["dateField", "140px"], ["selectField", "184px"],
+    ["selectField", "121px"], ["selectField", "128px"]], "General Consultation needs the widest dropdown");
+  const actions = nodes(tree, hasClass("actions"))[0];
+  assert.ok(hasClass("actionsEmpty")(actions), "no empty second row for Patient Records");
+  assert.equal(nodes(actions, node => node.props.role === "status").length, 1, "the status line stays mounted for screen readers");
+  const pending = mountToolbar({ category: "patients", draft: { status: "waiting" }, applied: {} }).tree;
+  assert.ok(!hasClass("actionsEmpty")(nodes(pending, hasClass("actions"))[0]), "the row appears when there is something to say");
+  const staff = mountToolbar({ category: "staff" }).tree;
+  assert.ok(!hasClass("actionsEmpty")(nodes(staff, hasClass("actions"))[0]), "More filters keeps its own line");
+  assert.ok(hasClass("buttons")(nodes(staff, hasClass("primary"))[0].props.children.flat().filter(Boolean).at(-1)));
+});
+
+test("the toolbar CSS bottom-aligns buttons with inputs, caps search width and wraps by available space", () => {
+  assert.match(toolbarCss, /\.toolbar \{[^}]*container-type: inline-size/);
+  assert.match(toolbarCss, /\.primary \{ align-items: flex-end; display: flex; flex-wrap: wrap; gap: 12px; \}/);
+  assert.match(toolbarCss, /\.field \{[^}]*min-width: var\(--field-min/, "fields wrap rather than shrink below their minimum");
+  assert.match(toolbarCss, /\.searchField \{ max-width: 260px; \}/);
+  assert.match(toolbarCss, /\.dateField \{ max-width: 175px; \}/);
+  assert.match(toolbarCss, /\.buttons \{[^}]*flex: 0 0 auto/, "Reset and Apply wrap together");
+  for (const control of [".input {", ".applyButton, .resetButton {"]) {
+    assert.match(toolbarCss.slice(toolbarCss.indexOf(control)), /^[^}]*height: 38px/, `${control} is 38px tall`);
+  }
+  const tablet = /@container \(max-width: 759px\) \{([\s\S]*?)\n\}/.exec(toolbarCss)[1];
+  assert.match(tablet, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  const phone = /@container \(max-width: 479px\) \{([\s\S]*?)\n\}/.exec(toolbarCss)[1];
+  assert.match(phone, /grid-template-columns: minmax\(0, 1fr\)/);
 });

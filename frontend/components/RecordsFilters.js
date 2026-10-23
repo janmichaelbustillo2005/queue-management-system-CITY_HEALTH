@@ -2,6 +2,17 @@ import { useState } from "react";
 import styles from "./RecordsFilters.module.css";
 import { RECORD_FILTERS, cleanRecordFilters, recordFilterChips, sameRecordFilters } from "../lib/recordsFilters";
 
+// Narrowest a field may get before its row wraps. A dropdown is sized for its
+// longest option (about 7px per character at 13px, plus padding and arrow),
+// so a selected value is never clipped.
+const CHAR_PX = 7;
+function fieldMinWidth({ type, options = [], allLabel = "" }) {
+  if (type === "search") return 200;
+  if (type === "date") return 140;
+  const longest = Math.max(allLabel.length, ...options.map((option) => option.label.length));
+  return Math.min(240, 44 + longest * CHAR_PX);
+}
+
 // Filter toolbar for one Records category. The page owns the draft (what the
 // controls show) and the applied filters (what the table shows); nothing here
 // filters rows on the client.
@@ -14,14 +25,15 @@ export default function RecordsFilters({ category, draft, applied, onChange, onA
   const unapplied = !sameRecordFilters(category, draft, applied);
   const advancedId = `records-more-filters-${category}`;
 
-  function control({ key, label, type, placeholder, hint, options, allLabel }) {
+  function control({ key, label, type, placeholder, hint, hintTitle, options, allLabel }) {
     const id = `records-filter-${category}-${key}`;
     const value = draft[key] || "";
     const change = (event) => onChange(key, event.target.value);
     return (
-      <div key={key} className={`${styles.field} ${type === "search" ? styles.searchField : ""}`}>
+      <div key={key} className={`${styles.field} ${styles[`${type}Field`] || ""}`}
+        style={{ "--field-min": `${fieldMinWidth({ type, options, allLabel })}px` }}>
         <label htmlFor={id} className={styles.label}>
-          {label}{hint ? <span className={styles.hint}>{hint}</span> : null}
+          {label}{hint ? <span className={styles.hint} title={hintTitle}>{hint}</span> : null}
         </label>
         {type === "search" ? (
           <span className={styles.searchBox}>
@@ -44,8 +56,17 @@ export default function RecordsFilters({ category, draft, applied, onChange, onA
   return (
     <section className={styles.toolbar} aria-label="Record filters">
       <form role="search" aria-label="Filter records" onSubmit={(event) => { event.preventDefault(); onApply(); }}>
-        <div className={styles.primary} style={{ "--filter-columns": config.primary.length - 1 }}>
+        {/* Fields and the Reset/Apply pair share one row, wrapping only when the toolbar is too narrow. */}
+        <div className={styles.primary}>
           {config.primary.map(control)}
+          <div className={styles.buttons}>
+            <button type="button" className={styles.resetButton} onClick={onReset}>
+              <i className="fas fa-undo" aria-hidden="true" />Reset
+            </button>
+            <button type="submit" className={styles.applyButton}>
+              <i className="fas fa-search" aria-hidden="true" />Apply filters
+            </button>
+          </div>
         </div>
         {config.advanced.length ? (
           // Collapsed filters stay mounted so their values survive; inert keeps them out of the tab order.
@@ -56,7 +77,8 @@ export default function RecordsFilters({ category, draft, applied, onChange, onA
             </div>
           </div>
         ) : null}
-        <div className={styles.actions}>
+        {/* The status line stays mounted for screen readers; it takes no space while empty. */}
+        <div className={`${styles.actions}${!config.advanced.length && !unapplied ? ` ${styles.actionsEmpty}` : ""}`}>
           {config.advanced.length ? (
             <button type="button" className={styles.moreButton} aria-expanded={advancedOpen} aria-controls={advancedId}
               onClick={() => setAdvancedOpen((open) => !open)}>
@@ -67,14 +89,6 @@ export default function RecordsFilters({ category, draft, applied, onChange, onA
             </button>
           ) : null}
           <span className={styles.pendingNote} role="status">{unapplied ? "Changes not applied yet" : ""}</span>
-          <div className={styles.buttons}>
-            <button type="button" className={styles.resetButton} onClick={onReset}>
-              <i className="fas fa-undo" aria-hidden="true" />Reset
-            </button>
-            <button type="submit" className={styles.applyButton}>
-              <i className="fas fa-search" aria-hidden="true" />Apply filters
-            </button>
-          </div>
         </div>
       </form>
       {chips.length ? (

@@ -582,6 +582,7 @@ test("Records renders inside the shared shell and keeps its Super Admin guard", 
       if (name === "../context/AuthContext") return { useAuth: () => ({ user, loading }) };
       if (name === "../components/SiteFrame") return SiteFrame;
       if (name === "../components/RecordsFilters") return function RecordsFilters() {};
+      if (name === "../components/RecordsTable") return { recordsTable: () => null, recordsPagination: () => null, recordsButtonClass: "" };
       if (name === "../lib/recordsFilters") return { cleanRecordFilters: () => ({}), recordsQuery: () => "page=1&limit=20" };
       if (name === "../lib/api") return { request: () => new Promise(() => {}) };
       throw new Error(`Unexpected dependency: ${name}`);

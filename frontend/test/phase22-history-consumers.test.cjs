@@ -17,7 +17,7 @@ before(async () => {
   await Promise.all([
     "pages/records.js", "pages/analytics.js", "lib/api.js", "lib/queueSettings.js",
     "lib/historyFilters.js", "components/SettingsModal.js", "lib/dailyTrendsCharts.js", "lib/analyticsCharts.js",
-    "lib/recordsFilters.js"
+    "lib/recordsFilters.js", "components/RecordsTable.js"
   ].map(async relative => {
     const filename = path.join(__dirname, "..", relative);
     compiled[relative] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
@@ -153,7 +153,8 @@ function harness(component, options = {}) {
     "next/link": "Link", "next/script": "Script", "next/router": { useRouter: () => router },
     "../context/AuthContext": { useAuth: () => ({ user, loading: false }) },
     "../components/SiteFrame": "SiteFrame", "../components/DailyTrends": "DailyTrends", "../components/StatusAnalytics": "StatusAnalytics",
-    "../components/RecordsFilters": "RecordsFilters"
+    "../components/RecordsFilters": "RecordsFilters",
+    "./RecordsTable.module.css": new Proxy({}, { get: (_target, key) => key === "__esModule" || typeof key === "symbol" ? undefined : key })
   };
   function load(relative) {
     const module = { exports: {} };
@@ -178,6 +179,7 @@ function harness(component, options = {}) {
   dependencies["./dailyTrendsCharts"] = load("lib/dailyTrendsCharts.js");
   dependencies["../lib/analyticsCharts"] = load("lib/analyticsCharts.js");
   dependencies["../lib/recordsFilters"] = load("lib/recordsFilters.js");
+  dependencies["../components/RecordsTable"] = load("components/RecordsTable.js");
   const page = component === "modal" ? modal.default : component ? load(`pages/${component}.js`).default : null;
   const props = component === "modal" ? {
     isOpen: true, settings: { ...modal.defaultQueueSettings, autoBackupReminder: false },

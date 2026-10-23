@@ -46,8 +46,8 @@ const field = (key, label, type, extra = {}) => ({ key, label, type, ...extra })
 export const RECORD_FILTERS = {
   patients: {
     primary: [
-      field("search", "Search patients", "search", { placeholder: "Patient name or ticket number" }),
-      field("date", "Registration date", "date", { hint: "Manila date" }),
+      field("search", "Search patients", "search", { placeholder: "Name or ticket number" }),
+      field("date", "Registration date", "date", { hint: "Manila", hintTitle: "Registration date in Manila time (Asia/Manila)" }),
       field("service", "Service", "select", { options: SERVICE_OPTIONS, allLabel: "All services" }),
       field("doctor", "Assigned doctor", "select", { options: DOCTOR_OPTIONS, allLabel: "All doctors" }),
       field("status", "Queue status", "select", { options: STATUS_OPTIONS, allLabel: "All statuses" })

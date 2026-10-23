@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { request } from "../lib/api";
 import {
-  buildActivityChart, buildDurationChart, buildStatusChart,
-  finiteMetric, getManilaToday, isDailyTrendsData, makeFilters, statusColor
+  buildActivityChart, buildDurationChart,
+  finiteMetric, getManilaToday, isDailyTrendsData, makeFilters
 } from "../lib/dailyTrendsCharts";
 import styles from "./DailyTrends.module.css";
 
@@ -91,30 +91,6 @@ function Legend({ items }) {
       {items.map(({ label, color, line }) => (
         <li key={label}><span className={line ? styles.legendLine : styles.legendDot} style={{ backgroundColor: color }} />{label}</li>
       ))}
-    </ul>
-  );
-}
-
-function CounterUtilization({ counters, loading }) {
-  if (loading) return <div className={styles.listPlaceholder} role="status">Loading counters…</div>;
-  if (!counters.length) return <div className={styles.listPlaceholder}>No data available</div>;
-  return (
-    <ul className={styles.counterList}>
-      {counters.map((counter) => {
-        const utilization = finiteMetric(counter.utilization_percent);
-        const hasValue = utilization !== null;
-        const description = hasValue ? `${number(counter.active_service_minutes)} active min / ${number(counter.available_minutes)} available min` :
-          counter.reason || "Recorded operating time is unavailable.";
-        return (
-          <li key={counter.id}>
-            <div className={styles.counterLabel}><span>{counter.name}</span><strong className={!hasValue ? styles.unknownValue : ""}>{hasValue ? `${number(utilization)}%` : "No data available"}</strong></div>
-            <div className={styles.progressTrack} role={hasValue ? "progressbar" : undefined} aria-label={`${counter.name} utilization`} aria-valuemin={hasValue ? 0 : undefined} aria-valuemax={hasValue ? 100 : undefined} aria-valuenow={hasValue ? utilization : undefined}>
-              {hasValue && <span style={{ width: `${Math.min(utilization, 100)}%` }} />}
-            </div>
-            <p className={styles.counterReason}>{description}</p>
-          </li>
-        );
-      })}
     </ul>
   );
 }
@@ -208,13 +184,12 @@ export default function DailyTrends({ enabled = true }) {
     };
   }, [enabled, filterKey, retry]);
 
+  // Status distribution and counter utilization live in the Status tab only.
   const charts = useMemo(() => ({
     activity: buildActivityChart(data), wait: buildDurationChart(data, "wait"),
-    service: buildDurationChart(data, "service"), status: buildStatusChart(data)
+    service: buildDurationChart(data, "service")
   }), [data]);
   const hourly = data?.hourly || [];
-  const statuses = data?.statuses || [];
-  const statusTotal = statuses.reduce((sum, row) => sum + (finiteMetric(row.count) ?? 0), 0);
   const hasActivity = hourly.some((row) => [row.arrivals, row.served, row.waiting, row.cancelled_no_show].some((value) => finiteMetric(value) !== null && value > 0));
   const hasWaitingTime = hourly.some((row) => finiteMetric(row.avg_wait_minutes) !== null);
   const hasServiceTime = hourly.some((row) => finiteMetric(row.avg_service_minutes) !== null);
@@ -283,24 +258,9 @@ export default function DailyTrends({ enabled = true }) {
         </div>
       </div>
 
-      <div className={styles.bottomGrid}>
-        <div className={styles.panel}>
-          <PanelHeading title="Queue Status Distribution" description="Current recorded status of visits in this range." color="#6366f1" icon="fas fa-chart-pie" />
-          <div className={styles.doughnutWrap}>
-            <ChartSurface title="Queue Status Distribution" config={charts.status} loading={pending} empty={statusTotal === 0} compact />
-            {!pending && statusTotal > 0 && <div className={styles.doughnutTotal} aria-hidden="true"><strong>{number(statusTotal, 0)}</strong><span>queue visits</span></div>}
-          </div>
-          {!pending && statuses.length > 0 && <ul className={styles.statusLegend} aria-label="Queue statuses">{statuses.map((row, index) => <li key={row.status}><span className={styles.statusName}><span className={styles.legendDot} style={{ backgroundColor: statusColor(row.status, index) }} />{row.label}</span><span><strong>{number(row.count, 0)}</strong><small>{number(row.percentage)}%</small></span></li>)}</ul>}
-        </div>
-        <div className={styles.panel}>
-          <PanelHeading title="Counter Utilization" description="Recorded active service time divided by available operating time." color="#0ea5e9" icon="fas fa-desktop" />
-          <CounterUtilization counters={data?.counters || []} loading={pending} />
-          <p className={styles.methodNote}>A percentage is shown only when recorded operating time is available.</p>
-        </div>
-        <div className={styles.panel}>
-          <PanelHeading title="Peak Hours" description="Busiest hourly intervals, ranked by unique patient arrivals." color="#f59e0b" icon="fas fa-chart-line" />
-          <PeakHours rows={data?.peak_hours || []} loading={pending} />
-        </div>
+      <div className={`${styles.panel} ${styles.peakPanel}`}>
+        <PanelHeading title="Peak Hours" description="Busiest hourly intervals, ranked by unique patient arrivals." color="#f59e0b" icon="fas fa-chart-line" />
+        <PeakHours rows={data?.peak_hours || []} loading={pending} />
       </div>
 
       {!!data?.notes?.length && <details className={styles.dataNotes}><summary><i className="fas fa-info-circle" aria-hidden="true" />How these statistics are calculated</summary><ul>{data.notes.map((note, index) => <li key={index}>{note}</li>)}</ul></details>}

@@ -323,29 +323,24 @@ test("date and daily/shift filters use Manila dates and accept an explicitly ent
   assert.throws(() => h.helpers.makeFilters("2026-10-15", "invented"), /valid view/i);
 });
 
-const headings = ["Patient Queue Activity", "Average Waiting Time", "Average Service Time", "Queue Status Distribution", "Counter Utilization", "Peak Hours"];
+// Status distribution and counter utilization are shown only in the Status tab.
+const headings = ["Patient Queue Activity", "Average Waiting Time", "Average Service Time", "Peak Hours"];
 const activeCharts = h => h.charts.filter(chart => !chart.destroyed);
 const activityChart = h => activeCharts(h).find(chart => chart.config.data.datasets.length === 4);
 const params = call => new URL(call.route, "http://localhost").searchParams;
 
-test("Daily Trends renders all six panels, real status labels, recorded utilization, and ranked arrivals", async () => {
+test("Daily Trends renders its four panels without the Status-tab duplicates, and ranks arrivals", async () => {
   const h = harness();
   assert.match(content(h.render()), /Loading/);
   const tree = await h.settle();
   assert.deepEqual(nodes(tree, node => node.type === "h3").map(content), headings);
   assert.equal(nodes(tree, node => node.type === "h2" && content(node) === "Daily Trends").length, 1);
-  assert.deepEqual(nodes(tree, node => node.type === "canvas").map(node => node.props["aria-label"]), headings.slice(0, 4));
-  assert.equal(activeCharts(h).length, 4);
+  assert.deepEqual(nodes(tree, node => node.type === "canvas").map(node => node.props["aria-label"]), headings.slice(0, 3));
+  assert.equal(activeCharts(h).length, 3);
   assert.match(content(tree), /Asia\/Manila/);
-  const statuses = nodes(tree, node => node.props["aria-label"] === "Queue statuses")[0];
-  assert.match(content(statuses), /Waiting850%/);
-  assert.match(content(statuses), /No-show212\.5%/);
-  const progress = nodes(tree, node => node.props.role === "progressbar");
-  assert.equal(progress.length, 1, "a counter with no recorded operating time must not get an invented percentage");
-  assert.equal(progress[0].props["aria-label"], "Doctor 2 utilization");
-  assert.equal(progress[0].props["aria-valuenow"], 25);
-  assert.match(content(tree), /Doctor 1No data available.*Historical counter operating time/s);
-  assert.match(content(tree), /15 active min \/ 60 available min/);
+  assert.equal(nodes(tree, node => node.props["aria-label"] === "Queue statuses").length, 0);
+  assert.equal(nodes(tree, node => node.props.role === "progressbar").length, 0);
+  assert.doesNotMatch(content(tree), /Counter Utilization|Queue Status Distribution/);
   const peaks = nodes(tree, node => node.type === "ol")[0];
   assert.deepEqual(nodes(peaks, node => node.type === "li").map(content), ["110:009 arrivals", "209:007 arrivals"]);
   h.dispose();
@@ -378,7 +373,7 @@ test("daily and explicitly entered overnight shift filters apply locally without
   assert.equal(params(h.calls[2]).get("startTime"), "22:30");
   assert.equal(params(h.calls[2]).get("endTime"), "06:15");
   assert.doesNotMatch(content(h.render()), /invalid or mismatched/);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 3);
   assert.ok(h.calls.every(call => call.route.startsWith("/analytics/daily-trends?")));
   h.dispose();
 });
@@ -400,7 +395,7 @@ test("a slow request never overlaps polling, and each settled refresh updates th
   await h.fire(15000);
   assert.equal(h.calls.length, 2);
   assert.equal(activityChart(h).config.data.datasets[0].data[0], 23);
-  assert.equal(activeCharts(h).length, 4, "refresh replaces charts instead of accumulating canvas instances");
+  assert.equal(activeCharts(h).length, 3, "refresh replaces charts instead of accumulating canvas instances");
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
   assert.ok(h.calls.every(call => (call.init.method || "GET") === "GET"));
   assert.ok(h.calls.every(call => call.init.cache === "no-store"));
@@ -447,13 +442,13 @@ test("empty ranges and unavailable durations render honest no-data states", asyn
   const empty = await h.settle();
   assert.match(content(empty), /No queue visits recorded in this range/);
   assert.equal(nodes(empty, node => node.type === "canvas").length, 0);
-  assert.equal((content(empty).match(/No data available/g) || []).length, 6);
+  assert.equal((content(empty).match(/No data available/g) || []).length, 4);
   h.backend.value = data({ hourly: data().hourly.map(row => ({ ...row, avg_wait_minutes: null,
     wait_samples: 0, avg_service_minutes: null, service_samples: 0 })) });
   await h.fire(15000);
   assert.deepEqual(nodes(h.render(), node => node.type === "canvas").map(node => node.props["aria-label"]),
-    ["Patient Queue Activity", "Queue Status Distribution"]);
-  assert.equal(activeCharts(h).length, 2);
+    ["Patient Queue Activity"]);
+  assert.equal(activeCharts(h).length, 1);
   h.dispose();
 });
 
@@ -485,7 +480,7 @@ test("timed-out requests abort, show an error, and retry without inventing initi
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
   await h.fire(15000);
   assert.equal(h.calls.length, 2);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 3);
   assert.doesNotMatch(content(h.render()), /request timed out/i);
   h.dispose();
 });
@@ -498,7 +493,7 @@ test("auth gating prevents analytics requests until the authorized parent enable
   h.props.enabled = true;
   await h.settle();
   assert.equal(h.calls.length, 1);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 3);
   h.props.enabled = false;
   await h.settle();
   assert.equal(h.calls.length, 1);
@@ -514,14 +509,14 @@ test("charts wait for the existing Chart.js library and recover from draw errors
   assert.equal(h.calls.length, 1);
   assert.equal(activeCharts(h).length, 0);
   assert.match(content(h.render()), /Preparing chart/);
-  assert.equal([...h.timers.values()].filter(timer => timer.delay === 500).length, 4);
+  assert.equal([...h.timers.values()].filter(timer => timer.delay === 500).length, 3);
   h.window.Chart = class { constructor() { throw new Error("Canvas temporarily unavailable"); } };
   await h.fire(500);
   assert.match(content(h.render()), /Unable to display this chart/);
-  assert.equal([...h.timers.values()].filter(timer => timer.delay === 3000).length, 4);
+  assert.equal([...h.timers.values()].filter(timer => timer.delay === 3000).length, 3);
   h.window.Chart = h.chartConstructor;
   await h.fire(3000);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 3);
   assert.equal(h.calls.length, 1, "chart-library retries reuse the successful analytics response");
   assert.doesNotMatch(content(h.render()), /Preparing chart|Unable to display this chart/);
   h.dispose();
@@ -548,7 +543,7 @@ test("malformed and mismatched API results show errors safely and a manual retry
   retry.props.onClick();
   await h.settle();
   assert.equal(h.calls.length, previousReads + 1);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 3);
   assert.doesNotMatch(content(h.render()), /invalid or mismatched/);
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
   h.dispose();

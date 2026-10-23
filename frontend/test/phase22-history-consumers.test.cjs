@@ -16,7 +16,7 @@ before(async () => {
   await swc.loadBindings();
   await Promise.all([
     "pages/records.js", "pages/analytics.js", "lib/api.js", "lib/queueSettings.js",
-    "lib/historyFilters.js", "components/SettingsModal.js",
+    "lib/historyFilters.js", "components/SettingsModal.js", "lib/dailyTrendsCharts.js", "lib/analyticsCharts.js",
     "lib/recordsFilters.js"
   ].map(async relative => {
     const filename = path.join(__dirname, "..", relative);
@@ -175,6 +175,8 @@ function harness(component, options = {}) {
   dependencies["../lib/historyFilters"] = history;
   const queue = load("lib/queueSettings.js");
   dependencies["../lib/queueSettings"] = queue;
+  dependencies["./dailyTrendsCharts"] = load("lib/dailyTrendsCharts.js");
+  dependencies["../lib/analyticsCharts"] = load("lib/analyticsCharts.js");
   dependencies["../lib/recordsFilters"] = load("lib/recordsFilters.js");
   const page = component === "modal" ? modal.default : component ? load(`pages/${component}.js`).default : null;
   const props = component === "modal" ? {
@@ -395,4 +397,77 @@ test("SettingsModal forwards an explicitly selected All Time export without repl
   dateSelect.props.onChange({ target: { value: "" } });
   await button(h.render(), "Export Data").props.onClick();
   assert.deepEqual(exported, [{ status: "", service: "", dateFilter: "", format: "csv" }]);
+});
+
+const component = name => node => typeof node.type === "function" && node.type.name === name;
+const summaryRow = (extra = {}) => ({ total_patients: 2, completed: 1, cancelled: 0, no_show: 1, waiting: 0, serving: 0,
+  avg_wait_time: "4.0", avg_service_time: "6.0", completion_rate: "50.0", ...extra });
+const dashboardPayload = {
+  metrics: { totalPatients: 2, avgWaitTime: 4, avgServiceTime: 6, completionRate: 50 },
+  charts: {
+    serviceTypes: { labels: ["family_planning"], data: [2] }, sexDistribution: { labels: ["Female"], data: [2] },
+    dailyTrends: { labels: ["Oct 9, 2026", "Oct 10, 2026"], data: [2, 0] }, hourly: { labels: ["09:00"], data: [2] },
+    status: { labels: ["completed", "no-show"], data: [1, 1] }, priorityCategories: { labels: ["regular"], data: [2] },
+    ageGroups: { labels: [], data: [] }, residency: { labels: ["Sumile"], data: [2] }
+  },
+  tableData: [{ service_type: "family_planning", ...summaryRow() }],
+  totals: summaryRow(),
+  doctorTable: [{ doctor: "Doctor 3", ...summaryRow() }]
+};
+function dashboardHarness() {
+  return harness("analytics", { fetch(call, response) {
+    return call.route === "/analytics" ? response(200, dashboardPayload) : undefined;
+  } });
+}
+async function openTab(h, label) {
+  nodes(h.render(), component("TabButton")).find(tab => tab.props.label === label).props.onClick(
+    nodes(h.render(), component("TabButton")).find(tab => tab.props.label === label).props.id);
+  return h.flush();
+}
+
+test("Analytics has four tabs; the duplicate Hourly tab is gone and metric cards follow the top filters only", async () => {
+  const h = dashboardHarness(); await h.flush();
+  assert.deepEqual(nodes(h.render(), component("TabButton")).map(tab => tab.props.label),
+    ["Detailed Data", "Distribution", "Trends", "Status"]);
+  const metricCards = () => nodes(h.render(), component("MetricCard")).length;
+  assert.equal(metricCards(), 4);
+  await openTab(h, "Distribution");
+  assert.equal(metricCards(), 4);
+  await openTab(h, "Trends");
+  assert.equal(metricCards(), 0, "Trends has its own single-day section; the period cards would contradict it");
+  await openTab(h, "Status");
+  assert.equal(metricCards(), 0);
+  assert.match(text(h.render()), /Status Analytics uses its own date selector below/);
+});
+
+test("Detailed Data shows readable service names, no-show and in-queue columns, totals and a per-doctor table", async () => {
+  const h = dashboardHarness(); await h.flush();
+  const tables = nodes(h.render(), component("SummaryTable"));
+  assert.deepEqual(tables.map(table => table.props.title), ["By Service", "By Doctor"]);
+  const serviceTable = text(tables[0].type(tables[0].props));
+  assert.match(serviceTable, /ServiceTotalCompletedCancelledNo-showIn QueueAvg WaitAvg ServiceCompletion/);
+  // Total, Completed, Cancelled, No-show, In Queue, Avg Wait, Avg Service, Completion.
+  assert.match(serviceTable, /Family Planning210104\.0m6\.0m50\.0%/);
+  assert.match(serviceTable, /All210104\.0m6\.0m50\.0%$/);
+  assert.doesNotMatch(serviceTable, /family_planning/);
+  assert.match(text(tables[1].type(tables[1].props)), /Doctor 32101/);
+});
+
+test("Distribution and Trends render only their own charts, with Patients per Day and Arrivals by Hour in Trends", async () => {
+  const h = dashboardHarness(); await h.flush();
+  const chartCards = () => nodes(h.render(), component("ChartCard")).map(card => [card.props.canvasId, card.props.empty]);
+  assert.deepEqual(chartCards(), []);
+  await openTab(h, "Distribution");
+  assert.deepEqual(chartCards(), [["serviceTypesChart", false], ["sexDistributionChart", false], ["priorityChart", false],
+    ["ageGroupChart", true], ["residencyChart", false]]);
+  assert.doesNotMatch(text(h.render()), /Patient Status/);
+  await openTab(h, "Trends");
+  assert.deepEqual(chartCards(), [["patientsPerDayChart", false], ["arrivalsByHourChart", false]]);
+  assert.equal(nodes(h.render(), node => node.type === "DailyTrends").length, 1);
+});
+
+test("Chart.js is loaded from an exact pinned version", async () => {
+  const h = dashboardHarness(); await h.flush();
+  const script = nodes(h.render(), node => node.type === "Script")[0];
+  assert.match(script.props.src, /chart\.js@\d+\.\d+\.\d+\//);
 });

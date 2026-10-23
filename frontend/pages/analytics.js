@@ -8,7 +8,7 @@ import StatusAnalytics from "../components/StatusAnalytics";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { request } from "../lib/api";
 import { getDefaultHistoryFilters } from "../lib/historyFilters";
-import Link from "next/link";
+import { TAB_CHARTS, buildAnalyticsCharts, hasChartData, serviceLabel } from "../lib/analyticsCharts";
 import {
   clearActiveQueues,
   exportQueueData,
@@ -17,68 +17,23 @@ import {
   saveQueueSettings as persistQueueSettings
 } from "../lib/queueSettings";
 
+// Pinned so a new Chart.js major release cannot change or break these charts.
+const CHART_JS_URL = "https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js";
 const defaultSettings = defaultQueueSettings;
+const emptyChart = { labels: [], data: [] };
 const emptyAnalyticsData = {
   metrics: { totalPatients: 0, avgWaitTime: 0, avgServiceTime: 0, completionRate: 0 },
   charts: {
-    serviceTypes: { labels: [], data: [] }, sexDistribution: { labels: [], data: [] },
-    dailyTrends: { labels: [], data: [] }, hourly: { labels: [], data: [] }, status: { labels: [], data: [] }
+    serviceTypes: emptyChart, sexDistribution: emptyChart, dailyTrends: emptyChart, hourly: emptyChart,
+    status: emptyChart, priorityCategories: emptyChart, ageGroups: emptyChart, residency: emptyChart
   },
-  tableData: []
+  tableData: [],
+  totals: null,
+  doctorTable: []
 };
-
-function drawChart(canvasId, type, labels, data, colors, borderColor) {
-  if (typeof window === "undefined" || !window.Chart) {
-    return null;
-  }
-
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) {
-    return null;
-  }
-
-  return new window.Chart(canvas.getContext("2d"), {
-    type,
-    data: {
-      labels,
-      datasets: [{
-        label: "Patients",
-        data,
-        backgroundColor: colors,
-        borderColor: borderColor || (Array.isArray(colors) ? colors[0] : colors),
-        tension: 0.4,
-        fill: type === "line"
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      layout: {
-        padding: { top: 4, right: 4, bottom: 4, left: 4 }
-      },
-      plugins: {
-        legend: {
-          position: "bottom",
-          display: type !== "line" && type !== "bar",
-          labels: {
-            boxWidth: 10,
-            padding: 6,
-            font: { size: 11 }
-          }
-        }
-      },
-      scales: type === "line" || type === "bar" ? {
-        x: {
-          ticks: { font: { size: 10 }, maxRotation: 45 }
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { font: { size: 10 } }
-        }
-      } : undefined
-    }
-  });
-}
+// The top filter bar drives these tabs; Status (and the single-day section of
+// Trends) use their own date selectors.
+const FILTERED_TABS = ["all", "distribution"];
 
 export default function AnalyticsPage() {
   const { user, loading } = useAuth();
@@ -128,13 +83,6 @@ export default function AnalyticsPage() {
     await exportQueueData(filters);
   }
 
-  const sidebarLinks = [
-    { href: "/?section=home", icon: "fas fa-home", label: "Home", active: false },
-    { href: "/?section=queue", icon: "fas fa-list", label: "Queue Management", active: false },
-    { href: "/analytics", icon: "fas fa-chart-bar", label: "Analytics", active: true },
-    { href: "/records", icon: "fas fa-history", label: "Records", active: false }
-  ];
-
   useEffect(() => {
     setFilters(getDefaultHistoryFilters());
     setDefaultsReady(true);
@@ -148,31 +96,20 @@ export default function AnalyticsPage() {
     }
   }, [user, defaultsReady]);
 
+  // Draw only the canvases the active tab renders; a chart with no data shows
+  // a placeholder instead of a canvas, so it is skipped here.
   useEffect(() => {
-    if (!data?.charts?.serviceTypes?.labels?.length && !data?.charts?.dailyTrends?.labels?.length) {
-      return;
-    }
-
+    const canvasIds = TAB_CHARTS[activeTab] || [];
+    if (!canvasIds.length || typeof window === "undefined" || !window.Chart) return undefined;
     const theme = getComputedStyle(document.documentElement);
-    const brandColor = (name) => theme.getPropertyValue(`--brand-${name}`).trim();
-    const primary = brandColor("primary");
-    const forest = brandColor("forest");
-    const serviceColors = [primary, forest, brandColor("muted"), brandColor("gold"), brandColor("primary-hover"), brandColor("input-border")];
-    const statusColors = [primary, "#f59e0b", "#ef4444", "#6b7280"];
-    const charts = [];
-    
-    if (activeTab === "all" || activeTab === "distribution") {
-      charts.push(drawChart("serviceTypesChart", "doughnut", data?.charts?.serviceTypes?.labels ?? [], data?.charts?.serviceTypes?.data ?? [], serviceColors));
-      charts.push(drawChart("sexDistributionChart", "pie", data?.charts?.sexDistribution?.labels ?? [], data?.charts?.sexDistribution?.data ?? [], ["#3b82f6", "#ec4899"]));
-      charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], statusColors));
-    }
-    if (activeTab === "all" || activeTab === "hourly") {
-      charts.push(drawChart("hourlyChart", "bar", data?.charts?.hourly?.labels ?? [], data?.charts?.hourly?.data ?? [], forest));
-    }
-    if (activeTab === "all") {
-      charts.push(drawChart("statusChart", "pie", data?.charts?.status?.labels ?? [], data?.charts?.status?.data ?? [], statusColors));
-    }
-
+    const configs = buildAnalyticsCharts(data?.charts, {
+      primary: theme.getPropertyValue("--brand-primary").trim(),
+      forest: theme.getPropertyValue("--brand-forest").trim()
+    });
+    const charts = canvasIds.map((canvasId) => {
+      const canvas = document.getElementById(canvasId);
+      return canvas ? new window.Chart(canvas.getContext("2d"), configs[canvasId]) : null;
+    });
     return () => charts.forEach((chart) => chart?.destroy());
   }, [data, activeTab]);
 
@@ -213,14 +150,14 @@ export default function AnalyticsPage() {
     }
   }
 
+  const charts = data?.charts || emptyAnalyticsData.charts;
+
   return (
     <>
-      <Script src="https://cdn.jsdelivr.net/npm/chart.js" strategy="beforeInteractive" />
+      <Script src={CHART_JS_URL} strategy="beforeInteractive" />
       <SiteFrame
-        title="Analytics Dashboard"
+        title="Analytics"
         icon="fas fa-chart-bar"
-        showSidebar={true}
-        sidebarLinks={sidebarLinks}
         onSettings={() => setSettingsOpen(true)}
       >
         <SettingsModal
@@ -259,6 +196,12 @@ export default function AnalyticsPage() {
                 <button type="button" onClick={exportData} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-download mr-1" />Export</button>
               </div>
             </div>
+            {activeTab === "status" && (
+              <p className="text-xs brand-text-muted mt-3 mb-0">
+                <i className="fas fa-info-circle mr-1" />
+                Status Analytics uses its own date selector below. These filters apply to Detailed Data, Distribution and the period charts in Trends.
+              </p>
+            )}
           </div>
 
           <div className="mb-4 overflow-x-auto">
@@ -266,71 +209,68 @@ export default function AnalyticsPage() {
               <TabButton id="all" active={activeTab} onClick={setActiveTab} label="Detailed Data" icon="fas fa-table" />
               <TabButton id="distribution" active={activeTab} onClick={setActiveTab} label="Distribution" icon="fas fa-chart-pie" />
               <TabButton id="trends" active={activeTab} onClick={setActiveTab} label="Trends" icon="fas fa-chart-line" />
-              <TabButton id="hourly" active={activeTab} onClick={setActiveTab} label="Hourly" icon="fas fa-clock" />
               <TabButton id="status" active={activeTab} onClick={setActiveTab} label="Status" icon="fas fa-tasks" />
             </div>
           </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3 mb-4">
-            <MetricCard color="blue" icon="fas fa-users" value={data?.metrics?.totalPatients ?? 0} label="Total Patients" />
-            <MetricCard color="green" icon="fas fa-clock" value={`${data?.metrics?.avgWaitTime ?? 0}m`} label="Avg Wait Time" />
-            <MetricCard color="purple" icon="fas fa-tachometer-alt" value={`${data?.metrics?.avgServiceTime ?? 0}m`} label="Avg Service Time" />
-            <MetricCard color="orange" icon="fas fa-percentage" value={`${data?.metrics?.completionRate ?? 0}%`} label="Completion Rate" />
-          </div>
+          {FILTERED_TABS.includes(activeTab) && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3 mb-4">
+              <MetricCard color="blue" icon="fas fa-users" value={data?.metrics?.totalPatients ?? 0} label="Total Patients" />
+              <MetricCard color="green" icon="fas fa-clock" value={`${data?.metrics?.avgWaitTime ?? 0}m`} label="Avg Wait Time" />
+              <MetricCard color="purple" icon="fas fa-tachometer-alt" value={`${data?.metrics?.avgServiceTime ?? 0}m`} label="Avg Service Time" />
+              <MetricCard color="orange" icon="fas fa-percentage" value={`${data?.metrics?.completionRate ?? 0}%`} label="Completion Rate" />
+            </div>
+          )}
 
           <div className="grid gap-3 md:gap-4 mb-4 grid-cols-1">
             {activeTab === "distribution" && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4">
-                <ChartCard title="Service Types Distribution" icon="fas fa-chart-pie" canvasId="serviceTypesChart" />
-                <ChartCard title="Sex Distribution" icon="fas fa-venus-mars" canvasId="sexDistributionChart" />
-                <ChartCard title="Patient Status" icon="fas fa-tasks" canvasId="statusChart" />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
+                <ChartCard title="Service Types" icon="fas fa-chart-pie" canvasId="serviceTypesChart" empty={!hasChartData(charts.serviceTypes)} />
+                <ChartCard title="Sex Distribution" icon="fas fa-venus-mars" canvasId="sexDistributionChart" empty={!hasChartData(charts.sexDistribution)} />
+                <ChartCard title="Priority Categories" icon="fas fa-star" canvasId="priorityChart" empty={!hasChartData(charts.priorityCategories)}
+                  note="A visit can belong to more than one priority category, so the bars can add up to more than the total." />
+                <ChartCard title="Age Groups" icon="fas fa-birthday-cake" canvasId="ageGroupChart" empty={!hasChartData(charts.ageGroups)}
+                  note="Age on the day of the visit, from the recorded birthdate." />
+                <div className="lg:col-span-2">
+                  <ChartCard title="Residency (Top Locations)" icon="fas fa-map-marker-alt" canvasId="residencyChart" empty={!hasChartData(charts.residency)}
+                    note="The eight most common recorded locations; the rest are grouped as Other locations." />
+                </div>
               </div>
             )}
+
             {activeTab === "trends" && (
-              <DailyTrends enabled={!loading && user?.role === "superadmin"} />
+              <>
+                <SectionHeading title="Selected Period" description="Uses the filters above." />
+                <ChartCard title="Patients per Day" icon="fas fa-chart-line" canvasId="patientsPerDayChart" fullWidth empty={!hasChartData(charts.dailyTrends)}
+                  note="Registered visits per day (Asia/Manila). Days without visits show as zero." />
+                <ChartCard title="Arrivals by Hour" icon="fas fa-clock" canvasId="arrivalsByHourChart" fullWidth empty={!hasChartData(charts.hourly)}
+                  note="Registrations per hour of the day across the whole selected period, in clock order." />
+                <SectionHeading title="Single-Day Detail" description="Hour-by-hour activity for one day. Choose the day with the date selector in this section." />
+                <DailyTrends enabled={!loading && user?.role === "superadmin"} />
+              </>
             )}
-            {activeTab === "hourly" && (
-              <ChartCard title="Hourly Distribution" icon="fas fa-chart-bar" canvasId="hourlyChart" fullWidth={true} />
-            )}
+
             {activeTab === "status" && (
               <StatusAnalytics enabled={!loading && user?.role === "superadmin"} />
             )}
 
             {activeTab === "all" && (
-              <div className="bg-white rounded-lg shadow-md p-4 md:p-6 mb-6">
-                <h3 className="text-base md:text-lg font-bold brand-text mb-4 flex items-center gap-2">
-                  <i className="fas fa-table brand-text-primary" />
-                  Detailed Analytics
-                </h3>
-                <div className="overflow-x-auto rounded-xl border brand-border shadow-sm max-w-full">
-                  <table className="w-full min-w-[600px] md:min-w-[800px] table-auto border-collapse">
-                    <thead>
-                      <tr className="brand-bg-subtle border-b brand-border">
-                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-left">Type</th>
-                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Total</th>
-                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Done</th>
-                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Cancel</th>
-                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Wait</th>
-                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Avg Svc</th>
-                        <th className="px-6 py-4 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center">Rate</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {(data?.tableData ?? []).map((row) => (
-                        <tr key={row.service_type} className="brand-hover-subtle transition-colors duration-150">
-                          <td className="px-6 py-4 text-sm brand-text font-semibold capitalize">{row.service_type}</td>
-                          <td className="px-6 py-4 text-sm brand-text text-center font-medium">{row.total_patients}</td>
-                          <td className="px-6 py-4 text-sm text-green-700 text-center font-bold">{row.completed}</td>
-                          <td className="px-6 py-4 text-sm text-red-600 text-center font-bold">{row.cancelled}</td>
-                          <td className="px-6 py-4 text-sm brand-text-muted text-center">{row.avg_wait_time}m</td>
-                          <td className="px-6 py-4 text-sm brand-text-muted text-center">{row.avg_service_time}m</td>
-                          <td className="px-6 py-4 text-sm text-emerald-700 text-center font-semibold bg-emerald-50/20">{row.completion_rate}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <>
+                <SummaryTable
+                  title="By Service"
+                  icon="fas fa-table"
+                  firstColumn="Service"
+                  rows={(data?.tableData ?? []).map((row) => ({ key: row.service_type, name: serviceLabel(row.service_type), ...row }))}
+                  totals={data?.totals}
+                />
+                <SummaryTable
+                  title="By Doctor"
+                  icon="fas fa-user-md"
+                  firstColumn="Doctor"
+                  rows={(data?.doctorTable ?? []).map((row) => ({ key: row.doctor, name: row.doctor, ...row }))}
+                  totals={data?.totals}
+                />
+              </>
             )}
           </div>
         </div>
@@ -362,15 +302,90 @@ function MetricCard({ color, icon, value, label }) {
   );
 }
 
-function ChartCard({ title, icon, canvasId, fullWidth = false }) {
+function SectionHeading({ title, description }) {
+  return (
+    <div className="mt-1">
+      <h3 className="text-sm md:text-base font-bold brand-text mb-0.5">{title}</h3>
+      <p className="text-xs brand-text-muted mb-0">{description}</p>
+    </div>
+  );
+}
+
+function ChartCard({ title, icon, canvasId, fullWidth = false, empty = false, note = "" }) {
   return (
     <div className={`bg-white rounded-lg shadow-md p-3 md:p-4 card-hover ${fullWidth ? "w-full" : ""}`}>
       <h3 className="text-sm md:text-base font-bold brand-text mb-2 flex items-center gap-1.5">
         <i className={`${icon} brand-text-primary text-sm`} />
         <span className="leading-tight">{title}</span>
       </h3>
-      <div className={`chart-container ${fullWidth ? "h-[300px] md:h-[400px]" : "h-[250px]"}`}>
-        <canvas id={canvasId} />
+      <div className={`chart-container ${fullWidth ? "h-[280px] md:h-[320px]" : "h-[260px]"}`}>
+        {empty ? (
+          <div className="h-full flex flex-col items-center justify-center gap-2 brand-text-muted text-sm" role="status">
+            <i className="fas fa-chart-bar text-2xl opacity-40" />
+            No data for the selected filters
+          </div>
+        ) : (
+          <canvas id={canvasId} role="img" aria-label={title} />
+        )}
+      </div>
+      {note ? <p className="text-[11px] brand-text-muted mt-2 mb-0">{note}</p> : null}
+    </div>
+  );
+}
+
+const SUMMARY_COLUMNS = [
+  { key: "total_patients", label: "Total" },
+  { key: "completed", label: "Completed", className: "text-green-700 font-bold" },
+  { key: "cancelled", label: "Cancelled", className: "text-red-600 font-bold" },
+  { key: "no_show", label: "No-show", className: "text-rose-700 font-bold" },
+  { key: "in_queue", label: "In Queue", title: "Still waiting or being served" },
+  { key: "avg_wait_time", label: "Avg Wait", suffix: "m", className: "brand-text-muted" },
+  { key: "avg_service_time", label: "Avg Service", suffix: "m", className: "brand-text-muted" },
+  { key: "completion_rate", label: "Completion", suffix: "%", className: "text-emerald-700 font-semibold" }
+];
+
+function summaryValue(row, column) {
+  if (column.key === "in_queue") return (Number(row.waiting) || 0) + (Number(row.serving) || 0);
+  const value = row[column.key] ?? 0;
+  return column.suffix ? `${value}${column.suffix}` : value;
+}
+
+function SummaryTable({ title, icon, firstColumn, rows, totals }) {
+  const cellClass = "px-4 md:px-6 py-3 text-sm text-center";
+  const headClass = "px-4 md:px-6 py-3 text-[11px] font-bold brand-text-muted uppercase tracking-wider text-center";
+  return (
+    <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
+      <h3 className="text-base md:text-lg font-bold brand-text mb-4 flex items-center gap-2">
+        <i className={`${icon} brand-text-primary`} />
+        {title}
+      </h3>
+      <div className="overflow-x-auto rounded-xl border brand-border shadow-sm max-w-full">
+        <table className="w-full min-w-[760px] table-auto border-collapse">
+          <thead>
+            <tr className="brand-bg-subtle border-b brand-border">
+              <th className={`${headClass} text-left`}>{firstColumn}</th>
+              {SUMMARY_COLUMNS.map((column) => <th key={column.key} className={headClass} title={column.title}>{column.label}</th>)}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.length ? rows.map((row) => (
+              <tr key={row.key} className="brand-hover-subtle transition-colors duration-150">
+                <td className="px-4 md:px-6 py-3 text-sm brand-text font-semibold">{row.name}</td>
+                {SUMMARY_COLUMNS.map((column) => <td key={column.key} className={`${cellClass} ${column.className || "brand-text"}`}>{summaryValue(row, column)}</td>)}
+              </tr>
+            )) : (
+              <tr><td colSpan={SUMMARY_COLUMNS.length + 1} className={`${cellClass} brand-text-muted`}>No visits match the selected filters.</td></tr>
+            )}
+          </tbody>
+          {rows.length && totals ? (
+            <tfoot>
+              <tr className="brand-bg-subtle border-t-2 brand-border">
+                <th scope="row" className="px-4 md:px-6 py-3 text-sm brand-text font-bold text-left">All</th>
+                {SUMMARY_COLUMNS.map((column) => <td key={column.key} className={`${cellClass} font-bold brand-text`}>{summaryValue(totals, column)}</td>)}
+              </tr>
+            </tfoot>
+          ) : null}
+        </table>
       </div>
     </div>
   );

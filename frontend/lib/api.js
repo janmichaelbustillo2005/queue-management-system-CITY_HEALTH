@@ -30,10 +30,14 @@ export async function request(path, options = {}) {
       headers
     });
   } catch (err) {
+    // fetch rejects with a TypeError only when no HTTP response arrived. Browsers word it
+    // differently ("Failed to fetch", "NetworkError when attempting...", "Load failed");
+    // a refused connection and a CORS rejection are indistinguishable here. Aborts are
+    // AbortError and keep their own message.
     const refused =
       err?.cause?.code === "ECONNREFUSED" ||
       err?.cause?.code === "ENOTFOUND" ||
-      (err?.name === "TypeError" && String(err?.message).includes("fetch failed"));
+      err?.name === "TypeError";
     if (refused) {
       // Return a friendly error object instead of throwing, so UI can render gracefully
       return { error: "Cannot reach the API. Start the backend: open a terminal in the backend folder and run npm run dev (port 4000)." };

@@ -13,6 +13,10 @@ const PYTTSX3_TTS_BASE_URL = (process.env.NEXT_PUBLIC_PYTTSX3_TTS_URL || "http:/
 const PYTTSX3_HEALTH_TIMEOUT_MS = 6500;
 const PYTTSX3_SPEAK_TIMEOUT_MS = 45000;
 const PYTTSX3_RETRY_MS = 5000;
+// The backend starts the voice service automatically; an Enable click made while
+// it is still starting retries briefly instead of failing on the first check.
+const PYTTSX3_ENABLE_ATTEMPTS = 6;
+const PYTTSX3_ENABLE_RETRY_MS = 2500;
 const TTS_DEBUG = process.env.NEXT_PUBLIC_TTS_DEBUG !== "0";
 const TTS_LOG_PREFIX = "[QueueDisplay TTS]";
 
@@ -178,7 +182,7 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 5000) {
       throw new Error("pyttsx3 service timed out");
     }
     if (err instanceof TypeError) {
-      throw new Error(`Cannot reach the voice service at ${PYTTSX3_TTS_BASE_URL}. Start the local Python voice service on the display computer`);
+      throw new Error(`Cannot reach the voice service at ${PYTTSX3_TTS_BASE_URL}. It starts automatically with the backend on this computer; make sure the backend is running (or run start-voice.cmd)`);
     }
     throw err;
   } finally {
@@ -417,18 +421,27 @@ export default function QueueDisplayPage() {
       setVoiceStatus("Voice announcements are disabled in System Settings.");
       return;
     }
-    setVoiceStatus("Checking local pyttsx3 service...");
-    try {
-      await checkPyttsx3Service({ initialize: true });
-    } catch (err) {
-      if (!isCurrentAttempt()) return;
-      voiceEnabledRef.current = false;
-      pauseAnnouncementQueue();
-      setVoiceEnabled(false);
-      setIsSpeaking(false);
-      rememberAnnouncementRecovery();
-      setVoiceStatus(`pyttsx3 unavailable: ${err.message || "start the local TTS service"}`);
-      return;
+    setVoiceStatus("Connecting to the voice service...");
+    for (let tries = 1; ; tries += 1) {
+      try {
+        await checkPyttsx3Service({ initialize: true });
+        break;
+      } catch (err) {
+        if (!isCurrentAttempt()) return;
+        if (tries < PYTTSX3_ENABLE_ATTEMPTS) {
+          setVoiceStatus(`Voice service not ready yet (${err.message || "starting"}). Retrying ${tries}/${PYTTSX3_ENABLE_ATTEMPTS - 1}...`);
+          await delay(PYTTSX3_ENABLE_RETRY_MS);
+          if (!isCurrentAttempt()) return;
+          continue;
+        }
+        voiceEnabledRef.current = false;
+        pauseAnnouncementQueue();
+        setVoiceEnabled(false);
+        setIsSpeaking(false);
+        rememberAnnouncementRecovery();
+        setVoiceStatus(`Voice service unavailable: ${err.message || "start the local TTS service"}`);
+        return;
+      }
     }
     if (!isCurrentAttempt()) return;
     if (!voiceAnnouncementsAllowed()) {
@@ -512,7 +525,6 @@ export default function QueueDisplayPage() {
         patient: {
           id: patient.id,
           queue_number: patient.queue_number,
-          id_num: patient.id_num,
           counter_name: doctorName,
           room: resolveRoom(doctorName),
           called_at: patient.called_at,
@@ -526,7 +538,6 @@ export default function QueueDisplayPage() {
         key,
         eventType: patient.event_type,
         queueNumber: patient.queue_number,
-        patientName: patient.id_num,
         doctorName,
         room: resolveRoom(doctorName),
         announcementAt: patient.announcement_at || patient.accepted_at
@@ -646,7 +657,6 @@ export default function QueueDisplayPage() {
       url: `${PYTTSX3_TTS_BASE_URL}/speak`,
       key: requestBody.key,
       queueNumber: requestBody.queue_number,
-      patientName: requestBody.patient_name,
       doctorName: requestBody.doctor_name,
       room: requestBody.room,
       text: requestBody.text
@@ -694,17 +704,17 @@ export default function QueueDisplayPage() {
     }
 
     const queueNumber = patient.queue_number || "";
-    const name = patient.id_num || "Patient";
     const doctorName = patient.counter_name || "Doctor";
     const room = patient.room || resolveRoom(doctorName);
     const includeRoom = runtimeQueueSettings?.announceDoctorRoom !== false;
     const destination = includeRoom && room ? `${doctorName}, ${room}` : doctorName;
     const spokenQueue = formatQueueForSpeech(queueNumber);
-    const text = `Now calling queue number ${spokenQueue}, ${name}, please proceed to ${destination}.`;
+    // Public announcements identify the visit by queue number only; patient
+    // names and identifiers are never spoken or sent to the voice service.
+    const text = `Now calling queue number ${spokenQueue}, please proceed to ${destination}.`;
     logTts("announcement-built", {
       key: patient.announcement_key,
       queueNumber,
-      patientName: name,
       doctorName,
       room,
       text
@@ -715,7 +725,6 @@ export default function QueueDisplayPage() {
         key: patient.announcement_key,
         text,
         queue_number: queueNumber,
-        patient_name: name,
         doctor_name: doctorName,
         room,
         accepted_at: patient.accepted_at,
@@ -776,7 +785,6 @@ export default function QueueDisplayPage() {
             key: getAnnouncementKey(patient),
             eventType: patient.event_type,
             queueNumber: patient.queue_number,
-            patientName: patient.id_num,
             doctorName: resolveDoctorName(patient),
             room: resolveRoom(resolveDoctorName(patient)),
             announcementAt: patient.announcement_at || patient.accepted_at
@@ -856,7 +864,11 @@ export default function QueueDisplayPage() {
                 else enableVoiceAnnouncer();
               }}
               aria-pressed={voiceEnabled}
-              title={voiceEnabled ? "Pause voice announcements on this display." : "Enable voice announcements on this display."}
+              title={voiceEnabled
+                ? ttsReady === false
+                  ? "Voice service is not reachable; retrying automatically. Click to pause."
+                  : "Pause voice announcements on this display."
+                : "Enable voice announcements on this display."}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${
                 voiceEnabled
                   ? ttsReady === true
@@ -865,13 +877,17 @@ export default function QueueDisplayPage() {
                   : "bg-white/5 text-white/70 border border-white/10 hover:bg-white/10"
               }`}
             >
-              <i className={`fas ${voiceEnabled ? "fa-volume-up" : "fa-volume-mute"}`} />
-              {voiceEnabled ? (isSpeaking ? "Announcing…" : "Voice Enabled") : "Voice Disabled"}
-              {voiceEnabled && !isSpeaking ? (
-                <span className="text-[9px] opacity-90">
-                  ({ttsReady === true ? "Ready" : ttsReady === false ? "Offline" : "Checking"})
-                </span>
-              ) : null}
+              <i className={`fas ${!voiceEnabled ? "fa-volume-mute" : ttsReady === false ? "fa-exclamation-triangle" : "fa-volume-up"}`} />
+              {/* "Voice Enabled" only once the service has confirmed it can speak. */}
+              {!voiceEnabled
+                ? "Voice Disabled"
+                : isSpeaking
+                  ? "Announcing…"
+                  : ttsReady === true
+                    ? "Voice Enabled"
+                    : ttsReady === false
+                      ? "Voice Offline"
+                      : "Voice Connecting…"}
             </button>
             {voiceStatus ? (
               <span
@@ -954,9 +970,6 @@ export default function QueueDisplayPage() {
                   <div className="queue-serving-patient text-center h-12">
                     {servingPatient ? (
                       <>
-                        <h4 className="text-lg font-bold text-white leading-tight truncate max-w-[240px]">
-                          {servingPatient.id_num}
-                        </h4>
                         <p className="text-[10px] text-white/60 uppercase font-black tracking-widest mt-1">
                           {servingPatient.service_type}
                         </p>

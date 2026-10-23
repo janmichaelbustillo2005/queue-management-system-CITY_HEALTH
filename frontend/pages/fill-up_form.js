@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import SiteFrame from "../components/SiteFrame";
-import FrontdeskNavigation from "../components/FrontdeskNavigation";
 import DigitalQueuePass from "../components/DigitalQueuePass";
 import QueueTicketActions from "../components/QueueTicketActions";
 import QueueTicketDialog from "../components/QueueTicketDialog";
 import { request } from "../lib/api";
 import { createQueueTicket, getPatientsAheadSnapshot } from "../lib/queueTicket";
 import { useAuth } from "../context/AuthContext";
-import { frontdeskSidebarLinks } from "../lib/frontdeskNav";
 
 const serviceOptions = [
   { value: "consultation", label: "General Consultation" },
@@ -373,21 +371,13 @@ export default function FillUpFormPage() {
   };
 
   return (
-    <SiteFrame 
-      title="City Health Queue Form" 
-      icon="bi bi-people-fill" 
-      welcome="Welcome"
-      showSidebar={!isFrontdesk}
-      sidebarTitle="Front Desk Menu"
-      sidebarLinks={frontdeskSidebarLinks("/fill-up_form")}
-      showProfileMenu={isFrontdesk}
-      profileMenuLinks={frontdeskSidebarLinks("/fill-up_form")}
-      profileIcon="fas fa-user"
+    <SiteFrame
+      title="Patient Registration"
+      icon="fas fa-user-plus"
       contentClassName="frontdesk-page"
     >
       <div className="frontdesk-fullpage-wrapper">
         <div className="frontdesk-shell">
-          <FrontdeskNavigation activePath="/fill-up_form" />
           <div className="frontdesk-fit-card frontdesk-form-card">
             <div className="frontdesk-card-header">
               {!isSuccess ? (

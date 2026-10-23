@@ -96,9 +96,8 @@ function harness(name, options = {}) {
       };
       if (dependency === "../components/PatientQueueTable") return { __esModule: true, default: "PatientQueueTable", DOCTORS: doctors };
       if (dependency === "../components/SettingsModal") return { defaultQueueSettings: {} };
-      if (dependency === "../lib/frontdeskNav") return { frontdeskSidebarLinks: () => [] };
       if (dependency === "../lib/queueSettings") return { mergeQueueSettings: value => value, loadLocalQueueSettings: () => ({}), fetchQueueSettings: async () => ({}) };
-      if (["../components/SiteFrame", "../components/FrontdeskNavigation", "../components/QueueTicketDialog"].includes(dependency)) {
+      if (["../components/SiteFrame", "../components/QueueTicketDialog"].includes(dependency)) {
         return dependency.split("/").pop();
       }
       throw new Error(`Unexpected dependency: ${dependency}`);
@@ -175,7 +174,7 @@ test("Frontdesk reopens the exact saved patient, with no registration or queue m
   assert.doesNotMatch(JSON.stringify(h.dialog().props.ticket), /private|birthdate|priority_score/);
   assert.equal(JSON.stringify(saved), before);
   assert.deepEqual(h.requests, []);
-  assert.equal(nodes(h.render(), node => node.type === "FrontdeskNavigation")[0].props.activePath, "/patient-management");
+  assert.equal(h.render().props.title, "Patient Management", "navigation comes from the shared shell sidebar");
   h.dialog().props.onClose();
   assert.equal(h.dialog(), undefined);
 });

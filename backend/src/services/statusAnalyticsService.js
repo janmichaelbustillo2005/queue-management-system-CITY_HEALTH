@@ -8,6 +8,8 @@ const MINUTE_MICROS = 60000000;
 const PAGE_SIZE = 500;
 const PATIENT_COLUMNS = "id,status,created_at,called_at,consultation_started_at,completed_at,counter_id";
 const TERMINAL = new Set(["completed", "cancelled", "no-show"]);
+const OUTCOME_ORDER = ["completed", "waiting", "serving", "cancelled", "no-show"];
+const OUTCOME_LABELS = { completed: "Completed", waiting: "Waiting", serving: "Being served", cancelled: "Cancelled", "no-show": "No-show" };
 const min = (a, b) => a < b ? a : b;
 const max = (a, b) => a > b ? a : b;
 const iso = (value) => new Date(value).toISOString();
@@ -131,7 +133,42 @@ function periodSummary(visits, range, observed) {
     total_patients: total, waiting_patients: waiting, currently_serving: serving, completed_patients: completed,
     avg_wait_minutes: waitSamples ? Number(waitTotal) / MINUTE_MICROS / waitSamples : null,
     avg_service_minutes: serviceSamples ? Number(serviceTotal) / MINUTE_MICROS / serviceSamples : null,
-    arrival_completions: arrivalCompletions, elapsed_hours: bounds.elapsed
+    arrival_completions: arrivalCompletions, elapsed_hours: bounds.elapsed,
+    wait_samples: waitSamples, service_samples: serviceSamples
+  };
+}
+
+// The patients registered in the selected period (the same group as Total
+// Patients), grouped by their stored status now, so the counts always add up.
+// Patients still queued from an earlier registration are reported separately.
+function periodOutcomes(visits, range, observed) {
+  const bounds = boundsFor(range, observed);
+  if (!bounds.elapsed) return { total: null, live: false, statuses: [], carry_in: null };
+  const sample = bounds.cutoff === bounds.end ? bounds.cutoff - 1n : bounds.cutoff;
+  const live = bounds.cutoff === observed && bounds.cutoff < bounds.end;
+  const counts = new Map(OUTCOME_ORDER.map(status => [status, 0]));
+  const carryIn = { waiting: 0, serving: 0 };
+  let total = 0;
+  for (const { row, times } of visits) {
+    const { created } = times;
+    if (created == null || created > sample) continue;
+    if (created < bounds.start) {
+      if (row.status === "waiting" || row.status === "serving") carryIn[row.status] += 1;
+      continue;
+    }
+    if (created >= bounds.end) continue;
+    total += 1;
+    const status = typeof row.status === "string" && row.status.trim() ? row.status : "unknown";
+    counts.set(status, (counts.get(status) || 0) + 1);
+  }
+  return {
+    total, live,
+    statuses: [...counts].map(([status, count]) => ({
+      status, label: OUTCOME_LABELS[status] || status.replace(/[_-]/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()),
+      count, percentage: total ? count * 100 / total : 0
+    })),
+    // Only a live period has a meaningful "still in the queue" carry-over.
+    carry_in: live ? carryIn : null
   };
 }
 
@@ -210,6 +247,8 @@ function aggregateStatusAnalytics(patients, counters, range, observedAt = new Da
     .map(name => [name, metric(current[name], previous[name])]));
   return {
     time_zone: "Asia/Manila", observed_at, range, comparison_range, metrics, hourly, statuses: base.statuses,
+    outcomes: periodOutcomes(visits, range, observed),
+    duration_samples: { wait: current.wait_samples ?? 0, service: current.service_samples ?? 0 },
     counters: counterRows.map(counter => {
       const result = performance.get(String(counter.id));
       const recorded = base.counters.find(item => String(item.id) === String(counter.id));

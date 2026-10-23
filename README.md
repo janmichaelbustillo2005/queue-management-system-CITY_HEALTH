@@ -34,13 +34,25 @@ If your terminal is already inside `backend/`, run `npm.cmd run dev` there; use 
 
 Backend startup seeds only missing doctor counters. Existing counter IDs, availability and active patient assignments are preserved across restarts; Supabase consultations can resume using their saved start time and the existing acceptance file.
 
-The backend loads `backend/.env` regardless of its launch directory. When Supabase is configured, a database outage reports an error and subsequent requests retry the database; it does not replace saved patients with an empty local queue. Temporary in-memory development storage is used only when Supabase is unconfigured. Use a private JWT signing secret rather than the sample placeholder.
+The backend loads `backend/.env` regardless of its launch directory. When Supabase is configured, a database outage reports an error and subsequent requests retry the database; it does not replace saved patients with an empty local queue. Temporary in-memory development storage is used only when Supabase is unconfigured. The backend requires a private JWT signing secret; see below.
 
 To test Frontdesk, Doctor and Superadmin simultaneously, use different browsers or separate browser profiles. Tabs in one browser profile share a login and update their displayed account together. An expired login returns protected pages to sign-in instead of leaving them polling with an invalid token.
 
+### JWT signing secret
+
+`JWT_SECRET` in `backend/.env` signs every staff login token. There is no built-in fallback: the backend stops at startup with `Invalid JWT_SECRET in backend/.env` when the value is missing, empty, contains whitespace, is a sample or placeholder such as `change-me` or `default_secret`, is shorter than 43 characters, or is obviously repetitive. These checks catch mistakes; they cannot prove a value is random, so always use a cryptographic generator. The error never prints the configured value.
+
+Generate a value in Windows PowerShell from the project root. It is copied to the clipboard and is not displayed:
+
+```powershell
+$bytes = New-Object byte[] 48; $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($bytes); $rng.Dispose(); [Convert]::ToBase64String($bytes) | Set-Clipboard; Remove-Variable bytes, rng
+```
+
+Open `backend/.env` in an editor, replace only the value after `JWT_SECRET=` with the clipboard contents, save, then clear the clipboard (`Set-Clipboard -Value ' '`). Never commit `backend/.env` or share the value; each environment uses its own secret. Restart the backend afterwards. Tokens signed with the previous secret stop working, so every open browser returns to sign-in and staff log in again with their usual accounts; patients, consultations and accounts are unaffected.
+
 ## Run the pyttsx3 voice announcer on Windows
 
-Run the Python voice service on the **same computer and logged-in Windows desktop session as the Queue Display and its speakers**. The backend, frontend, and voice service are three separate processes. The Python worker plays the selected slow, descending ding-dong and then the spoken announcement. **Sound Notifications** controls the chime; turning it off still allows speech. The bell needs no browser activation click and stays ready across registration polls and display reloads while the updated local service is running and announcements are enabled. The application does not start the Python service automatically.
+Run the Python voice service on the **same computer and logged-in Windows desktop session as the Queue Display and its speakers**. The backend starts the voice service automatically on Windows and keeps it running, so normally only the backend and frontend need terminals. The Python worker plays the selected slow, descending ding-dong and then the spoken announcement. **Sound Notifications** controls the chime; turning it off still allows speech. The bell needs no browser activation click and stays ready across registration polls and display reloads while the updated local service is running and announcements are enabled.
 
 ### 1. Open PowerShell in the project root
 
@@ -78,29 +90,25 @@ uv venv --python 3.13 --seed .venv-voice
 
 If `uv` is not on PATH, invoke its installed executable by its full path. This setup calls the environment's Python directly, so `Activate.ps1` and changes to PowerShell's execution policy are unnecessary. `.venv-voice` is local to each computer and must not be committed. Repeat the pip install command when `requirements.txt` changes.
 
-### 3. Start all three services
+### 3. Start the application
 
-Keep three PowerShell terminals open in the project root:
+Keep two PowerShell terminals open in the project root. The backend starts the voice service for you.
 
-**Terminal 1 — voice service:**
-
-```powershell
-.\start-voice.cmd
-```
-
-You can also double-click `start-voice.cmd` in the project folder. It reuses an already healthy local service, or checks the local Python environment and Windows speech engine before starting one. Expect a startup line containing `listening on http://127.0.0.1:8765` and `dry_run=False`. Leave the service terminal running. The launcher reports setup errors without installing dependencies or stopping an existing process.
-
-**Terminal 2 — backend:**
+**Terminal 1 — backend (also starts the voice announcer):**
 
 ```powershell
 npm.cmd --prefix backend run dev
 ```
 
-**Terminal 3 — frontend:**
+**Terminal 2 — frontend:**
 
 ```powershell
 npm.cmd --prefix frontend run dev
 ```
+
+After `Queue backend listening`, the backend prints `[voice] Starting voice service at http://127.0.0.1:8765` and then `[voice] Voice service ready`. It reuses a voice service that is already running instead of starting a second one, restarts the service if it stops, and stops it when the backend exits. Service output goes to `backend/voice/voice-service.log` and `backend/voice/voice-service-error.log`. If `.venv-voice` is missing or port 8765 belongs to another application, the backend prints a `[voice]` error that says what to fix, and the Queue Display shows **Voice Offline** instead of **Voice Enabled**.
+
+If the Queue Display speakers are on a different computer from the backend, set `VOICE_SERVICE_AUTOSTART=0` in `backend/.env` and run `.\start-voice.cmd` on the display computer instead. It reuses an already healthy local service, or checks the local Python environment and Windows speech engine before starting one.
 
 Install the Node dependencies from the application setup section first if this is a new checkout. `npm.cmd` avoids the `npm.ps1` execution-policy error that can occur in PowerShell. If Node is installed without being on PATH, use `& 'C:\Program Files\nodejs\npm.cmd'` instead of `npm.cmd`.
 

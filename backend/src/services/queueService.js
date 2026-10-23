@@ -991,86 +991,242 @@ async function completePatient(patientId, reason = null, counterId = null, actor
   return row;
 }
 
-async function cancelPatient(patientId, reason = null, counterId = null) {
-  const existing = await getPatientById(patientId);
+// ---------------------------------------------------------------------------
+// Cancel: authorization and canonical ownership (R2)
+//
+// Ownership is always derived from persisted records (the stored patient row,
+// the counters and the persisted staff account), never from request fields.
+// Policy: a Superadmin and a Frontdesk account (role "admin" with no doctor
+// assignment) may cancel any active patient, as the staff queue screens already
+// allow. A doctor account may cancel only patients that belong to its own
+// doctor: its serving patient, or a patient routed to it by the service-to-doctor
+// mapping that has not been called yet.
+// ---------------------------------------------------------------------------
+const FRONTDESK_ASSIGNMENT_LABELS = ["front desk", "frontdesk"];
 
-  if (!existing) {
-    throw new Error("Patient not found");
+function isFrontdeskAssignment(value) {
+  const label = String(value ?? "").trim().toLowerCase();
+  return !label || FRONTDESK_ASSIGNMENT_LABELS.includes(label);
+}
+
+async function loadCancellationContext(patientId, actor) {
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
+  const local = useLocalFallback;
+  let patient, counters, user = null;
+  if (local) {
+    patient = localData.patients.find((row) => row.id === patientId);
+    counters = localData.counters;
+    if (actor) user = localData.users.find((row) => row.id_num === actor.id_num) || null;
+  } else {
+    // Mutation validation never silently switches to another storage system.
+    let results;
+    try {
+      results = await Promise.all([
+        supabase.from("patients").select("*").eq("id", patientId).maybeSingle(),
+        supabase.from("counters").select("id, id_num, current_patient_id"),
+        actor
+          ? supabase.from("users").select("id_num, role, doctor_name").eq("id_num", actor.id_num).maybeSingle()
+          : Promise.resolve({ data: null, error: null })
+      ]);
+    } catch (error) {
+      throw consultationError(error.message || "Cancellation database validation is unavailable", 503);
+    }
+    for (const result of results) {
+      if (result.error) throw consultationError(result.error.message || "Failed to validate cancellation", 503);
+    }
+    patient = results[0].data;
+    counters = results[1].data || [];
+    user = results[2].data;
   }
-  if (existing.status === "completed") throw new Error("A completed consultation cannot be cancelled");
+  if (local !== useLocalFallback) throw consultationError("Queue storage changed. Refresh and try again.", 409);
+  return { patient: patient || null, counters, user, local };
+}
+
+// Resolves who the caller is from the verified token claims and the persisted
+// account. Returns { kind: "system" | "superadmin" | "frontdesk" | "doctor", counter? }.
+function resolveCancelActor(actor, user, counters) {
+  if (actor == null) return { kind: "system" }; // trusted in-process caller, never an HTTP request
+  if (!["admin", "superadmin"].includes(actor.role) || !String(actor.id_num || "").trim()) {
+    throw consultationError("An authenticated staff account is required for this patient action.", 403);
+  }
+  if (!user || user.role !== actor.role) {
+    throw consultationError("Your account no longer matches your session. Sign in again.", 403);
+  }
+  if (actor.role === "superadmin") return { kind: "superadmin" };
+  const ownDoctor = resolveDoctorCounter(user.doctor_name, counters);
+  if (isFrontdeskAssignment(user.doctor_name)) {
+    // A token that claims a doctor the persisted account does not have is stale or forged.
+    if (!isFrontdeskAssignment(actor.doctor_name)) {
+      throw consultationError("Your current account is not assigned to this doctor. Sign in again.", 403);
+    }
+    return { kind: "frontdesk" };
+  }
+  const claimed = resolveDoctorCounter(actor.doctor_name, counters);
+  if (!ownDoctor || claimed?.id !== ownDoctor.id) {
+    throw consultationError("Your current account is not assigned to this doctor. Sign in again.", 403);
+  }
+  return { kind: "doctor", counter: ownDoctor };
+}
+
+// The doctor a patient belongs to, from persisted data only: the stored
+// assignment first; a patient never called follows the service mapping. A
+// serving patient with no resolvable assignment is an orphan and has no owner.
+function resolveCancelOwner(patient, counters) {
+  if (String(patient.counter_id ?? "").trim()) return resolveDoctorCounter(patient.counter_id, counters);
+  if (patient.status === "serving") return null;
+  return resolveDoctorCounter(getDoctorForService(patient.service_type), counters);
+}
+
+// Shared by Cancel, No-show, Recall, Re-Call, Requeue and Undo (R2/R2.1). Loads the
+// stored patient, counters and persisted account, identifies the caller, and rejects:
+//   - an unauthenticated or mismatched account (403),
+//   - a doctor account acting on a patient that is not its own (403),
+//   - a client-supplied doctor/counter that contradicts the stored assignment (409/400).
+// Frontdesk and Superadmin keep their existing cross-doctor operational permissions.
+// `actor` undefined means a trusted in-process caller (never an HTTP request).
+// A terminal visit must not be pointed at by any counter. A repeat Cancel/No-show returns without
+// touching the patient row, but if an earlier attempt committed the patient and failed before
+// releasing the counter (two separate writes today), the repeat releases that stale pointer so a
+// retry repairs the doctor's counter. Only counters whose pointer is this patient are cleared.
+async function releaseStaleCounterPointer(patientId, counters, local) {
+  if (!counters.some((counter) => Number(counter.current_patient_id) === patientId)) return;
+  if (local) {
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patientId) counter.current_patient_id = null;
+    }
+    return;
+  }
+  await clearCounterAssignment(patientId);
+}
+
+async function authorizeVisitAction(patientId, actor, counterId = null, { denyMessage } = {}) {
+  const { patient: found, counters, user, local } = await loadCancellationContext(patientId, actor);
+  // Identify the caller first so an unauthorized account learns nothing about a patient.
+  const who = resolveCancelActor(actor, user, counters);
+  if (!found) throw consultationError("Patient not found", 404);
+  const existing = { ...found };
+  const owner = resolveCancelOwner(existing, counters);
+  if (who.kind === "doctor" && (!owner || owner.id !== who.counter.id)) {
+    throw consultationError(denyMessage || "You can only manage patients assigned to your doctor.", 403);
+  }
+  // A client-supplied assignment must agree with the persisted one.
+  const supplied = String(counterId ?? "").trim() ? counterId : null;
+  const requested = supplied ? resolveDoctorCounter(supplied, counters) : null;
+  if (supplied) {
+    if (!requested) throw consultationError("The requested doctor is not a valid counter", 400);
+    if (owner && requested.id !== owner.id) {
+      throw consultationError("The requested doctor does not match this patient's assigned doctor", 409);
+    }
+  }
+  return { existing, who, owner, requested, counters, local };
+}
+
+// Returns the patient after cancelling. A repeated cancel of an already
+// cancelled patient is explicitly idempotent: it returns { already_cancelled: true }
+// and writes nothing. `counterId` is only an optional consistency check against
+// the stored assignment and is never written over it. `actor` is the verified
+// request identity; omit it only for trusted in-process callers.
+async function cancelPatient(patientId, reason = null, counterId = null, actor = undefined) {
+  // No in-process lock: a Cancel may legitimately race a Start/Complete served by
+  // another backend instance, so correctness rests on the conditional write below
+  // (status + visit_state_revision), not on this process's memory.
+  return performCancellation(patientId, reason, counterId, actor);
+}
+
+async function performCancellation(patientId, reason, counterId, actor) {
+  const { existing, owner, requested, counters, local } = await authorizeVisitAction(patientId, actor, counterId, {
+    denyMessage: "You can only cancel patients assigned to your doctor."
+  });
+
+  if (existing.status === "completed") throw consultationError("A completed consultation cannot be cancelled");
+  if (existing.status === "no-show") {
+    throw consultationError("This patient was marked no-show. Undo the no-show before cancelling.", 409);
+  }
+  if (existing.status === "cancelled") {
+    // Terminal and unchanged: original reason, completion time, assignment and history stay as recorded.
+    await releaseStaleCounterPointer(patientId, counters, local);
+    return { ...parsePatientPriority(existing), already_cancelled: true };
+  }
 
   const trimmedReason = reason == null ? null : String(reason).trim() || null;
-  const assignedDoctor = counterId || existing.counter_id || null;
   const completedAt = new Date().toISOString();
+  // Keep the stored assignment. Only a patient with none (never called) takes the
+  // validated doctor, which equals the mapped owner and never another doctor.
+  const stampCounter = !String(existing.counter_id ?? "").trim() && owner && requested?.id === owner.id ? owner.id_num : null;
+  const attributedTo = String(existing.counter_id ?? "").trim() ? existing.counter_id : stampCounter;
 
-  if (useLocalFallback) {
-    const patientIndex = localData.patients.findIndex(p => p.id === patientId);
-    if (patientIndex !== -1) {
-      localData.patients[patientIndex].status = "cancelled";
-      localData.patients[patientIndex].completed_at = completedAt;
-      localData.patients[patientIndex].reason = trimmedReason;
-      if (assignedDoctor) {
-        localData.patients[patientIndex].counter_id = assignedDoctor;
-      }
+  if (local) {
+    // No await between the final validation and the writes in temporary memory.
+    const current = localData.patients.find((row) => row.id === patientId);
+    if (!current || current.status !== existing.status || (current.visit_state_revision ?? null) !== (existing.visit_state_revision ?? null) ||
+        (current.counter_id ?? null) !== (existing.counter_id ?? null)) {
+      throw consultationError("Patient visit changed; refresh before retrying cancellation", 409);
     }
-    await clearCounterAssignment(patientId);
-    return localData.patients[patientIndex];
-  }
-  
-  const updatePayload = {
-    status: "cancelled",
-    completed_at: completedAt,
-    reason: trimmedReason
-  };
-  if (assignedDoctor) {
-    updatePayload.counter_id = assignedDoctor;
+    current.status = "cancelled";
+    current.completed_at = completedAt;
+    current.reason = trimmedReason;
+    if (stampCounter) current.counter_id = stampCounter;
+    current.visit_state_revision = randomUUID();
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patientId) counter.current_patient_id = null;
+    }
+    clearRecallCount(patientId);
+    return parsePatientPriority(current);
   }
 
-  let { data, error } = await supabase
-    .from("patients")
-    .update(updatePayload)
-    .eq("id", patientId)
-    .eq("status", existing.status)
-    .select("*")
-    .single();
+  const updatePayload = { status: "cancelled", completed_at: completedAt, reason: trimmedReason };
+  if (stampCounter) updatePayload.counter_id = stampCounter;
+
+  // Conditional on the row still being the one that was authorized: a changed
+  // status or revision (Undo, Requeue, Call, Start, Complete, another Cancel) matches no row.
+  const conditionalUpdate = (payload) => {
+    let query = supabase.from("patients").update(payload).eq("id", patientId).eq("status", existing.status);
+    if (existing.visit_state_revision) query = query.eq("visit_state_revision", existing.visit_state_revision);
+    return query.select("*").maybeSingle();
+  };
+
+  let { data, error } = await conditionalUpdate(updatePayload);
 
   // Fallback when patients.reason column has not been migrated yet
   if (error && /reason/i.test(String(error.message || ""))) {
     const fallbackPayload = {
       status: "cancelled",
       completed_at: completedAt,
-      vulnerability_flags: withCancelMeta(existing.vulnerability_flags, trimmedReason, assignedDoctor)
+      vulnerability_flags: withCancelMeta(existing.vulnerability_flags, trimmedReason, attributedTo)
     };
-    if (assignedDoctor) {
-      fallbackPayload.counter_id = assignedDoctor;
-    }
-
-    ({ data, error } = await supabase
-      .from("patients")
-      .update(fallbackPayload)
-      .eq("id", patientId)
-      .eq("status", existing.status)
-      .select("*")
-      .single());
+    if (stampCounter) fallbackPayload.counter_id = stampCounter;
+    ({ data, error } = await conditionalUpdate(fallbackPayload));
   }
 
   if (error) {
     throw formatError(error, "Failed to cancel patient");
   }
+  if (!data) {
+    throw consultationError("Patient visit changed; refresh before retrying cancellation", 409);
+  }
 
+  // Releases only a counter whose pointer is this patient.
   await clearCounterAssignment(patientId);
   clearRecallCount(patientId);
   return parsePatientPriority(data);
 }
 
-async function noShowPatient(patientId, reason = null) {
-  const existing = await getPatientById(patientId);
+// Returns the patient after marking no-show. A repeated no-show is idempotent
+// ({ already_no_show: true }) and writes nothing; a cancelled patient must be undone first.
+async function noShowPatient(patientId, reason = null, actor = undefined) {
+  const { existing, counters, local } = await authorizeVisitAction(patientId, actor, null, {
+    denyMessage: "You can only mark no-shows for patients assigned to your doctor."
+  });
 
-  if (!existing) {
-    throw new Error("Patient not found");
-  }
   if (existing.status === "completed") {
     throw new Error("A completed consultation cannot be marked as no-show");
+  }
+  if (existing.status === "no-show") {
+    await releaseStaleCounterPointer(patientId, counters, local);
+    return { ...parsePatientPriority(existing), already_no_show: true };
+  }
+  if (existing.status === "cancelled") {
+    throw consultationError("This patient was cancelled. Undo the cancellation before marking no-show.", 409);
   }
 
   if (existing.status === "serving" && existing.called_at) {
@@ -1083,28 +1239,39 @@ async function noShowPatient(patientId, reason = null) {
     }
   }
 
-  if (useLocalFallback) {
-    const patientIndex = localData.patients.findIndex(p => p.id === patientId);
-    if (patientIndex !== -1) {
-      localData.patients[patientIndex].status = "no-show";
-      localData.patients[patientIndex].completed_at = new Date().toISOString();
-      localData.patients[patientIndex].reason = reason;
+  const completedAt = new Date().toISOString();
+  if (local) {
+    // No await between the final validation and the writes in temporary memory.
+    const current = localData.patients.find((row) => row.id === patientId);
+    if (!current || current.status !== existing.status || (current.visit_state_revision ?? null) !== (existing.visit_state_revision ?? null)) {
+      throw consultationError("Patient visit changed; refresh before retrying", 400);
     }
-    await clearCounterAssignment(patientId);
+    current.status = "no-show";
+    current.completed_at = completedAt;
+    current.reason = reason;
+    current.visit_state_revision = randomUUID();
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patientId) counter.current_patient_id = null;
+    }
     clearRecallCount(patientId);
-    return localData.patients[patientIndex];
+    return current;
   }
-  
-  const { data, error } = await supabase
-    .from("patients")
-    .update({ status: "no-show", completed_at: new Date().toISOString(), reason })
-    .eq("id", patientId)
-    .eq("status", existing.status)
-    .select("*")
-    .single();
 
-  if (error || !data) {
+  // Conditional on the authorized row still being current (status + revision). A stale
+  // write keeps the endpoint's existing 400 contract and changes nothing.
+  let query = supabase
+    .from("patients")
+    .update({ status: "no-show", completed_at: completedAt, reason })
+    .eq("id", patientId)
+    .eq("status", existing.status);
+  if (existing.visit_state_revision) query = query.eq("visit_state_revision", existing.visit_state_revision);
+  const { data, error } = await query.select("*").maybeSingle();
+
+  if (error) {
     throw formatError(error, "Failed to mark patient as no-show");
+  }
+  if (!data) {
+    throw consultationError("Patient visit changed; refresh before retrying", 400);
   }
 
   await clearCounterAssignment(patientId);
@@ -1112,17 +1279,22 @@ async function noShowPatient(patientId, reason = null) {
   return data;
 }
 
-async function recallPatient(patientId, counterId = null) {
-  const patient = await getPatientById(patientId);
-  if (!patient) {
-    throw new Error("Patient not found");
-  }
+// Legacy repeat-call endpoint (before acceptance). The stored assignment is
+// authoritative: the caller's counter is only a consistency check and is never written.
+async function recallPatient(patientId, counterId = null, actor = undefined) {
+  const { existing: patient, owner, local } = await authorizeVisitAction(patientId, actor, counterId, {
+    denyMessage: "You can only recall patients assigned to your doctor."
+  });
   if (patient.status !== "serving") {
     throw new Error("Only a serving patient can be recalled");
   }
   if (patient.consultation_started_at || getAcceptedAt(patientId)) {
     throw new Error("Use Re-Call for an accepted patient; the original call time must be preserved.");
   }
+  if (!owner) {
+    throw consultationError("This serving patient has no assigned doctor. Cancel it or call it again from the queue.", 409);
+  }
+  const doctor = owner.id_num;
 
   const settings = getQueueSettings();
   const maxRecalls = Number(settings.recallAttempts);
@@ -1131,13 +1303,10 @@ async function recallPatient(patientId, counterId = null) {
     throw new Error(`Recall limit reached (${maxRecalls}). Mark as no-show or cancel the patient.`);
   }
 
-  const doctor = counterId || patient.counter_id;
-  if (doctor) {
-    const counters = await getCounters();
-    const counter = counters.find((c) => c.id_num === doctor);
-    if (counter && counter.is_online === false) {
-      throw new Error(`${doctor} is marked offline in System Settings.`);
-    }
+  const counters = await getCounters();
+  const counter = counters.find((c) => c.id_num === doctor);
+  if (counter && counter.is_online === false) {
+    throw new Error(`${doctor} is marked offline in System Settings.`);
   }
 
   // Acceptance can arrive while the availability query above is pending.
@@ -1146,27 +1315,31 @@ async function recallPatient(patientId, counterId = null) {
   }
   const calledAt = new Date().toISOString();
 
-  if (useLocalFallback) {
-    const patientIndex = localData.patients.findIndex((p) => p.id === patientId);
-    if (patientIndex !== -1) {
-      localData.patients[patientIndex].called_at = calledAt;
-      localData.patients[patientIndex].status = "serving";
-      if (doctor) localData.patients[patientIndex].counter_id = doctor;
+  if (useLocalFallback || local) {
+    const current = localData.patients.find((row) => row.id === patientId);
+    if (!current || current.status !== "serving" || current.consultation_started_at ||
+        (current.visit_state_revision ?? null) !== (patient.visit_state_revision ?? null)) {
+      throw consultationError("Patient visit changed; refresh before retrying", 409);
     }
+    current.called_at = calledAt;
+    current.visit_state_revision = randomUUID();
     return { success: true, recall_count: incrementRecallCount(patientId), max_recalls: maxRecalls };
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("patients")
-    .update({ called_at: calledAt, status: "serving", counter_id: doctor || patient.counter_id })
+    .update({ called_at: calledAt })
     .eq("id", patientId)
     .eq("status", "serving")
-    .is("consultation_started_at", null)
-    .select("id")
-    .single();
+    .is("consultation_started_at", null);
+  if (patient.visit_state_revision) query = query.eq("visit_state_revision", patient.visit_state_revision);
+  const { data, error } = await query.select("id").maybeSingle();
 
-  if (error || !data) {
+  if (error) {
     throw formatError(error, "Failed to recall patient");
+  }
+  if (!data) {
+    throw consultationError("Patient visit changed; refresh before retrying", 409);
   }
   const nextCount = incrementRecallCount(patientId);
 
@@ -1197,7 +1370,11 @@ function assertRecoverySnapshot(current, expected) {
   }
 }
 
-async function recoverPatientVisit(existing, action, actor, reason = null) {
+const MISSING_RPC_CODES = ["PGRST202", "PGRST204", "42883", "42703"];
+
+// `counters` is the authorization snapshot's counter list. Requeue uses it to decide whether a
+// stale pointer to this terminal visit must be released together with the recovery (F5).
+async function recoverPatientVisit(existing, action, actor, reason = null, counters = []) {
   requireRecoveryActor(actor);
   if (useLocalFallback) {
     const patient = localData.patients.find((row) => row.id === existing.id);
@@ -1209,15 +1386,13 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
     patient.visit_state_revision = randomUUID();
     if (action === "requeue") {
       patient.created_at = new Date().toISOString();
-      patient.called_at = null;
-      patient.counter_id = null;
       patient.reason = reason;
-    } else {
-      patient.called_at = null;
-      patient.counter_id = null;
-      for (const counter of localData.counters) {
-        if (counter.current_patient_id === patient.id) counter.current_patient_id = null;
-      }
+    }
+    patient.called_at = null;
+    patient.counter_id = null;
+    // A waiting visit owns no counter; release any stale pointer in the same step.
+    for (const counter of localData.counters) {
+      if (counter.current_patient_id === patient.id) counter.current_patient_id = null;
     }
     // Waiting patients reserve their service's doctor through the normal Call.
     return parsePatientPriority(patient);
@@ -1225,30 +1400,46 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(existing.visit_state_revision || "")) {
     throw consultationError("Phase 2.1 database migration is required before Requeue or Undo.", 503);
   }
+  const args = {
+    p_patient_id: existing.id,
+    p_action: action,
+    p_user_id_num: actor.id_num,
+    p_expected_revision: existing.visit_state_revision,
+    p_expected_status: existing.status,
+    // Pass the original PostgreSQL strings, retaining all microseconds.
+    p_expected_created_at: existing.created_at,
+    p_expected_called_at: existing.called_at ?? null,
+    p_expected_started_at: existing.consultation_started_at ?? null,
+    p_expected_completed_at: existing.completed_at ?? null,
+    p_expected_counter_id: existing.counter_id ?? null,
+    p_reason: reason
+  };
   let result;
   try {
-    // Versioned Undo entry point fails before writes on a Phase 2.1-only DB.
-    // The older same-shaped recovery RPC cannot attest to clean waiting ownership.
-    result = await supabase.rpc(action === "undo" ? "undo_patient_visit_waiting" : "recover_patient_visit", {
-      p_patient_id: existing.id,
-      p_action: action,
-      p_user_id_num: actor.id_num,
-      p_expected_revision: existing.visit_state_revision,
-      p_expected_status: existing.status,
-      // Pass the original PostgreSQL strings, retaining all microseconds.
-      p_expected_created_at: existing.created_at,
-      p_expected_called_at: existing.called_at ?? null,
-      p_expected_started_at: existing.consultation_started_at ?? null,
-      p_expected_completed_at: existing.completed_at ?? null,
-      p_expected_counter_id: existing.counter_id ?? null,
-      p_reason: reason
-    });
-  } catch (_error) {
+    if (action === "undo") {
+      // Versioned Undo entry point fails before writes on a Phase 2.1-only DB.
+      // The older same-shaped recovery RPC cannot attest to clean waiting ownership.
+      result = await supabase.rpc("undo_patient_visit_waiting", args);
+    } else {
+      // F5: the versioned Requeue entry point re-checks terminal-only eligibility and releases
+      // stale counter pointers in the same transaction. Until it is installed, the older RPC is
+      // used only when no counter points at this visit; its snapshot comparison still rejects a
+      // visit whose status changed after this eligibility check.
+      result = await supabase.rpc("requeue_patient_visit", args);
+      if (MISSING_RPC_CODES.includes(result?.error?.code)) {
+        if (counters.some((counter) => Number(counter.current_patient_id) === existing.id)) {
+          throw consultationError("A doctor counter still points at this visit. Use Undo, which releases it safely, or install the F5 Requeue database migration.", 503);
+        }
+        result = await supabase.rpc("recover_patient_visit", args);
+      }
+    }
+  } catch (error) {
+    if (error.statusCode) throw error;
     throw consultationError("Patient recovery storage is unavailable. Please retry.", 503);
   }
   if (result?.error) {
     const error = result.error;
-    if (["PGRST202", "PGRST204", "42883", "42703"].includes(error.code)) {
+    if (MISSING_RPC_CODES.includes(error.code)) {
       throw consultationError(action === "undo"
         ? "Phase 2.2 database migration is required before Undo."
         : "Phase 2.1 database migration is required before Requeue.", 503);
@@ -1261,11 +1452,15 @@ async function recoverPatientVisit(existing, action, actor, reason = null) {
   if (!patient || patient.id !== existing.id || patient.status !== "waiting" ||
       !patient.visit_state_revision || patient.visit_state_revision === existing.visit_state_revision ||
       patient.consultation_started_at != null || patient.completed_at != null ||
-      (action === "undo" && (patient.called_at != null || patient.counter_id != null))) {
+      patient.called_at != null || patient.counter_id != null) {
     throw consultationError("Could not confirm recovery. Refresh the queue before retrying.", 503);
   }
   return parsePatientPriority(patient);
 }
+
+// "completed" here is only the legacy completed-without-start case; a completed consultation
+// with a recorded start is refused before this list is consulted.
+const REQUEUE_ELIGIBLE_STATUSES = ["cancelled", "no-show", "completed"];
 
 async function requeuePatient(patientId, reason = null, actor) {
   const settings = getQueueSettings();
@@ -1274,30 +1469,38 @@ async function requeuePatient(patientId, reason = null, actor) {
   }
 
   if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
-  const found = await getPatientById(patientId);
-  const existing = found && { ...found };
-
-  if (!existing) {
-    throw new Error("Patient not found");
-  }
+  requireRecoveryActor(actor);
+  const { existing, counters } = await authorizeVisitAction(patientId, actor, null, {
+    denyMessage: "You can only re-queue patients assigned to your doctor."
+  });
   if (existing.status === "completed" && existing.consultation_started_at) {
     throw new Error("Completed consultation history must be preserved. Register a new visit instead.");
   }
+  // F5: Requeue recovers a finished visit only. An active visit keeps its call, consultation
+  // start and counter. Legacy completed visits without a consultation start keep their
+  // existing recovery behavior pending a policy decision.
+  if (existing.status === "serving") {
+    throw consultationError("This patient is being served. Re-queue is only available after the visit is cancelled or marked no-show.", 409);
+  }
+  if (existing.status === "waiting") {
+    throw consultationError("This patient is already waiting. Re-queue is only available for cancelled or no-show visits.", 409);
+  }
+  if (!REQUEUE_ELIGIBLE_STATUSES.includes(existing.status)) {
+    throw consultationError("Only cancelled or no-show visits can be re-queued.", 409);
+  }
 
   // FRD-04 remains unchanged: move to the bottom of the same priority tier.
-  const data = await recoverPatientVisit(existing, "requeue", actor, reason);
+  const data = await recoverPatientVisit(existing, "requeue", actor, reason, counters);
   clearRecallCount(patientId);
   return data;
 }
 
 async function undoPatientAction(patientId, actor) {
   if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
-  const found = await getPatientById(patientId);
-  const existing = found && { ...found };
-
-  if (!existing) {
-    throw new Error("Patient not found");
-  }
+  requireRecoveryActor(actor);
+  const { existing } = await authorizeVisitAction(patientId, actor, null, {
+    denyMessage: "You can only undo patients assigned to your doctor."
+  });
   if (existing.status === "completed" && existing.consultation_started_at) {
     throw new Error("Completed consultation history must be preserved. Register a new visit instead.");
   }
@@ -1485,6 +1688,79 @@ async function getTransactions({ page = 1, limit = 20, ...filters } = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Public Queue Display serialization (R1).
+// GET /display is unauthenticated, so every object it returns is built
+// field-by-field below. Never spread a patient, counter or event row into a
+// public object: any column added to the database later (contact number,
+// birthdate, residency, PhilHealth, sex, priority/vulnerability data, visit
+// revision, consultation timing, free-text reason, ...) must stay private by
+// default. `patients.id_num` may hold a patient's name or an identifier, so it
+// is never published: the public display and announcements identify a visit by
+// `queue_number` only. (`counters.id_num` is the doctor/room label such as
+// "Doctor 1" and is not patient data.)
+// ---------------------------------------------------------------------------
+function toPublicWaitingEntry(patient) {
+  return {
+    id: patient.id,
+    queue_number: patient.queue_number,
+    service_type: patient.service_type,
+    status: patient.status,
+    counter_id: patient.counter_id,
+    completed_at: patient.completed_at
+  };
+}
+
+function toPublicServingEntry(patient, assignedCounter) {
+  return {
+    id: patient.id,
+    queue_number: patient.queue_number,
+    service_type: patient.service_type,
+    status: patient.status,
+    called_at: patient.called_at,
+    counter_name: assignedCounter?.id_num || patient.counter_id || "TBA",
+    // Keep numeric counter id for display card matching; fall back safely
+    counter_id: assignedCounter?.id ?? patient.counter_id
+  };
+}
+
+function toPublicRecentCalledEntry(patient, assignedCounter) {
+  return {
+    id: patient.id,
+    queue_number: patient.queue_number,
+    service_type: patient.service_type,
+    status: patient.status,
+    called_at: patient.called_at,
+    completed_at: patient.completed_at,
+    counter_id: patient.counter_id,
+    counter_name: assignedCounter?.id_num || patient.counter_id || "TBA"
+  };
+}
+
+// Doctor/counter cards: the doctor/room label (`id_num`/`name`), availability and
+// served services only. The patient currently attached to a counter is
+// intentionally omitted; serving patients are published only through
+// all_serving, by queue number.
+function toPublicCounter(counter) {
+  return {
+    id: counter.id,
+    name: counter.name,
+    id_num: counter.id_num,
+    service_types: counter.service_types,
+    is_online: counter.is_online
+  };
+}
+
+function toPublicDisplaySettings(settings) {
+  return {
+    id: settings?.id,
+    company_name: settings?.company_name,
+    department_name: settings?.department_name,
+    welcome_message: settings?.welcome_message,
+    refresh_interval: settings?.refresh_interval
+  };
+}
+
 async function getDisplayData() {
   const [settings, patients, counters] = await Promise.all([
     getDisplaySettings(),
@@ -1502,12 +1778,7 @@ async function getDisplayData() {
     const assignedCounter =
       counters.find((c) => c.current_patient_id === patient.id) ||
       counters.find((c) => c.id_num === patient.counter_id);
-    return {
-      ...patient,
-      counter_name: assignedCounter?.id_num || patient.counter_id || "TBA",
-      // Keep numeric counter id for display card matching; fall back safely
-      counter_id: assignedCounter?.id ?? patient.counter_id
-    };
+    return toPublicServingEntry(patient, assignedCounter);
   });
 
   const waitingQueue = patients
@@ -1529,10 +1800,7 @@ async function getDisplayData() {
       const assignedCounter =
         counters.find((c) => c.current_patient_id === patient.id) ||
         counters.find((c) => c.id_num === patient.counter_id);
-      return {
-        ...patient,
-        counter_name: assignedCounter?.id_num || patient.counter_id || "TBA"
-      };
+      return toPublicRecentCalledEntry(patient, assignedCounter);
     });
 
   // Voice announcer source: patients the doctor has accepted, oldest acceptance first
@@ -1544,7 +1812,6 @@ async function getDisplayData() {
     .map(({ patient, acceptedAt }) => ({
       id: patient.id,
       queue_number: patient.queue_number,
-      id_num: patient.id_num,
       status: patient.status,
       called_at: patient.called_at,
       accepted_at: acceptedAt,
@@ -1565,7 +1832,6 @@ async function getDisplayData() {
       return {
         id: patient.id,
         queue_number: patient.queue_number || event.queue_number,
-        id_num: patient.id_num || event.id_num,
         status: patient.status,
         called_at: patient.called_at || event.called_at,
         accepted_at: event.event_at,
@@ -1586,7 +1852,6 @@ async function getDisplayData() {
         announcement_key: event.announcement_key,
         event_type: event.event_type,
         queue_number: event.queue_number,
-        patient_name: event.id_num,
         doctor: event.counter_name,
         announcement_at: event.announcement_at
       }))
@@ -1594,7 +1859,7 @@ async function getDisplayData() {
   }
 
   return {
-    settings: settings,
+    settings: toPublicDisplaySettings(settings),
     storage_mode: getQueueStorageMode(),
     queue_settings: getQueueSettings(),
     voice_announcements: voiceAnnouncements,
@@ -1602,11 +1867,11 @@ async function getDisplayData() {
     all_serving: allServing,
     serving_count: allServing.length,
     now_serving: allServing[0] || null,
-    next_in_line: nextInLine,
+    next_in_line: nextInLine ? toPublicWaitingEntry(nextInLine) : null,
     waiting_count: waitingQueue.length,
     recent_called: recentCalled,
-    waiting_queue: waitingQueue,
-    counters: counters
+    waiting_queue: waitingQueue.map(toPublicWaitingEntry),
+    counters: counters.map(toPublicCounter)
   };
 }
 
@@ -1619,37 +1884,215 @@ function getDateLabel(dateValue) {
   });
 }
 
+const ANALYTICS_SERVICE_ORDER = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
+const ANALYTICS_STATUS_ORDER = ["waiting", "serving", "completed", "cancelled", "no-show"];
+const ANALYTICS_PRIORITY_ORDER = ["senior", "pwd", "pregnant", "indigenous", "solo_parent", "regular"];
+const ANALYTICS_AGE_GROUPS = [
+  { label: "0–5", max: 5 },
+  { label: "6–17", max: 17 },
+  { label: "18–35", max: 35 },
+  { label: "36–59", max: 59 },
+  { label: "60+", max: Infinity }
+];
+const ANALYTICS_NOT_RECORDED = "Not recorded";
+const ANALYTICS_OTHER_LOCATIONS = "Other locations";
+const ANALYTICS_RESIDENCY_LIMIT = 8;
+// Longer bounded ranges list only days with visits rather than years of zeros.
+const ANALYTICS_MAX_FILLED_DAYS = 366;
+
+function countBy(rows, keyOf) {
+  const counts = new Map();
+  rows.forEach((row) => {
+    const key = keyOf(row);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return counts;
+}
+
+// Known categories keep a fixed order (so each keeps its colour); anything else
+// follows by size, and "Not recorded" always comes last.
+function orderedChart(counts, order = []) {
+  const extra = [...counts.keys()]
+    .filter((key) => !order.includes(key) && key !== ANALYTICS_NOT_RECORDED)
+    .sort((a, b) => counts.get(b) - counts.get(a) || String(a).localeCompare(String(b)));
+  const labels = [...order.filter((key) => counts.has(key)), ...extra];
+  if (counts.has(ANALYTICS_NOT_RECORDED)) labels.push(ANALYTICS_NOT_RECORDED);
+  return { labels, data: labels.map((key) => counts.get(key)) };
+}
+
+function normalizeSexLabel(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return ANALYTICS_NOT_RECORDED;
+  if (text === "m" || text === "male") return "Male";
+  if (text === "f" || text === "female") return "Female";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function getAgeAtVisit(birthdate, visitAt) {
+  const birth = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(birthdate ?? ""));
+  if (!birth) return null;
+  let visitDate;
+  try {
+    visitDate = getBusinessDate(visitAt);
+  } catch (_error) {
+    return null;
+  }
+  const [visitYear, visitMonth, visitDay] = visitDate.split("-").map(Number);
+  const [birthYear, birthMonth, birthDay] = birth.slice(1).map(Number);
+  const beforeBirthday = visitMonth < birthMonth || (visitMonth === birthMonth && visitDay < birthDay);
+  const age = visitYear - birthYear - (beforeBirthday ? 1 : 0);
+  return age >= 0 && age < 130 ? age : null;
+}
+
+function getAgeGroupLabel(patient) {
+  const age = getAgeAtVisit(patient.birthdate, patient.created_at);
+  if (age == null) return ANALYTICS_NOT_RECORDED;
+  return ANALYTICS_AGE_GROUPS.find((group) => age <= group.max).label;
+}
+
+function buildResidencyChart(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const label = String(row.residency ?? "").trim().replace(/\s+/g, " ");
+    const key = label ? label.toLowerCase() : ANALYTICS_NOT_RECORDED;
+    const group = groups.get(key) || { label: label || ANALYTICS_NOT_RECORDED, count: 0 };
+    group.count += 1;
+    groups.set(key, group);
+  });
+  const missing = groups.get(ANALYTICS_NOT_RECORDED);
+  groups.delete(ANALYTICS_NOT_RECORDED);
+  const ranked = [...groups.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const shown = ranked.slice(0, ANALYTICS_RESIDENCY_LIMIT);
+  const otherCount = ranked.slice(ANALYTICS_RESIDENCY_LIMIT).reduce((sum, group) => sum + group.count, 0);
+  if (otherCount) shown.push({ label: ANALYTICS_OTHER_LOCATIONS, count: otherCount });
+  if (missing) shown.push(missing);
+  return { labels: shown.map((group) => group.label), data: shown.map((group) => group.count) };
+}
+
+// A visit can carry several priority categories, so these counts can exceed
+// the number of visits. Visits without a category count as "regular".
+function buildPriorityChart(rows) {
+  const counts = new Map();
+  rows.forEach((row) => {
+    const flags = [...new Set((row.vulnerability_flags || []).filter((flag) => ANALYTICS_PRIORITY_ORDER.includes(flag)))];
+    (flags.length ? flags : ["regular"]).forEach((flag) => counts.set(flag, (counts.get(flag) || 0) + 1));
+  });
+  return orderedChart(counts, ANALYTICS_PRIORITY_ORDER);
+}
+
+function addBusinessDays(date, days) {
+  const next = new Date(`${date}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+// Patients per Manila calendar day. A bounded range lists every day, including
+// days without visits, so gaps are visible; All Time lists only days with visits.
+function buildDailyChart(rows, range) {
+  const counts = countBy(rows, (row) => getBusinessDate(row.created_at));
+  let days = [...counts.keys()].sort();
+  if (range?.start && range?.end) {
+    const first = getBusinessDate(range.start);
+    const last = getBusinessDate(new Date(Date.parse(range.end) - 1));
+    const filled = [];
+    for (let day = first; day <= last && filled.length <= ANALYTICS_MAX_FILLED_DAYS; day = addBusinessDays(day, 1)) {
+      filled.push(day);
+    }
+    if (filled.length <= ANALYTICS_MAX_FILLED_DAYS) days = filled;
+  }
+  return {
+    labels: days.map((day) => getDateLabel(`${day}T12:00:00+08:00`)),
+    data: days.map((day) => counts.get(day) || 0)
+  };
+}
+
+// Arrivals by Manila hour, in clock order, with empty hours between the first
+// and last busy hour shown as zero.
+function buildHourlyChart(rows) {
+  const hourOf = (row) => Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila", hour: "2-digit", hourCycle: "h23"
+  }).format(new Date(row.created_at)));
+  const counts = countBy(rows, hourOf);
+  if (!counts.size) return { labels: [], data: [] };
+  const hours = [...counts.keys()];
+  const labels = [];
+  const data = [];
+  for (let hour = Math.min(...hours); hour <= Math.max(...hours); hour += 1) {
+    labels.push(`${String(hour).padStart(2, "0")}:00`);
+    data.push(counts.get(hour) || 0);
+  }
+  return { labels, data };
+}
+
+function getWaitMinutes(row) {
+  const endedWaiting = row.called_at || row.completed_at;
+  return endedWaiting ? Math.round((new Date(endedWaiting) - new Date(row.created_at)) / 60000) : null;
+}
+
+function averageText(values) {
+  return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "0.0";
+}
+
+function summarizeVisits(rows) {
+  const count = (status) => rows.filter((row) => row.status === status).length;
+  const completed = count("completed");
+  const waitDurations = rows.map(getWaitMinutes).filter((minutes) => minutes != null);
+  const serviceDurations = rows.map(getServiceDurationSeconds)
+    .filter((duration) => duration != null)
+    .map((duration) => duration / 60);
+  return {
+    total_patients: rows.length,
+    completed,
+    cancelled: count("cancelled"),
+    no_show: count("no-show"),
+    waiting: count("waiting"),
+    serving: count("serving"),
+    avg_wait_time: averageText(waitDurations),
+    avg_service_time: averageText(serviceDurations),
+    completion_rate: rows.length ? ((completed * 100) / rows.length).toFixed(1) : "0.0"
+  };
+}
+
+// Visits stamp the doctor's name in counter_id; older rows may hold a counter
+// id instead. Only then are counters read, and without enabling local fallback.
+async function loadCounterAliases(rows) {
+  const needsLookup = rows.some((row) => {
+    const raw = row.counter_id == null ? "" : String(row.counter_id).trim();
+    return raw && !/^doctor\s*\d+$/i.test(raw);
+  });
+  if (!needsLookup) return [];
+  if (useLocalFallback) return localData.counters;
+  try {
+    const { data, error } = await supabase.from("counters").select("id, id_num");
+    return error ? [] : data || [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function getVisitDoctor(row, counterAliases) {
+  const raw = row.counter_id == null ? "" : String(row.counter_id).trim();
+  if (!raw) return getDoctorForService(row.service_type);
+  const named = raw.match(/^doctor\s*(\d+)$/i);
+  if (named) return `Doctor ${Number(named[1])}`;
+  return resolveDoctorCounter(raw, counterAliases)?.id_num || raw;
+}
+
 async function getAnalytics(startDate, endDate, filters = {}) {
-  const rows = await getFilteredPatients({ ...filters, startDate, endDate });
-  const serviceGroups = new Map();
-  const dayGroups = new Map();
-  const hourGroups = new Map();
-  const statusGroups = new Map();
+  const selection = { ...filters, startDate, endDate };
+  const rows = await getFilteredPatients(selection);
+  const range = getDateFilterRange(selection, new Date());
 
   let totalWaitMinutes = 0;
   let totalServiceMinutes = 0;
   let waitSamples = 0;
   let serviceSamples = 0;
-
   rows.forEach((row) => {
-    serviceGroups.set(row.service_type, (serviceGroups.get(row.service_type) || 0) + 1);
-    statusGroups.set(row.status, (statusGroups.get(row.status) || 0) + 1);
-
-    const createdAt = new Date(row.created_at);
-    const dayLabel = getDateLabel(createdAt);
-    dayGroups.set(dayLabel, (dayGroups.get(dayLabel) || 0) + 1);
-
-    const hourLabel = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "2-digit", hourCycle: "h23" }).format(createdAt) + ":00";
-    hourGroups.set(hourLabel, (hourGroups.get(hourLabel) || 0) + 1);
-
-    if (row.called_at) {
-      totalWaitMinutes += Math.round((new Date(row.called_at) - createdAt) / 60000);
-      waitSamples += 1;
-    } else if (row.completed_at) {
-      totalWaitMinutes += Math.round((new Date(row.completed_at) - createdAt) / 60000);
+    const waitMinutes = getWaitMinutes(row);
+    if (waitMinutes != null) {
+      totalWaitMinutes += waitMinutes;
       waitSamples += 1;
     }
-
     const serviceDuration = getServiceDurationSeconds(row);
     if (serviceDuration != null) {
       totalServiceMinutes += serviceDuration / 60;
@@ -1657,38 +2100,22 @@ async function getAnalytics(startDate, endDate, filters = {}) {
     }
   });
 
-  const completionCount = rows.filter((row) => row.status === "completed").length;
-  const tableData = Array.from(serviceGroups.entries())
-    .map(([serviceType, total]) => {
-      const serviceRows = rows.filter((row) => row.service_type === serviceType);
-      const completed = serviceRows.filter((row) => row.status === "completed").length;
-      const cancelled = serviceRows.filter((row) => row.status === "cancelled").length;
+  const groupRows = (keyOf) => rows.reduce((groups, row) => {
+    const key = keyOf(row);
+    groups.set(key, [...(groups.get(key) || []), row]);
+    return groups;
+  }, new Map());
 
-      const waitDurations = serviceRows
-        .filter((row) => row.called_at || row.completed_at)
-        .map((row) => Math.round((new Date(row.called_at || row.completed_at) - new Date(row.created_at)) / 60000));
-
-      const serviceDurations = serviceRows
-        .map(getServiceDurationSeconds)
-        .filter((duration) => duration != null)
-        .map((duration) => duration / 60);
-
-      return {
-        service_type: serviceType,
-        total_patients: total,
-        completed,
-        cancelled,
-        avg_wait_time: waitDurations.length
-          ? (waitDurations.reduce((sum, value) => sum + value, 0) / waitDurations.length).toFixed(1)
-          : "0.0",
-        avg_service_time: serviceDurations.length
-          ? (serviceDurations.reduce((sum, value) => sum + value, 0) / serviceDurations.length).toFixed(1)
-          : "0.0",
-        completion_rate: total ? ((completed * 100) / total).toFixed(1) : "0.0"
-      };
-    })
+  const tableData = Array.from(groupRows((row) => row.service_type).entries())
+    .map(([serviceType, serviceRows]) => ({ service_type: serviceType, ...summarizeVisits(serviceRows) }))
     .sort((a, b) => b.total_patients - a.total_patients);
 
+  const counterAliases = await loadCounterAliases(rows);
+  const doctorTable = Array.from(groupRows((row) => getVisitDoctor(row, counterAliases)).entries())
+    .map(([doctor, doctorRows]) => ({ doctor, ...summarizeVisits(doctorRows) }))
+    .sort((a, b) => a.doctor.localeCompare(b.doctor, undefined, { numeric: true }));
+
+  const completionCount = rows.filter((row) => row.status === "completed").length;
   return {
     metrics: {
       totalPatients: rows.length,
@@ -1697,34 +2124,18 @@ async function getAnalytics(startDate, endDate, filters = {}) {
       completionRate: rows.length ? Number(((completionCount * 100) / rows.length).toFixed(1)) : 0
     },
     charts: {
-      serviceTypes: {
-        labels: Array.from(serviceGroups.keys()),
-        data: Array.from(serviceGroups.values())
-      },
-      sexDistribution: {
-        labels: Array.from(rows.reduce((acc, r) => {
-          if (r.sex) acc.add(r.sex);
-          return acc;
-        }, new Set())),
-        data: Array.from(rows.reduce((acc, r) => {
-          if (r.sex) acc.set(r.sex, (acc.get(r.sex) || 0) + 1);
-          return acc;
-        }, new Map()).values())
-      },
-      dailyTrends: {
-        labels: Array.from(dayGroups.keys()),
-        data: Array.from(dayGroups.values())
-      },
-      hourly: {
-        labels: Array.from(hourGroups.keys()),
-        data: Array.from(hourGroups.values())
-      },
-      status: {
-        labels: Array.from(statusGroups.keys()),
-        data: Array.from(statusGroups.values())
-      }
+      serviceTypes: orderedChart(countBy(rows, (row) => row.service_type), ANALYTICS_SERVICE_ORDER),
+      sexDistribution: orderedChart(countBy(rows, (row) => normalizeSexLabel(row.sex)), ["Male", "Female"]),
+      dailyTrends: buildDailyChart(rows, range),
+      hourly: buildHourlyChart(rows),
+      status: orderedChart(countBy(rows, (row) => row.status), ANALYTICS_STATUS_ORDER),
+      priorityCategories: buildPriorityChart(rows),
+      ageGroups: orderedChart(countBy(rows, getAgeGroupLabel), ANALYTICS_AGE_GROUPS.map((group) => group.label)),
+      residency: buildResidencyChart(rows)
     },
-    tableData
+    tableData,
+    totals: summarizeVisits(rows),
+    doctorTable
   };
 }
 
@@ -1882,16 +2293,16 @@ async function getUsers() {
     return localData.users.map(u => ({
       id_num: u.id_num,
       role: u.role,
-      doctor_name: u.doctor_name,
-      created_at: new Date().toISOString()
+      doctor_name: u.doctor_name
     }));
   }
-  
+
+  // users has no creation timestamp on the installed schema; never select or invent one.
   try {
     const { data, error } = await supabase
       .from("users")
-      .select("id_num, role, doctor_name, created_at")
-      .order("created_at", { ascending: false });
+      .select("id_num, role, doctor_name")
+      .order("id_num", { ascending: true });
 
     if (error) {
       enableLocalFallback(error);
@@ -2231,6 +2642,7 @@ module.exports = {
   buildCsv,
   callPatient,
   cancelPatient,
+  authorizeVisitAction,
   clearTodaysQueues,
   completePatient,
   startConsultation,

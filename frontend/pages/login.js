@@ -1,15 +1,25 @@
-import React, { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useAuth } from "../context/AuthContext";
 import SystemLogo from "../components/SystemLogo";
+import { OFFICE_IDENTITY } from "../lib/branding";
+import styles from "../styles/login.module.css";
+
+// The photo is shown whole (never cropped) so the building sign and the
+// photographer's watermark in the lower-right corner both stay visible.
+const OFFICE_PHOTO = { src: "/cho_img.jpg", width: 1969, height: 1146 };
 
 export default function Login() {
   const [idNum, setIdNum] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [invalidField, setInvalidField] = useState("");
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const idRef = useRef(null);
+  const passwordRef = useRef(null);
   const { login, user, loading: authLoading } = useAuth();
   const router = useRouter();
 
@@ -31,18 +41,24 @@ export default function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+    if (loading) return;
+
     // Validation
     if (!idNum.trim()) {
       setError("Please enter your username/ID number");
+      setInvalidField("id_num");
+      idRef.current?.focus();
       return;
     }
     if (!password) {
       setError("Please enter your password");
+      setInvalidField("password");
+      passwordRef.current?.focus();
       return;
     }
-    
+
     setError("");
+    setInvalidField("");
     setLoading(true);
 
     try {
@@ -58,183 +74,136 @@ export default function Login() {
     }
   };
 
-  if (!mounted || authLoading) {
-    return (
-      <div className="layout-shell">
-        <div className="site-header">
-          <div className="header-left">
-            <SystemLogo />
-            <span>City Health Log-In Form</span>
-          </div>
-        </div>
-        <div className="page-content flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--brand-primary)]"></div>
-            </div>
-            <p className="mt-4 brand-text-muted">Loading...</p>
-          </div>
-        </div>
-        <footer className="site-footer">2025 Smart Queuing System. All rights reserved.</footer>
-      </div>
-    );
-  }
+  const checkingSession = !mounted || authLoading;
 
   return (
     <>
       <Head>
-        <title>Login | City Health Log-In Form</title>
+        <title>{`Sign in | ${OFFICE_IDENTITY.fullName}`}</title>
       </Head>
-      
-      <div className="layout-shell">
-        {/* Header */}
-        <header className="site-header">
-          <div className="header-left">
-            <SystemLogo />
-            <span>City Health Log-In Form</span>
-          </div>
-          <div className="header-right">
-            <div className="header-datetime" id="datetime"></div>
-          </div>
-        </header>
 
-        {/* Main Content */}
-        <main className="page-content flex-1 flex items-center justify-center px-4 md:px-8 py-8">
-          <div className="w-full max-w-md">
-            {/* Welcome Card */}
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden border brand-border mb-6">
-              {/* Card Header with shared brand color */}
-              <div className="csu-gradient-bar px-6 md:px-8 py-8 md:py-10 text-center">
-                <div className="mb-4 flex justify-center">
-                  <SystemLogo variant="login" />
-                </div>
-                <h1 className="text-white text-2xl md:text-3xl font-bold mb-2">
-                  Welcome
-                </h1>
-                <p className="text-white/90 text-sm md:text-base">
-                  Queue Management System
-                </p>
+      <div className={styles.page}>
+        <section className={styles.visual} aria-label="City Health Office">
+          <img
+            className={styles.photo}
+            src={OFFICE_PHOTO.src}
+            width={OFFICE_PHOTO.width}
+            height={OFFICE_PHOTO.height}
+            alt="The Cabadbaran City Health Office and Family Planning Center building and its main sign"
+            decoding="async"
+            fetchPriority="high"
+          />
+          <div className={styles.visualText}>
+            <p className={styles.visualSystem}>{OFFICE_IDENTITY.system}</p>
+            <p className={styles.visualTagline}>Supporting organized and efficient healthcare services.</p>
+            <p className={styles.visualPlace}>City of Cabadbaran</p>
+          </div>
+        </section>
+
+        <main className={styles.panel}>
+          <div className={styles.panelInner}>
+            <div className={styles.brand}>
+              <SystemLogo variant="login" decorative className={styles.logo} />
+              <div className={styles.brandText}>
+                <span className={styles.brandName}>{OFFICE_IDENTITY.name}</span>
+                <span className={styles.brandCenter}>{OFFICE_IDENTITY.center}</span>
               </div>
+            </div>
 
-              {/* Form Section */}
-              <div className="px-6 md:px-8 py-8 md:py-10">
-                {/* Error Alert */}
-                {error && (
-                  <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded">
-                    <div className="flex gap-3">
-                      <div className="flex-shrink-0">
-                        <i className="fas fa-exclamation-circle text-red-500 text-xl mt-0.5" />
-                      </div>
-                      <div>
-                        <p className="text-red-800 text-sm md:text-base font-medium">{error}</p>
-                      </div>
-                    </div>
+            {checkingSession ? (
+              <div className={styles.checking} role="status">
+                <span className={styles.spinnerDark} aria-hidden="true" />
+                Checking your session…
+              </div>
+            ) : (
+              <div className={styles.formArea}>
+                <h1 className={styles.heading}>Welcome back</h1>
+                <p className={styles.intro}>Sign in to access the {OFFICE_IDENTITY.system}.</p>
+                <p className={styles.staffNote}>
+                  <i className="fas fa-shield-alt" aria-hidden="true" />
+                  For authorized City Health staff only.
+                </p>
+
+                {error ? (
+                  <div id="login-error" className={styles.error} role="alert">
+                    <i className="fas fa-exclamation-circle" aria-hidden="true" />
+                    <span>{error}</span>
                   </div>
-                )}
+                ) : null}
 
-                <form onSubmit={handleSubmit} className="space-y-5">
-                  {/* ID Number Field */}
-                  <div>
-                    <label
-                      htmlFor="id_num"
-                      className="block text-sm font-semibold brand-text mb-2"
-                    >
-                      <i className="fas fa-user-circle mr-2 brand-text-primary" />
-                      Username / ID Number
-                    </label>
+                <form onSubmit={handleSubmit} noValidate className={styles.form} aria-busy={loading}>
+                  <div className={styles.field}>
+                    <label htmlFor="id_num" className={styles.label}>Username / ID Number</label>
                     <input
+                      ref={idRef}
                       id="id_num"
                       name="id_num"
                       type="text"
-                      placeholder="Enter your username or ID"
+                      className={styles.input}
+                      placeholder="Enter your username or ID number"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       required
                       disabled={loading}
                       value={idNum}
+                      aria-invalid={invalidField === "id_num" ? true : undefined}
+                      aria-describedby={invalidField === "id_num" ? "login-error" : undefined}
                       onChange={(e) => setIdNum(e.target.value)}
-                      onKeyPress={(e) => e.key === "Enter" && handleSubmit(e)}
-                      className="w-full px-4 py-3 border-2 brand-input rounded-lg focus:outline-none transition duration-200 disabled:cursor-not-allowed"
                     />
                   </div>
 
-                  {/* Password Field */}
-                  <div>
-                    <label
-                      htmlFor="password"
-                      className="block text-sm font-semibold brand-text mb-2"
-                    >
-                      <i className="fas fa-lock mr-2 brand-text-primary" />
-                      Password
-                    </label>
-                    <input
-                      id="password"
-                      name="password"
-                      type="password"
-                      placeholder="Enter your password"
-                      required
-                      disabled={loading}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      onKeyPress={(e) => e.key === "Enter" && handleSubmit(e)}
-                      className="w-full px-4 py-3 border-2 brand-input rounded-lg focus:outline-none transition duration-200 disabled:cursor-not-allowed"
-                    />
+                  <div className={styles.field}>
+                    <label htmlFor="password" className={styles.label}>Password</label>
+                    <div className={styles.passwordBox}>
+                      <input
+                        ref={passwordRef}
+                        id="password"
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        className={`${styles.input} ${styles.passwordInput}`}
+                        placeholder="Enter your password"
+                        autoComplete="current-password"
+                        required
+                        disabled={loading}
+                        value={password}
+                        aria-invalid={invalidField === "password" ? true : undefined}
+                        aria-describedby={invalidField === "password" ? "login-error" : undefined}
+                        onChange={(e) => setPassword(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className={styles.reveal}
+                        onClick={() => setShowPassword((shown) => !shown)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        aria-pressed={showPassword}
+                        aria-controls="password"
+                      >
+                        <i className={showPassword ? "fas fa-eye-slash" : "fas fa-eye"} aria-hidden="true" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-3 px-4 brand-button text-white font-bold rounded-lg transition duration-200 shadow-md hover:shadow-lg flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
+                  <button type="submit" className={styles.submit} disabled={loading}>
                     {loading ? (
                       <>
-                        <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                        <span>Signing in...</span>
+                        <span className={styles.spinner} aria-hidden="true" />
+                        <span>Signing in…</span>
                       </>
                     ) : (
-                      <>
-                        <i className="fas fa-sign-in-alt" />
-                        <span>Sign In</span>
-                      </>
+                      <span>Sign in</span>
                     )}
                   </button>
                 </form>
-
-                {/* Helpful Info */}
-                <div className="mt-6 pt-6 border-t brand-border">
-                  <p className="text-center text-xs md:text-sm brand-text-muted">
-                    <i className="fas fa-info-circle mr-1 text-blue-500" />
-                    For demo: Use <span className="font-semibold brand-text">admin1</span>/<span className="font-semibold brand-text">admin001</span>, <span className="font-semibold brand-text">admin2</span>/<span className="font-semibold brand-text">admin002</span>, <span className="font-semibold brand-text">admin3</span>/<span className="font-semibold brand-text">admin003</span>, <span className="font-semibold brand-text">frontdesk</span>/<span className="font-semibold brand-text">frontdesk123</span>, or <span className="font-semibold brand-text">superadmin</span>/<span className="font-semibold brand-text">superadmin123</span>
-                  </p>
-                </div>
               </div>
-            </div>
+            )}
 
-            {/* Footer Info */}
-            <div className="text-center">
-              <p className="text-xs md:text-sm brand-text-muted">
-                <i className="fas fa-shield-alt mr-1 brand-text-primary" />
-                Secure Queue Management System
-              </p>
-            </div>
+            <footer className={styles.footer}>
+              {OFFICE_IDENTITY.fullName} · {OFFICE_IDENTITY.system}
+            </footer>
           </div>
         </main>
-
-        {/* Footer */}
-        <footer className="site-footer">
-          2025 Smart Queuing System. All rights reserved.
-        </footer>
       </div>
-
-      <style jsx>{`
-        @keyframes spin {
-          to {
-            transform: rotate(360deg);
-          }
-        }
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
     </>
   );
 }

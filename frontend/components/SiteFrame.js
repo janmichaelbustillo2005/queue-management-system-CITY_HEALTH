@@ -1,7 +1,15 @@
-import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import SystemLogo from "./SystemLogo";
+import { OfficeIdentity } from "./SystemLogo";
+import AppSidebar from "./AppSidebar";
+import AccountMenu, { ProfileDialog } from "./AccountMenu";
+import { OFFICE_IDENTITY } from "../lib/branding";
+import { navigationFor, readNavLocation, resolveAccount } from "../lib/navigation";
+
+// Wide screens keep the sidebar docked beside the page; narrower ones use a drawer.
+const DOCKED_QUERY = "(min-width: 1200px)";
+const COLLAPSED_KEY = "city_health_sidebar_collapsed";
 
 function useDateTime(formatter) {
   const [value, setValue] = useState("");
@@ -16,234 +24,145 @@ function useDateTime(formatter) {
   return value;
 }
 
+function readCollapsed() {
+  try { return window.localStorage.getItem(COLLAPSED_KEY) === "1"; } catch (_error) { return false; }
+}
+
+function writeCollapsed(value) {
+  try { window.localStorage.setItem(COLLAPSED_KEY, value ? "1" : "0"); } catch (_error) { /* preference only */ }
+}
+
+// The authenticated layout: office identity, page title, account menu and the
+// role's navigation. Navigation comes from the signed-in session, not from
+// the page, so every page a role opens shows the same menu.
 export default function SiteFrame({
   title,
   icon,
-  welcome,
   children,
-  showSidebar = false,
-  sidebarLinks = [],
-  hideMenu = false,
   onSettings,
-  onShowHome,
-  onShowQueue,
-  sidebarTitle = "Admin Menu",
-  showProfileMenu = false,
-  profileMenuLinks = [],
-  profileIcon = "fas fa-user-md",
+  accountActions = [],
   contentClassName = ""
 }) {
   const { user, logout, logoutError } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const profileMenuRef = useRef(null);
-  
-  const displayWelcome = welcome || (user ? `Welcome, ${user.role === 'superadmin' ? 'Super Admin' : user.doctor_name || user.id_num}` : "Welcome, Guest");
+  const router = useRouter();
+  const account = resolveAccount(user);
+  const groups = navigationFor(account);
+  const hasNav = groups.length > 0;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [docked, setDocked] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const menuToggleRef = useRef(null);
+  const sidebarCloseRef = useRef(null);
+  const profileReturnRef = useRef(null);
   const dateTime = useDateTime(
-    useMemo(
-      () => (date) => `${date.toLocaleTimeString()} - ${date.toLocaleDateString()}`,
-      []
-    )
+    useMemo(() => (date) => `${date.toLocaleTimeString()} · ${date.toLocaleDateString()}`, [])
   );
-
-  if (showSidebar && user?.role === 'superadmin') {
-    sidebarLinks = [
-      { href: '/?section=home', icon: 'fas fa-home', label: 'Dashboard' },
-      { href: '/?section=queue', icon: 'fas fa-list', label: 'Queue Management' },
-      { href: '/?section=home#doctor-monitoring', icon: 'fas fa-user-md', label: 'Doctor & Counter Monitoring' },
-      { href: '/records', icon: 'fas fa-folder', label: 'Records' },
-      { href: '/records?category=patients', icon: 'fas fa-history', label: '  Patients' },
-      { href: '/records?category=staff', icon: 'fas fa-id-card', label: '  Staff' },
-      { href: '/records?category=accounts', icon: 'fas fa-users', label: '  User Accounts' },
-      { href: '/analytics', icon: 'fas fa-chart-bar', label: 'Analytics' },
-      ...(!onSettings ? [{ href: '/?section=settings', icon: 'fas fa-cog', label: 'Settings' }] : [])
-    ];
-  }
-  const toggleSidebar = () => setSidebarOpen((current) => !current);
-  const toggleProfileMenu = () => setProfileMenuOpen((current) => !current);
+  const sidebarVisible = hasNav && (docked ? !collapsed : drawerOpen);
 
   useEffect(() => {
-    if (!profileMenuOpen) return undefined;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const media = window.matchMedia(DOCKED_QUERY);
+    const sync = () => { setDocked(media.matches); setDrawerOpen(false); };
+    setCollapsed(readCollapsed());
+    sync();
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, []);
 
-    function handleClickOutside(event) {
-      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
-        setProfileMenuOpen(false);
+  // Dismissing the drawer (close button, overlay, Escape) hands focus back to
+  // the menu button; following a link leaves focus where navigation puts it.
+  const closeDrawer = (restoreFocus = false) => {
+    setDrawerOpen(false);
+    if (restoreFocus) menuToggleRef.current?.focus();
+  };
+
+  function toggleNavigation() {
+    if (docked) {
+      setCollapsed(!collapsed);
+      writeCollapsed(!collapsed);
+    } else {
+      setDrawerOpen((current) => !current);
+    }
+  }
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    sidebarCloseRef.current?.focus({ preventScroll: true });
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setDrawerOpen(false);
+        menuToggleRef.current?.focus();
       }
     }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [drawerOpen]);
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [profileMenuOpen]);
+  const openProfile = () => {
+    profileReturnRef.current = typeof document !== "undefined" ? document.activeElement : null;
+    setProfileOpen(true);
+  };
+  const closeProfile = useCallback(() => {
+    setProfileOpen(false);
+    const target = profileReturnRef.current;
+    // Focus returns to whatever opened the dialog, or the menu button if that is gone.
+    (target?.isConnected ? target : menuToggleRef.current)?.focus?.();
+  }, []);
+
+  // layout-shell keeps the existing page-wide form styles; the docked layout itself is CSS (see app-shell.css).
+  const shellClass = ["layout-shell app-shell", hasNav ? "app-shell--nav" : "", collapsed ? "is-collapsed" : ""]
+    .filter(Boolean).join(" ");
 
   return (
-    <div className="layout-shell">
+    <div className={shellClass}>
       {logoutError ? (
-        <div role="alert" className="bg-red-50 text-red-700 border border-red-200 rounded p-3 mb-3 text-sm">
-          {logoutError}
-        </div>
+        <div role="alert" className="app-alert">{logoutError}</div>
       ) : null}
-      {showSidebar ? (
+      {hasNav ? (
         <>
-          <div id="sidebar" className={`sidebar ${sidebarOpen ? "active" : ""}`}>
-            <div className="sidebar-header">
-              <div className="sidebar-brand">
-                <SystemLogo variant="sidebar" />
-                <div className="sidebar-title">{sidebarTitle}</div>
-              </div>
-              <button className="sidebar-close" onClick={toggleSidebar}>
-                <i className="fas fa-times" />
-              </button>
-            </div>
-            <div className="sidebar-menu">
-              {onShowHome ? (
-                <button className="sidebar-menu-item" onClick={() => { onShowHome(); toggleSidebar(); }}>
-                  <i className="fas fa-home mr-3" />
-                  Home
-                </button>
-              ) : null}
-              {sidebarLinks.map((link, idx) => {
-                const isActive = link.active;
-                return link.type === "button" ? (
-                  <button
-                      key={idx}
-                      onClick={() => { link.onClick(); toggleSidebar(); }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-                        isActive 
-                          ? "brand-nav-active font-semibold backdrop-blur-sm shadow-sm"
-                          : "text-white hover:bg-white/5"
-                      }`}
-                    >
-                      <i className={`${link.icon} w-5 text-center`} />
-                      <span>{link.label}</span>
-                    </button>
-                  ) : (
-                    <Link
-                      key={idx}
-                      href={link.href}
-                      onClick={toggleSidebar}
-                      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 no-underline ${
-                        isActive 
-                          ? "brand-nav-active font-semibold backdrop-blur-sm shadow-sm"
-                          : "text-white hover:bg-white/5"
-                      }`}
-                    >
-                    <i className={`${link.icon} w-5 text-center`} />
-                    <span>{link.label}</span>
-                  </Link>
-                );
-              })}
-              {onShowQueue ? (
-                <button className="sidebar-menu-item" onClick={() => { onShowQueue(); toggleSidebar(); }}>
-                  <i className="fas fa-list mr-3" />
-                  Queue Management
-                </button>
-              ) : null}
-              {onSettings ? (
-                <button className="sidebar-menu-item" onClick={() => { onSettings(); toggleSidebar(); }}>
-                  <i className="fas fa-cog mr-3" />
-                  Settings
-                </button>
-              ) : null}
-              {user ? (
-                <button 
-                  className="sidebar-menu-item text-red-400 hover:text-red-300" 
-                  onClick={() => { logout(); toggleSidebar(); }}
-                >
-                  <i className="fas fa-sign-out-alt mr-3" />
-                  Logout
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className={`overlay ${sidebarOpen ? "active" : ""}`} onClick={toggleSidebar} />
+          <AppSidebar
+            groups={groups}
+            location={readNavLocation(router)}
+            visible={sidebarVisible}
+            docked={docked}
+            closeRef={sidebarCloseRef}
+            onNavigate={() => { if (!docked) closeDrawer(); }}
+            onClose={closeDrawer}
+            onSettings={onSettings}
+          />
+          <div className={`app-overlay${drawerOpen && !docked ? " is-visible" : ""}`} onClick={() => closeDrawer(true)} />
         </>
       ) : null}
 
-      <header className="site-header mb-4">
-        <div className="header-left text-white flex items-center py-1">
-          {showSidebar && !hideMenu ? (
-            <button className="menu-toggle mr-2" onClick={toggleSidebar}>
-              <i className="fas fa-bars" />
+      <div className="app-frame">
+        <header className="app-header">
+          {hasNav ? (
+            <button type="button" ref={menuToggleRef} className="app-menu-toggle" onClick={toggleNavigation}
+              aria-label={sidebarVisible ? "Hide navigation" : "Show navigation"}
+              aria-controls="app-sidebar" aria-expanded={sidebarVisible}>
+              <i className="fas fa-bars" aria-hidden="true" />
             </button>
           ) : null}
-          <SystemLogo />
-          <span className="text-base md:text-lg font-bold leading-tight break-words">{title}</span>
-        </div>
-        {showProfileMenu && user ? (
-          <div className="header-right text-white py-1 relative" ref={profileMenuRef}>
-            <button
-              type="button"
-              onClick={toggleProfileMenu}
-              className="header-profile-button"
-              aria-haspopup="menu"
-              aria-expanded={profileMenuOpen}
-            >
-              <span className="flex flex-col items-end min-w-0">
-                <span className="header-datetime font-semibold">{dateTime}</span>
-                <span className="header-welcome opacity-90">{displayWelcome}</span>
-              </span>
-              <span className="header-profile-avatar">
-                <i className={profileIcon} />
-              </span>
-              <i className={`fas fa-chevron-down text-[10px] transition-transform ${profileMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {profileMenuOpen ? (
-              <div className="header-profile-menu" role="menu">
-                {profileMenuLinks.map((link, idx) => (
-                  link.type === "button" ? (
-                    <button
-                      key={idx}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setProfileMenuOpen(false);
-                        link.onClick?.();
-                      }}
-                      className="header-profile-menu-item"
-                    >
-                      <i className={`${link.icon} w-4 text-center`} />
-                      <span>{link.label}</span>
-                    </button>
-                  ) : (
-                    <Link
-                      key={idx}
-                      href={link.href}
-                      role="menuitem"
-                      onClick={() => setProfileMenuOpen(false)}
-                      className="header-profile-menu-item no-underline"
-                    >
-                      <i className={`${link.icon} w-4 text-center`} />
-                      <span>{link.label}</span>
-                    </Link>
-                  )
-                ))}
-                {profileMenuLinks.length ? <div className="header-profile-menu-divider" /> : null}
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="header-profile-menu-item text-red-700"
-                  onClick={() => {
-                    setProfileMenuOpen(false);
-                    logout();
-                  }}
-                >
-                  <i className="fas fa-sign-out-alt w-4 text-center" />
-                  <span>Logout</span>
-                </button>
-              </div>
+          <OfficeIdentity variant="header" />
+          <div className="app-page-title">
+            {icon ? <i className={icon} aria-hidden="true" /> : null}
+            <h1>{title}</h1>
+          </div>
+          <div className="app-header-tools">
+            <span className="app-header-clock">{dateTime}</span>
+            {account ? (
+              <AccountMenu account={account} onProfile={openProfile} onLogout={logout} />
             ) : null}
           </div>
-        ) : (
-          <div className="header-right text-white flex flex-col justify-center py-1">
-            <div className="header-datetime font-semibold">{dateTime}</div>
-            <div className="header-welcome opacity-90">{displayWelcome}</div>
-          </div>
-        )}
-      </header>
+        </header>
 
-      <main className={`page-content ${sidebarOpen ? "sidebar-active" : ""} ${contentClassName}`}>{children}</main>
-      <footer className="site-footer">2025 Smart Queuing System. All rights reserved.</footer>
+        <main className={`page-content app-main ${contentClassName}`}>{children}</main>
+        <footer className="app-footer">{OFFICE_IDENTITY.fullName} · {OFFICE_IDENTITY.system}</footer>
+      </div>
+
+      {/* Page-specific account management (a doctor's cancellation request) lives in My Profile. */}
+      {profileOpen && account ? <ProfileDialog account={account} actions={accountActions} onClose={closeProfile} /> : null}
     </div>
   );
 }

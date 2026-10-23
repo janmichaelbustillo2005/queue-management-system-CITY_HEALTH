@@ -291,3 +291,35 @@ test("an unacknowledged logout response cannot be mistaken for server revocation
   assert.equal(h.render().user.id_num, "admin1");
   assert.match(h.render().logoutError, /could not be confirmed/);
 });
+
+test("browser network failures are reported as an unreachable API, not a raw fetch message", async () => {
+  // Chrome/Edge, Firefox and Safari word a refused connection differently.
+  for (const message of ["Failed to fetch", "NetworkError when attempting to fetch resource.", "Load failed"]) {
+    const h = harness({ fetch: async () => { throw new TypeError(message); } });
+    const result = await h.request("/queue");
+    assert.match(result.error, /^Cannot reach the API/, message);
+    assert.equal(h.storage.getItem("city_health_token"), "doctor-one-test-token", message);
+    const login = await h.render().login("admin1", "test-password");
+    assert.equal(login.success, false, message);
+    assert.match(login.message, /Cannot connect to server/, message);
+  }
+});
+
+test("an aborted request keeps its own error instead of claiming the API is unreachable", async () => {
+  const h = harness({ fetch: async () => { throw Object.assign(new Error("The operation was aborted."), { name: "AbortError" }); } });
+  const result = await h.request("/queue");
+  assert.equal(result.error, "The operation was aborted.");
+});
+
+test("logout of an already revoked or expired session clears local credentials and returns to login", async () => {
+  for (const [status, message] of [[401, "Authentication session revoked"], [403, "Invalid or expired token"]]) {
+    let calls = 0;
+    const h = harness({ fetch: async (_url, _init, response) => { calls++; return response(status, { success: false, message }); } });
+    assert.equal((await h.render().logout()).success, true, message);
+    assert.equal(calls, 1, message);
+    assert.equal(h.storage.getItem("city_health_token"), null, message);
+    assert.equal(h.render().user, null, message);
+    assert.equal(h.render().logoutError, "", message);
+    assert.deepEqual(h.routes, ["/login"], message);
+  }
+});

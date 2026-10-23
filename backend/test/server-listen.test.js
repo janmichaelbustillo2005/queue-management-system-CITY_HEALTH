@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
+const crypto = require("node:crypto");
 
 test("an occupied port reports listen failure without success logs or database seeding", { timeout: 15000 }, async () => {
   const occupied = net.createServer();
@@ -43,7 +44,8 @@ test("an occupied port reports listen failure without success logs or database s
         PORT: String(port),
         SUPABASE_URL: "https://isolated-test.invalid",
         SUPABASE_SERVICE_ROLE_KEY: "isolated-test-key",
-        JWT_SECRET: "isolated-listen-test-secret"
+        // A7: startup requires a generated secret; never the developer's own.
+        JWT_SECRET: crypto.randomBytes(48).toString("base64url")
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true

@@ -8,7 +8,7 @@ const swc = require("next/dist/build/swc");
 const compiled = {};
 before(async () => {
   await swc.loadBindings();
-  for (const name of ["pages/fill-up_form.js", "lib/queueTicket.js", "lib/frontdeskNav.js", "components/FrontdeskNavigation.js"]) {
+  for (const name of ["pages/fill-up_form.js", "lib/queueTicket.js", "lib/navigation.js"]) {
     const filename = path.join(__dirname, "..", name);
     compiled[name] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
       filename, jsc: { parser: { syntax: "ecmascript", jsx: true }, transform: { react: { runtime: "automatic" } } },
@@ -84,7 +84,6 @@ function harness(options = {}) {
     return module.exports;
   };
   dependencies["../lib/queueTicket"] = load("lib/queueTicket.js");
-  dependencies["../lib/frontdeskNav"] = load("lib/frontdeskNav.js");
   const page = load("pages/fill-up_form.js").default;
   const render = () => { cursor = 0; return page(); };
   const field = id => nodes(render(), node => node.props.id === id)[0];
@@ -193,11 +192,13 @@ test("completion and shared navigation use real routes with no patient-identifia
   const h = harness(); h.fill(); await h.submit();
   const links = nodes(h.render(), node => node.type === "Link");
   assert.deepEqual(links.map(link => link.props.href), ["/patient-management", "/queue-display"]);
-  const nav = h.load("components/FrontdeskNavigation.js").default({ activePath: "/fill-up_form" });
-  const navLinks = nodes(nav, node => node.type === "Link");
-  assert.deepEqual(navLinks.map(link => link.props.href), ["/fill-up_form", "/patient-management", "/queue-display"]);
-  assert.equal(navLinks[0].props["aria-current"], "page");
-  for (const link of navLinks) assert.ok(fs.existsSync(path.join(__dirname, "../pages", `${link.props.href.slice(1)}.js`)));
+  // The Front Desk sidebar (shared shell) carries the same real routes.
+  const navigation = h.load("lib/navigation.js");
+  const groups = navigation.navigationFor(navigation.resolveAccount({ id_num: "frontdesk", role: "admin", doctor_name: null }));
+  const navLinks = groups.flatMap(group => group.items).filter(item => item.href);
+  assert.deepEqual(Array.from(navLinks, link => link.href), ["/fill-up_form", "/patient-management", "/queue-display"]);
+  assert.ok(navLinks[0].isActive({ ready: true, path: "/fill-up_form" }));
+  for (const link of navLinks) assert.ok(fs.existsSync(path.join(__dirname, "../pages", `${link.href.slice(1)}.js`)));
 });
 
 test("delayed delivery callbacks cannot restore the prior patient's ticket after registering another patient", async () => {

@@ -70,9 +70,18 @@ function data(overrides = {}) {
     rates: { elapsed_hours: 11.25, arrival_rate_per_hour: 5.5, service_rate_per_hour: 3.25,
       completion_rate_percent: 25, completion_numerator: 4, completion_denominator: 16,
       operational_status: "Insufficient Data", description: "Observed arrivals and completed services per elapsed hour; service capacity is not recorded." },
+    outcomes: { total: 16, live: true, carry_in: { waiting: 1, serving: 0 }, statuses: [
+      { status: "completed", label: "Completed", count: 4, percentage: 25 },
+      { status: "waiting", label: "Waiting", count: 8, percentage: 50 },
+      { status: "serving", label: "Being served", count: 2, percentage: 12.5 },
+      { status: "cancelled", label: "Cancelled", count: 0, percentage: 0 },
+      { status: "no-show", label: "No-show", count: 2, percentage: 12.5 }
+    ] },
+    duration_samples: { wait: 2, service: 4 },
     record_count: 16, notes: ["Counter availability history is not recorded."], ...overrides
   };
 }
+const withTotal = (value, total) => { value.outcomes.total = total; return value; };
 const response = value => ({ success: true, data: clone(value) });
 function responseForRange(value, route) {
   const selected = new URL(route, "http://localhost").searchParams;
@@ -258,42 +267,96 @@ function harness(options = {}) {
   };
 }
 
-const headings = ["Patient Status Distribution", "Waiting vs. Service Time", "Patient Arrival and Service Rate",
-  "Patient Arrivals vs. Served", "Counter Utilization", "Average Queue Length", "Counter Performance Summary"];
+const cardTitles = ["Total Patients", "Completed", "Waiting", "Being Served", "Cancelled", "No-show"];
+const panelTitles = ["Status Breakdown", "Waiting & Service Times", "Doctor Performance"];
 const activeCharts = h => h.charts.filter(chart => !chart.destroyed);
-const arrivalChart = h => activeCharts(h).find(chart => chart.config.type === "bar");
+const breakdownChart = h => activeCharts(h).find(chart => chart.config.type === "doughnut");
 const params = call => new URL(call.route, "http://localhost").searchParams;
+const metricCards = tree => nodes(tree, node => node.type === "article" && String(node.props.className).includes("metricCard"));
+const cardValue = (tree, title) => {
+  const card = metricCards(tree).find(item => content(nodes(item, node => node.type === "h3")[0]) === title);
+  assert.ok(card, `Missing ${title} card`);
+  return content(nodes(card, node => String(node.props.className).split(" ").includes("metricValue"))[0]);
+};
 function button(h, label) {
   const found = nodes(h.render(), node => node.type === "button" && content(node) === label)[0];
   assert.ok(found, `Missing ${label} button`);
   return found;
 }
 
-test("Status Analytics renders the requested panels and existing counters without inventing utilization", async () => {
+test("Status Analytics shows status cards, one breakdown chart, times and doctor performance without the removed panels", async () => {
   const h = harness();
   assert.match(content(h.render()), /Loading/);
   const tree = await h.settle();
   assert.equal(nodes(tree, node => node.type === "h2" && content(node) === "Status Analytics").length, 1);
-  assert.match(content(tree), /Overall queue performance and operational efficiency/);
-  assert.deepEqual(nodes(tree, node => node.type === "h3").map(content).slice(6), headings);
-  assert.deepEqual(nodes(tree, node => node.type === "canvas").map(node => node.props["aria-label"]),
-    [headings[0], headings[1], headings[3], headings[5]]);
-  assert.equal(activeCharts(h).length, 4);
-  assert.match(content(tree), /Asia\/Manila/);
-  assert.equal(nodes(tree, node => node.props.role === "progressbar").length, 0,
-    "current counter availability alone cannot establish recorded operating time");
+  assert.deepEqual(nodes(tree, node => node.type === "h3").map(content), [...cardTitles, ...panelTitles]);
+  assert.deepEqual(nodes(tree, node => node.type === "canvas").map(node => node.props["aria-label"]), ["Status Breakdown"]);
+  assert.equal(activeCharts(h).length, 1);
+  for (const removed of [/Counter Utilization/, /Average Queue Length/, /Arrivals vs\. Served/, /Waiting vs\. Service Time/,
+    /arrival rate/i, /service rate/i, /Insufficient Data/, /Utilization/, /prior equivalent period/, /No prior baseline/]) {
+    assert.doesNotMatch(content(tree), removed);
+  }
+  assert.equal(nodes(tree, node => node.props.role === "progressbar").length, 0);
   const table = nodes(tree, node => node.type === "table")[0];
-  assert.ok(table);
   assert.deepEqual(nodes(table, node => node.type === "th" && node.props.scope === "col").map(content),
-    ["Counter", "Total Served", "Average Service Time", "Total Service Time", "Utilization Rate", "Status"]);
-  const rows = nodes(table, node => node.type === "tbody")[0];
-  assert.match(content(rows), /Doctor 1.*3.*8.*24.*No data available.*Enabled/s);
-  assert.match(content(rows), /Doctor 2.*4.*6\.3.*25.*No data available.*Disabled/s);
-  assert.match(content(tree), /Insufficient Data/);
-  assert.doesNotMatch(content(tree), /\bStable\b/);
+    ["Doctor", "Patients Completed", "Average Service Time", "Total Service Time"]);
+  const rows = content(nodes(table, node => node.type === "tbody")[0]);
+  assert.match(rows, /Doctor 138 min24 min/);
+  assert.match(rows, /Doctor 246\.3 min25 min/);
+  assert.doesNotMatch(rows, /Enabled|Disabled/, "today's enabled setting is not a historical fact about the period");
+  assert.match(content(tree), /Not counted above: 1 patient still waiting who registered on an earlier day\./);
+  assert.match(content(tree), /Patients registered so far in this period, by their status right now\./);
+  assert.match(content(tree), /How to read these numbers/);
+  assert.match(content(tree), /Asia\/Manila/);
   h.dispose();
   assert.equal(activeCharts(h).length, 0);
   assert.equal(h.timers.size, 0);
+});
+
+test("the status cards add up to Total Patients and show each status's share", async () => {
+  const h = harness();
+  const tree = await h.settle();
+  const cards = metricCards(tree);
+  assert.deepEqual(cards.map(card => content(nodes(card, node => node.type === "h3")[0])), cardTitles);
+  for (const [index, tone] of ["blue", "green", "orange", "sky", "red", "rose"].entries()) {
+    assert.ok(cards[index].props.className.split(" ").includes(tone), `${tone} card`);
+    assert.equal(nodes(cards[index], node => node.type === "i").length, 1);
+  }
+  const values = cardTitles.map(title => cardValue(tree, title));
+  assert.deepEqual(values, ["16", "4", "8", "2", "0", "2"]);
+  assert.equal(values.slice(1).reduce((sum, value) => sum + Number(value), 0), Number(values[0]));
+  assert.match(content(cards[0]), /Down 50% vs same time yesterday/);
+  assert.match(content(cards[1]), /25% of patients/);
+  assert.match(content(cards[4]), /0% of patients/);
+  assert.doesNotMatch(content(tree), /NaN|Infinity/);
+  h.dispose();
+});
+
+test("waiting and service times explain what they measure, how many patients they use, and whether waiting improved", async () => {
+  const h = harness();
+  const tree = await h.settle();
+  const rows = nodes(tree, node => String(node.props.className).split(" ").includes("timeRow"));
+  assert.equal(rows.length, 2);
+  assert.match(content(rows[0]), /Average waiting time8\.5 min/);
+  assert.match(content(rows[0]), /From registration until the patient is called · based on 2 patients/);
+  const waitComparison = nodes(rows[0], node => String(node.props.className).includes("timeComparison"))[0];
+  assert.equal(content(waitComparison), "Down 50% vs same time yesterday");
+  assert.ok(waitComparison.props.className.split(" ").includes("better"), "shorter waiting is an improvement");
+  assert.match(content(rows[1]), /Average service time12 min/);
+  assert.match(content(rows[1]), /based on 4 consultations/);
+  assert.match(content(rows[1]), /No comparison available/);
+  h.dispose();
+});
+
+test("a finished period compares with the day before and reports current statuses without a live carry-in note", async () => {
+  const past = data({ outcomes: { ...data().outcomes, live: false, carry_in: null } });
+  past.observed_at = "2026-10-16T03:15:00.000Z";
+  const h = harness({ backend: { value: past } });
+  const tree = await h.settle();
+  assert.match(content(tree), /Patients registered in this period, by their current status\./);
+  assert.match(content(metricCards(tree)[0]), /Down 50% vs the day before/);
+  assert.doesNotMatch(content(tree), /Not counted above/);
+  h.dispose();
 });
 
 test("daily and custom overnight filters update a single shared response for all metrics and charts", async () => {
@@ -313,21 +376,19 @@ test("daily and custom overnight filters update a single shared response for all
   assert.match(content(h.render()), /Choose both a shift start and end time/);
   h.change("Shift starts", "22:30");
   h.change("Shift ends", "06:15");
-  h.backend.value.hourly[0].arrivals = 42;
-  h.backend.value.metrics.total_patients.value = 42;
+  withTotal(h.backend.value, 42);
   await h.apply();
   assert.equal(h.calls.length, 3);
   assert.equal(params(h.calls[2]).get("view"), "shift");
   assert.equal(params(h.calls[2]).get("startTime"), "22:30");
   assert.equal(params(h.calls[2]).get("endTime"), "06:15");
-  assert.equal(arrivalChart(h).config.data.datasets[0].data[0], 42);
-  assert.match(content(h.render()), /Total Patients42/);
+  assert.equal(cardValue(h.render(), "Total Patients"), "42");
   assert.doesNotMatch(content(h.render()), /invalid or mismatched/);
   assert.ok(h.calls.every(call => call.route.startsWith("/analytics/status?")));
   h.dispose();
 });
 
-test("polling and manual refresh serialize slow requests and replace all chart instances", async () => {
+test("polling and manual refresh serialize slow requests and replace the chart instance", async () => {
   const first = deferred(), refresh = deferred();
   const h = harness({ request: (_call, number, backend) => number === 1 ? first.promise :
     number === 2 ? refresh.promise : response(backend.value) });
@@ -345,17 +406,16 @@ test("polling and manual refresh serialize slow requests and replace all chart i
   assert.equal(button(h, "Refresh").props.disabled, true);
   await h.fire(15000);
   assert.equal(h.calls.length, 2, "polling cannot overlap the manual refresh");
-  const fresh = data(); fresh.hourly[0].arrivals = 23; fresh.metrics.total_patients.value = 23;
+  const fresh = data(); fresh.outcomes.statuses[1].count = 23;
   refresh.resolve(response(fresh));
   await h.settle();
-  assert.equal(arrivalChart(h).config.data.datasets[0].data[0], 23);
-  assert.match(content(h.render()), /Total Patients23/);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(breakdownChart(h).config.data.datasets[0].data[1], 23);
+  assert.equal(activeCharts(h).length, 1);
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
-  h.backend.value.hourly[0].arrivals = 31;
+  h.backend.value.outcomes.statuses[1].count = 31;
   await h.fire(15000);
   assert.equal(h.calls.length, 3);
-  assert.equal(arrivalChart(h).config.data.datasets[0].data[0], 31);
+  assert.equal(breakdownChart(h).config.data.datasets[0].data[1], 31);
   assert.ok(h.calls.every(call => (call.init.method || "GET") === "GET" && call.init.cache === "no-store"));
   h.dispose();
 });
@@ -368,14 +428,12 @@ test("changing the range aborts pending reads and rejects late results from an o
   await h.apply();
   assert.equal(h.calls.length, 2);
   assert.equal(h.calls[0].init.signal.aborted, true);
-  const fresh = data(); fresh.hourly[0].arrivals = 42; fresh.metrics.total_patients.value = 42;
-  second.resolve(responseForRange(fresh, h.calls[1].route));
+  second.resolve(responseForRange(withTotal(data(), 42), h.calls[1].route));
   await h.settle();
-  assert.equal(arrivalChart(h).config.data.datasets[0].data[0], 42);
+  assert.equal(cardValue(h.render(), "Total Patients"), "42");
   first.resolve(response(data()));
   await h.settle();
-  assert.equal(arrivalChart(h).config.data.datasets[0].data[0], 42);
-  assert.match(content(h.render()), /Total Patients42/);
+  assert.equal(cardValue(h.render(), "Total Patients"), "42");
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
   h.dispose();
 });
@@ -400,14 +458,12 @@ test("errors retain the last response and recover consistently on a successful r
   await h.fire(15000);
   assert.match(content(h.render()), /Connection unavailable/);
   assert.match(content(h.render()), /Showing the last successful result/);
-  assert.equal(arrivalChart(h).config.data.datasets[0].data[0], 7);
+  assert.equal(cardValue(h.render(), "Total Patients"), "16");
   h.backend.error = null;
-  h.backend.value.hourly[0].arrivals = 33;
-  h.backend.value.metrics.total_patients.value = 33;
+  withTotal(h.backend.value, 33);
   await h.fire(15000);
   assert.doesNotMatch(content(h.render()), /Connection unavailable|Showing the last successful result/);
-  assert.equal(arrivalChart(h).config.data.datasets[0].data[0], 33);
-  assert.match(content(h.render()), /Total Patients33/);
+  assert.equal(cardValue(h.render(), "Total Patients"), "33");
   h.dispose();
 });
 
@@ -423,7 +479,7 @@ test("timed-out requests abort and retry without fabricating initial metrics", a
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
   await h.fire(15000);
   assert.equal(h.calls.length, 2);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 1);
   assert.doesNotMatch(content(h.render()), /request timed out/i);
   h.dispose();
 });
@@ -436,7 +492,7 @@ test("the existing authorized-parent gate controls requests and all chart/timer 
   h.props.enabled = true;
   await h.settle();
   assert.equal(h.calls.length, 1);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 1);
   h.props.enabled = false;
   await h.settle();
   assert.equal(h.calls.length, 1);
@@ -452,147 +508,79 @@ test("delayed Chart.js readiness and drawing errors retry without duplicate anal
   assert.equal(h.calls.length, 1);
   assert.equal(activeCharts(h).length, 0);
   assert.match(content(h.render()), /Preparing chart/);
-  assert.equal([...h.timers.values()].filter(timer => timer.delay === 500).length, 4);
+  assert.equal([...h.timers.values()].filter(timer => timer.delay === 500).length, 1);
   h.window.Chart = class { constructor() { throw new Error("Canvas temporarily unavailable"); } };
   await h.fire(500);
   assert.match(content(h.render()), /Unable to display this chart/);
   h.window.Chart = h.chartConstructor;
   await h.fire(3000);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 1);
   assert.equal(h.calls.length, 1);
   assert.doesNotMatch(content(h.render()), /Preparing chart|Unable to display this chart/);
   h.dispose();
   assert.equal(h.timers.size, 0);
 });
 
-test("six colored summary cards display real metrics, duration units, and honest missing baselines", async () => {
+test("the breakdown doughnut uses fixed status colours, skips empty statuses and explains each slice", () => {
   const h = harness();
-  const tree = await h.settle();
-  const cards = nodes(tree, node => node.type === "article" && String(node.props.className).includes("metricCard"));
-  assert.equal(cards.length, 6);
-  assert.deepEqual(cards.map(card => content(nodes(card, node => node.type === "h3")[0])),
-    ["Total Patients", "Waiting Patients", "Currently Serving", "Completed Patients", "Average Waiting Time", "Average Service Time"]);
-  for (const [index, tone] of ["blue", "orange", "sky", "green", "purple", "gray"].entries()) {
-    assert.ok(cards[index].props.className.split(" ").includes(tone), `${tone} card`);
-    assert.equal(nodes(cards[index], node => node.type === "i").length, 1);
-  }
-  const values = cards.map(card => content(nodes(card, node => String(node.props.className).split(" ").includes("metricValue"))[0]));
-  assert.deepEqual(values, ["16", "8", "2", "4", "8.5min", "12min"]);
-  assert.match(content(cards[0]), /-50% vs prior equivalent period/);
-  assert.match(content(cards[1]), /-20% vs prior equivalent period/);
-  assert.match(content(cards[2]), /No prior baseline/);
-  assert.match(content(cards[5]), /No prior baseline/);
-  assert.doesNotMatch(content(tree), /NaN|Infinity/);
-  const ratePanel = nodes(tree, node => String(node.props.className).split(" ").includes("ratePanel"))[0];
-  assert.match(content(ratePanel), /5\.5patients\/hour/);
-  assert.match(content(ratePanel), /3\.25patients\/hour/);
-  assert.match(content(ratePanel), /Observed service rate/);
-  assert.match(content(ratePanel), /Completion rate25%/);
-  assert.match(content(ratePanel), /4 of 16 period arrivals completed by the cutoff/);
-  assert.match(content(ratePanel), /does not measure service capacity/);
-  h.dispose();
-});
-
-test("status doughnut preserves actual statuses with patient-count and percentage tooltips", () => {
-  const h = harness();
-  const config = h.helpers.buildStatusChart(data({ statuses: [
-    { status: "waiting", label: "Waiting", count: 8, percentage: 50 },
-    { status: "no-show", label: "No-show", count: 2, percentage: 12.5 },
-    { status: "deferred", label: "Deferred", count: 6, percentage: 37.5 }
-  ] }));
+  const config = h.helpers.buildOutcomeChart(data().outcomes);
   assert.equal(config.type, "doughnut");
-  assert.deepEqual(Array.from(config.data.labels), ["Waiting", "No-show", "Deferred"]);
-  assert.deepEqual(Array.from(config.data.datasets[0].data), [8, 2, 6]);
-  assert.equal(config.data.datasets[0].backgroundColor.length, 3);
-  assert.equal(config.options.plugins.tooltip.callbacks.label({ dataIndex: 1 }), "No-show: 2 (12.5%)");
-  assert.equal(config.options.plugins.tooltip.callbacks.label({ dataIndex: 2 }), "Deferred: 6 (37.5%)");
-});
-
-test("hourly wait/service lines preserve valid zeros, missing durations, colors, and sample-aware hover units", () => {
-  const h = harness();
-  const config = h.helpers.buildTimeComparisonChart(data());
-  assert.equal(config.type, "line");
-  assert.deepEqual(Array.from(config.data.labels), ["09:00", "10:00", "12:00"]);
-  const [wait, service] = config.data.datasets;
-  assert.deepEqual(Array.from(wait.data), [8.5, null, null]);
-  assert.deepEqual(Array.from(service.data), [12, 0, null]);
-  assert.equal(wait.borderColor, "#8b5cf6");
-  assert.equal(service.borderColor, "#10b981");
-  assert.equal(wait.spanGaps, false);
-  assert.equal(service.spanGaps, false);
-  assert.equal(config.options.scales.y.title.text, "Minutes");
+  assert.deepEqual(Array.from(config.data.labels), ["Completed", "Waiting", "Being served", "No-show"]);
+  assert.deepEqual(Array.from(config.data.datasets[0].data), [4, 8, 2, 2]);
+  assert.deepEqual(Array.from(config.data.datasets[0].backgroundColor),
+    ["completed", "waiting", "serving", "no-show"].map(status => h.helpers.statusColor(status)));
   const label = config.options.plugins.tooltip.callbacks.label;
-  assert.match(label({ dataset: wait, raw: 8.5, dataIndex: 0 }), /8\.5 min.*2 valid visits/);
-  assert.match(label({ dataset: service, raw: 0, dataIndex: 1 }), /0 min.*1 valid visit\b/);
-  assert.match(label({ dataset: wait, raw: null, dataIndex: 1 }), /No data available/);
-  assert.equal(config.options.interaction.intersect, false);
+  assert.equal(label({ dataIndex: 3 }), "No-show: 2 patients (12.5%)");
+  assert.equal(h.helpers.buildOutcomeChart(null).data.labels.length, 0);
 });
 
-test("blue/green grouped arrival bars use separate event counts and the red queue area uses historical interval averages", () => {
-  const h = harness();
-  const bars = h.helpers.buildArrivalsServedChart(data());
-  assert.equal(bars.type, "bar");
-  assert.deepEqual(Array.from(bars.data.datasets[0].data), [7, 9, null]);
-  assert.deepEqual(Array.from(bars.data.datasets[1].data), [3, 4, null]);
-  assert.equal(bars.data.datasets[0].backgroundColor, "#3b82f6");
-  assert.equal(bars.data.datasets[1].backgroundColor, "#10b981");
-  assert.notEqual(bars.options.scales?.x?.stacked, true);
-  assert.equal(bars.options.plugins.tooltip.callbacks.label({ dataset: bars.data.datasets[1], raw: 4 }), "Patients served: 4");
-  const queue = h.helpers.buildQueueLengthChart(data());
-  assert.equal(queue.type, "line");
-  assert.deepEqual(Array.from(queue.data.datasets[0].data), [3.25, 8.5, null],
-    "historical time-weighted interval averages must not reuse current waiting or arrivals");
-  assert.equal(queue.data.datasets[0].borderColor, "#ef4444");
-  assert.equal(queue.data.datasets[0].fill, true);
-  assert.equal(queue.data.datasets[0].spanGaps, false);
-  assert.match(queue.options.plugins.tooltip.callbacks.label({ raw: 3.25 }), /3\.25 patients/);
-  assert.match(queue.options.plugins.tooltip.callbacks.label({ raw: null }), /No data available/);
-  for (const chart of [bars, queue]) {
-    assert.equal(chart.options.responsive, true);
-    assert.equal(chart.options.maintainAspectRatio, false);
-  }
-});
-
-test("missing and invalid numeric values cannot become fake zeros or changes from a zero baseline", () => {
+test("comparisons use plain words and only judge metrics where lower is better", () => {
   const h = harness();
   for (const missing of [null, undefined, "8", NaN, Infinity, -1]) assert.equal(h.helpers.finiteMetric(missing), null);
   assert.equal(h.helpers.finiteMetric(0), 0);
-  assert.equal(h.helpers.metricComparison({ value: null, previous: 2, change_percent: -100 }), "No data available");
-  assert.equal(h.helpers.metricComparison({ value: 1, previous: 0, change_percent: null }), "No prior baseline");
-  assert.equal(h.helpers.metricComparison({ value: 0, previous: 0, change_percent: 0 }), "0% vs prior equivalent period");
-  assert.equal(h.helpers.metricComparison({ value: 3, previous: 2, change_percent: 50 }), "+50% vs prior equivalent period");
-  const malformed = data({ hourly: [{ label: "09:00", arrivals: "7", served: -1, avg_wait_minutes: NaN,
-    avg_service_minutes: Infinity, avg_queue_length: "3.25" }] });
-  for (const build of ["buildTimeComparisonChart", "buildArrivalsServedChart", "buildQueueLengthChart"]) {
-    for (const dataset of h.helpers[build](malformed).data.datasets) assert.deepEqual(Array.from(dataset.data), [null]);
-  }
+  const compare = h.helpers.metricComparison;
+  assert.equal(compare({ value: null, previous: 2, change_percent: -100 }), "No data available");
+  assert.equal(compare({ value: 3, previous: null, change_percent: null }), "No comparison available");
+  assert.equal(compare({ value: 1, previous: 0, change_percent: null }, "vs the day before"), "Up from 0 vs the day before");
+  assert.equal(compare({ value: 0, previous: 0, change_percent: 0 }, "vs the day before"), "No change vs the day before");
+  assert.equal(compare({ value: 3, previous: 2, change_percent: 50 }, "vs same time yesterday"), "Up 50% vs same time yesterday");
+  assert.equal(compare({ value: 1, previous: 2, change_percent: -50 }, "vs same time yesterday"), "Down 50% vs same time yesterday");
+  const tone = h.helpers.comparisonTone;
+  assert.equal(tone({ value: 5, previous: 10 }, "lower"), "better");
+  assert.equal(tone({ value: 15, previous: 10 }, "lower"), "worse");
+  assert.equal(tone({ value: 15, previous: 10 }), "neutral");
+  assert.equal(tone({ value: 15, previous: null }, "lower"), "neutral");
+  assert.equal(tone({ value: 18.125, previous: 18 }, "lower"), "neutral", "a 0.7% change is not flagged as worse");
+  assert.equal(tone({ value: 19, previous: 18 }, "lower"), "worse");
+  const range = data().range;
+  assert.equal(h.helpers.comparisonLabel({ range }), "vs same time yesterday");
+  assert.equal(h.helpers.comparisonLabel({ range: { ...range, effective_end_at: range.end_at } }), "vs the day before");
+  assert.equal(h.helpers.comparisonLabel({ range: { ...range, view: "shift", effective_end_at: range.end_at } }), "vs same shift the day before");
 });
 
-test("empty and incomplete data keep valid zero counts while displaying unsupported metrics honestly", async () => {
+test("an empty period shows zero patients honestly with no chart and unavailable averages", async () => {
   const emptyMetrics = Object.fromEntries(Object.keys(data().metrics).map(key => [key,
     { value: key.startsWith("avg_") ? null : 0, previous: null, change_percent: null }]));
-  const h = harness({ backend: { value: data({ metrics: emptyMetrics, hourly: [], statuses: [], counters: [], record_count: 0,
-    rates: { ...data().rates, arrival_rate_per_hour: null, service_rate_per_hour: null, completion_rate_percent: null,
-      completion_numerator: 0, completion_denominator: 0 } }) } });
+  const h = harness({ backend: { value: data({ metrics: emptyMetrics, counters: [], record_count: 0,
+    duration_samples: { wait: 0, service: 0 },
+    outcomes: { total: 0, live: true, carry_in: { waiting: 0, serving: 0 },
+      statuses: data().outcomes.statuses.map(row => ({ ...row, count: 0, percentage: 0 })) } }) } });
   const empty = await h.settle();
-  assert.match(content(empty), /No queue visits recorded in this range/);
+  assert.match(content(empty), /No patients registered in this range/);
   assert.equal(nodes(empty, node => node.type === "canvas").length, 0);
-  assert.match(content(empty), /Total Patients0/);
-  assert.match(content(empty), /Average Waiting TimeNo data available/);
-  assert.ok((content(empty).match(/No data available/g) || []).length >= 8);
-  h.backend.value = data({ hourly: data().hourly.map(row => ({ ...row,
-    avg_wait_minutes: null, avg_service_minutes: null, avg_queue_length: null })) });
-  await h.fire(15000);
-  assert.deepEqual(nodes(h.render(), node => node.type === "canvas").map(node => node.props["aria-label"]),
-    [headings[0], headings[3]]);
-  assert.equal(activeCharts(h).length, 2);
+  assert.equal(cardValue(empty, "Total Patients"), "0");
+  assert.equal(cardValue(empty, "Completed"), "0");
+  assert.match(content(empty), /Average waiting timeNo data available/);
+  assert.doesNotMatch(content(empty), /Not counted above|based on 0/);
+  assert.doesNotMatch(content(empty), /NaN|Infinity/);
   h.dispose();
 });
 
 test("malformed or mismatched results fail safely and a manual retry recovers immediately", async () => {
   const cases = [
-    data({ metrics: null }), data({ rates: null }), data({ hourly: [null] }), data({ counters: [{}] }),
-    data({ statuses: null }), data({ observed_at: "not a timestamp" }), data({ time_zone: "UTC" }),
+    data({ metrics: null }), data({ outcomes: null }), data({ outcomes: { ...data().outcomes, statuses: null } }),
+    data({ outcomes: { ...data().outcomes, carry_in: { waiting: "1" } } }), data({ counters: [{}] }),
+    data({ observed_at: "not a timestamp" }), data({ time_zone: "UTC" }),
     data({ range: { ...data().range, date: "2026-10-14" } })
   ];
   let reply = response(cases[0]);
@@ -608,9 +596,8 @@ test("malformed or mismatched results fail safely and a manual retry recovers im
   button(h, "Retry now").props.onClick();
   await h.settle();
   assert.equal(h.calls.length, previousReads + 1);
-  assert.equal(activeCharts(h).length, 4);
+  assert.equal(activeCharts(h).length, 1);
   assert.doesNotMatch(content(h.render()), /invalid or mismatched/);
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
   h.dispose();
 });
-

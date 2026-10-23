@@ -30,9 +30,10 @@ const displayFunctions = [
   sourceSection("  async function loadDisplay(", "  const formatTime =")
 ].join("\n");
 
-function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, dry_run: false }) {
+function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, dry_run: false }, onDelay = null) {
   let response = initialResponse;
   const requests = [];
+  const delays = [];
   const readiness = [];
   const statuses = [];
   const voiceStates = [];
@@ -56,6 +57,9 @@ function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, 
     ...refs,
     PYTTSX3_TTS_BASE_URL: "http://isolated-tts.test",
     PYTTSX3_HEALTH_TIMEOUT_MS: 6500,
+    PYTTSX3_ENABLE_ATTEMPTS: 3,
+    PYTTSX3_ENABLE_RETRY_MS: 2500,
+    async delay(ms) { delays.push(ms); if (onDelay) await onDelay(ms); },
     voiceAnnouncementsAllowed() { return settings.voiceAllowed; },
     logTts() {},
     setTtsReady(value) { readiness.push(value); },
@@ -70,9 +74,48 @@ function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, 
   });
   vm.runInContext(sourceSection("  async function checkPyttsx3Service(", "  function isAnnouncementEligible(") +
     "\nthis.healthApi = { checkPyttsx3Service, verifyTtsService, enableVoiceAnnouncer, disableVoiceAnnouncer };", context);
-  return { api: context.healthApi, refs, settings, requests, readiness, statuses, voiceStates,
+  return { api: context.healthApi, refs, settings, requests, readiness, statuses, voiceStates, delays,
     respond(value) { response = value; } };
 }
+
+test("Enable retries a voice service that is still starting and becomes ready without a second click", async () => {
+  let checks = 0;
+  const h = voiceHealthHarness(() => {
+    if (++checks < 3) throw new Error("Cannot reach the voice service");
+    return { engine: "pyttsx3", ready: true, dry_run: false };
+  });
+  h.refs.voiceEnabledRef.current = false;
+  await h.api.enableVoiceAnnouncer();
+  assert.equal(checks, 3);
+  assert.deepEqual(h.delays, [2500, 2500]);
+  assert.match(h.statuses[1], /not ready yet.*Retrying 1\/2/);
+  assert.equal(h.refs.voiceEnabledRef.current, true);
+  assert.equal(h.refs.ttsReadyRef.current, true);
+  assert.deepEqual(h.voiceStates, [true]);
+  assert.deepEqual(h.requests.map(({ url }) => url), Array(3).fill("http://isolated-tts.test/health?init=1"));
+});
+
+test("Enable reports a clear error and stays disabled when the voice service never becomes ready", async () => {
+  const h = voiceHealthHarness(new Error("Cannot reach the voice service at http://isolated-tts.test"));
+  h.refs.voiceEnabledRef.current = false;
+  await h.api.enableVoiceAnnouncer();
+  assert.equal(h.requests.length, 3);
+  assert.equal(h.refs.voiceEnabledRef.current, false);
+  assert.equal(h.refs.ttsReadyRef.current, false);
+  assert.deepEqual(h.voiceStates, [false]);
+  assert.match(h.statuses.at(-1), /^Voice service unavailable: Cannot reach the voice service/);
+});
+
+test("Pause during an Enable retry stops further attempts and leaves Voice paused", async () => {
+  let h;
+  h = voiceHealthHarness(new Error("starting"), () => { h.api.disableVoiceAnnouncer(); });
+  h.refs.voiceEnabledRef.current = false;
+  await h.api.enableVoiceAnnouncer();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.refs.voiceEnabledRef.current, false);
+  assert.deepEqual(h.voiceStates, [false]);
+  assert.match(h.statuses.at(-1), /paused/);
+});
 
 test("idle health monitoring recovers an offline service and avoids warming an already healthy engine", async () => {
   const h = voiceHealthHarness(new Error("Cannot reach local voice service"));
@@ -274,6 +317,8 @@ function createDisplayHarness({ enabled = true, settings = {}, speak = null, del
     PYTTSX3_TTS_BASE_URL: "http://isolated-tts.test",
     PYTTSX3_SPEAK_TIMEOUT_MS: 45000,
     PYTTSX3_RETRY_MS: 5000,
+    PYTTSX3_ENABLE_ATTEMPTS: 3,
+    PYTTSX3_ENABLE_RETRY_MS: 2500,
     TTS_DEBUG: false,
     // The desktop service owns playback. Any browser audio dependency would
     // fail here even though HTTP announcements are ready to play.
@@ -345,7 +390,6 @@ function calledPatient(overrides = {}) {
   return {
     id: 101,
     queue_number: "GP-001",
-    id_num: "Test Patient",
     status: "serving",
     called_at: "2026-10-10T01:00:00.000Z",
     counter_name: "Doctor 1",
@@ -747,14 +791,17 @@ test("enabling voice seeds old acceptances without replaying them", async () => 
   assert.equal(harness.speech.length, 1);
 });
 
-test("existing announcement wording preserves queue number, patient name, doctor and room", async () => {
+test("announcement wording preserves queue number, doctor and room and never includes a patient name or identifier", async () => {
   const harness = createDisplayHarness();
   harness.seed();
-  await harness.poll({ recent_accepted: [calledPatient({ accepted_at: "2026-10-10T01:01:00.000Z" })] });
+  // Even if a stale or non-conforming payload still carried id_num, it is never spoken or forwarded.
+  await harness.poll({ recent_accepted: [calledPatient({ accepted_at: "2026-10-10T01:01:00.000Z", id_num: "Test Patient" })] });
   assert.equal(
     harness.speech[0].text,
-    "Now calling queue number G P 0 0 1, Test Patient, please proceed to Doctor 1, Room 1."
+    "Now calling queue number G P 0 0 1, please proceed to Doctor 1, Room 1."
   );
+  assert.ok(!("patient_name" in harness.speech[0]), "voice request must not carry patient_name");
+  assert.ok(!JSON.stringify(harness.speech).includes("Test Patient"), "patient name must not reach the voice service");
   assert.equal(harness.speech[0].wait, true);
   assert.equal(harness.speech[0].timeout_seconds, 45);
   assert.equal(harness.speech[0].gap_ms, 3000);
@@ -821,6 +868,43 @@ test("muting sound notifications preserves voice and changing the setting restor
   const next = { ...first, announcement_key: "voice-with-chime", announcement_at: "2026-10-10T01:02:00.000Z" };
   await h.poll({ queue_settings: { soundNotifications: true }, voice_announcements: [first, next] });
   assert.equal(h.speech[1].play_chime, true);
+});
+
+test("minimized public events (queue number, doctor/room, event identity only) announce the correct queue number", async () => {
+  const harness = createDisplayHarness();
+  harness.seed();
+  const acceptedAt = "2026-10-10T01:01:00.000Z";
+  const event = {
+    id: 201, queue_number: "PN-007", status: "serving", called_at: "2026-10-10T01:00:00.000Z", accepted_at: acceptedAt,
+    announcement_at: acceptedAt, announcement_key: "201:accepted:2026-10-10T01:01:00.000Z:key-1", event_type: "accepted", counter_name: "Doctor 2"
+  };
+  assert.ok(!("id_num" in event) && !("patient_name" in event));
+  await harness.poll({ voice_announcements: [event], recent_accepted: [] });
+  await harness.poll({ voice_announcements: [event], recent_accepted: [] }); // repeated poll: still once
+  assert.equal(harness.speech.length, 1);
+  assert.equal(harness.speech[0].text, "Now calling queue number P N 0 0 7, please proceed to Doctor 2, Room 2.");
+  assert.deepEqual(Object.keys(harness.speech[0]).filter((key) => /id_num|patient/i.test(key)), [],
+    "the voice request must not carry any patient field (doctor_name is the doctor label)");
+});
+
+test("identifier-like values in a stale payload (citizen, PhilHealth) are never spoken, logged or forwarded", async () => {
+  const harness = createDisplayHarness();
+  harness.seed();
+  const stale = calledPatient({ id: 301, queue_number: "GP-009", accepted_at: "2026-10-10T01:01:00.000Z",
+    id_num: "CIT-1234-5678-SENTINEL", patient_name: "PHILHEALTH-12-345678901-2-SENTINEL" });
+  await harness.poll({ recent_accepted: [stale] });
+  assert.equal(harness.speech.length, 1);
+  assert.equal(harness.speech[0].text, "Now calling queue number G P 0 0 9, please proceed to Doctor 1, Room 1.");
+  assert.ok(!JSON.stringify(harness.speech).includes("SENTINEL"));
+});
+
+test("Queue Display source never reads, renders, logs or speaks a patient name or identifier", () => {
+  const readsOfPatient = [...source.matchAll(/\b(?:patient|row|servingPatient|entry|s|p|event|call)\??\.(?:id_num|ID_Num|patient_name)\b/g)];
+  assert.deepEqual(readsOfPatient, []);
+  assert.ok(!/patient_name|patientName/.test(source));
+  // The only id_num reads left belong to counters (doctor/room labels).
+  for (const match of source.matchAll(/(\w+(?:\.\w+)?)\.id_num/g)) assert.match(match[1], /^(?:counter|page\.counter)$/);
+  assert.match(source, /Now calling queue number \$\{spokenQueue\}, please proceed to \$\{destination\}\./);
 });
 
 test("each accepted patient's announcement keeps its assigned doctor's room", async () => {

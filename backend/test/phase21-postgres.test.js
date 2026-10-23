@@ -121,7 +121,8 @@ describe("Phase 2.1 PostgreSQL stale Requeue/Undo protection", { skip: unavailab
       clock: { now: Date.now() },
       rpc: async (name, args) => {
         database.calls.push({ action: "rpc", function: name, args: clone(args) });
-        assert.ok(["recover_patient_visit", "undo_patient_visit_waiting"].includes(name));
+        // requeue_patient_visit (F5) is not installed here; Requeue then falls back to recover_patient_visit.
+        assert.ok(["recover_patient_visit", "undo_patient_visit_waiting", "requeue_patient_visit"].includes(name));
         assert.ok(Object.keys(args).every(key => Object.hasOwn(argsFor(database.patients[0]), key)));
         if (beforeRpc) await beforeRpc(name, args);
         try {

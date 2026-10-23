@@ -16,7 +16,8 @@ before(async () => {
   await swc.loadBindings();
   await Promise.all([
     "pages/records.js", "pages/analytics.js", "lib/api.js", "lib/queueSettings.js",
-    "lib/historyFilters.js", "components/SettingsModal.js"
+    "lib/historyFilters.js", "components/SettingsModal.js",
+    "lib/recordsFilters.js"
   ].map(async relative => {
     const filename = path.join(__dirname, "..", relative);
     compiled[relative] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
@@ -151,7 +152,8 @@ function harness(component, options = {}) {
     react, "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "next/link": "Link", "next/script": "Script", "next/router": { useRouter: () => router },
     "../context/AuthContext": { useAuth: () => ({ user, loading: false }) },
-    "../components/SiteFrame": "SiteFrame", "../components/DailyTrends": "DailyTrends", "../components/StatusAnalytics": "StatusAnalytics"
+    "../components/SiteFrame": "SiteFrame", "../components/DailyTrends": "DailyTrends", "../components/StatusAnalytics": "StatusAnalytics",
+    "../components/RecordsFilters": "RecordsFilters"
   };
   function load(relative) {
     const module = { exports: {} };
@@ -173,6 +175,7 @@ function harness(component, options = {}) {
   dependencies["../lib/historyFilters"] = history;
   const queue = load("lib/queueSettings.js");
   dependencies["../lib/queueSettings"] = queue;
+  dependencies["../lib/recordsFilters"] = load("lib/recordsFilters.js");
   const page = component === "modal" ? modal.default : component ? load(`pages/${component}.js`).default : null;
   const props = component === "modal" ? {
     isOpen: true, settings: { ...modal.defaultQueueSettings, autoBackupReminder: false },
@@ -196,7 +199,12 @@ function harness(component, options = {}) {
   };
   const change = (label, value) => field(label).props.onChange({ target: { value } });
   return { render, flush, field, change, calls, downloads, blobs, revoked, opens, storage, csv, history, queue, router,
+    recordsFilters: dependencies["../lib/recordsFilters"],
     search() { nodes(render(), node => node.type === "form")[0].props.onSubmit({ preventDefault() {} }); },
+    // Records filters live in the RecordsFilters toolbar; drive it through its props.
+    recordsToolbar: () => nodes(render(), node => node.type === "RecordsFilters")[0].props,
+    filterRecords(key, value) { this.recordsToolbar().onChange(key, value); },
+    applyRecords() { this.recordsToolbar().onApply(); },
     get blobReads() { return blobReads; },
     callsTo: route => calls.filter(call => call.route === route),
     lastCall: route => calls.filter(call => call.route === route).at(-1)
@@ -231,27 +239,28 @@ test("Records keeps the authenticated patient/staff/account category API", async
 
 test("Records patient date, doctor, service and no-show filters use the category API", async () => {
   const h = harness("records"); await h.flush();
-  h.change("Registration date (Manila)", "2026-10-09");
-  h.change("Assigned doctor (exact)", "Doctor 2");
-  h.change("Service type", "prenatal");
-  h.change("Queue status", "no-show");
-  h.search(); await h.flush();
+  h.filterRecords("date", "2026-10-09");
+  h.filterRecords("doctor", "Doctor 2");
+  h.filterRecords("service", "prenatal");
+  h.filterRecords("status", "no-show");
+  h.applyRecords(); await h.flush();
   const call = h.lastCall("/records/patients");
   for (const [key, value] of Object.entries({ date: "2026-10-09", doctor: "Doctor 2", service: "prenatal", status: "no-show" })) assert.equal(call.params[key], value);
-  assert.ok(nodes(h.render(), node => node.type === "option" && node.props.value === "no-show").length);
+  const statusField = h.recordsFilters.RECORD_FILTERS.patients.primary.find(field => field.key === "status");
+  assert.ok(statusField.options.some(option => option.value === "no-show"));
 });
 
 test("Records applied filters survive pagination and refresh, then Reset clears them", async () => {
   const h = harness("records"); await h.flush();
-  h.change("Registration date (Manila)", "2026-10-09");
-  h.change("Assigned doctor (exact)", "Doctor 3"); h.search(); await h.flush();
+  h.filterRecords("date", "2026-10-09");
+  h.filterRecords("doctor", "Doctor 3"); h.applyRecords(); await h.flush();
   button(h.render(), "Next").props.onClick(); await h.flush();
   assert.equal(h.lastCall("/records/patients").params.page, "2");
   assert.equal(h.lastCall("/records/patients").params.date, "2026-10-09");
   assert.equal(h.lastCall("/records/patients").params.doctor, "Doctor 3");
   button(h.render(), "Refresh").props.onClick(); await h.flush();
   assert.equal(h.lastCall("/records/patients").params.page, "2");
-  button(h.render(), "Reset").props.onClick(); await h.flush();
+  h.recordsToolbar().onReset(); await h.flush();
   const call = h.lastCall("/records/patients");
   assert.equal(call.params.page, "1");
   assert.equal(call.params.date, undefined);
@@ -264,7 +273,9 @@ test("Records category failures show the API error without rendering stale patie
   } });
   await h.flush();
   assert.match(text(h.render()), /Synthetic records unavailable/);
-  assert.match(text(h.render()), /No records found/);
+  // A failed request is reported as a failure, never as an empty result.
+  assert.doesNotMatch(text(h.render()), /No records/);
+  assert.equal(nodes(h.render(), node => node.type === "tr").length, 0);
 });
 
 test("Records ignores an older applied date response after a newer result", async () => {
@@ -276,9 +287,9 @@ test("Records ignores an older applied date response after a newer result", asyn
     if (call.params.date === "2026-10-10") return response(200, data("NEWER"));
   } });
   await h.flush();
-  h.change("Registration date (Manila)", "2026-10-09"); h.search(); await h.flush();
+  h.filterRecords("date", "2026-10-09"); h.applyRecords(); await h.flush();
   assert.equal(typeof releaseOlder, "function");
-  h.change("Registration date (Manila)", "2026-10-10"); h.search(); await h.flush();
+  h.filterRecords("date", "2026-10-10"); h.applyRecords(); await h.flush();
   assert.match(text(h.render()), /NEWER synthetic patient/);
   releaseOlder(); await h.flush();
   assert.match(text(h.render()), /NEWER synthetic patient/);

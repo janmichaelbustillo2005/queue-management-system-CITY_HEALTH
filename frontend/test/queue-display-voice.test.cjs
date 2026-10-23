@@ -30,9 +30,10 @@ const displayFunctions = [
   sourceSection("  async function loadDisplay(", "  const formatTime =")
 ].join("\n");
 
-function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, dry_run: false }) {
+function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, dry_run: false }, onDelay = null) {
   let response = initialResponse;
   const requests = [];
+  const delays = [];
   const readiness = [];
   const statuses = [];
   const voiceStates = [];
@@ -56,6 +57,9 @@ function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, 
     ...refs,
     PYTTSX3_TTS_BASE_URL: "http://isolated-tts.test",
     PYTTSX3_HEALTH_TIMEOUT_MS: 6500,
+    PYTTSX3_ENABLE_ATTEMPTS: 3,
+    PYTTSX3_ENABLE_RETRY_MS: 2500,
+    async delay(ms) { delays.push(ms); if (onDelay) await onDelay(ms); },
     voiceAnnouncementsAllowed() { return settings.voiceAllowed; },
     logTts() {},
     setTtsReady(value) { readiness.push(value); },
@@ -70,9 +74,48 @@ function voiceHealthHarness(initialResponse = { engine: "pyttsx3", ready: true, 
   });
   vm.runInContext(sourceSection("  async function checkPyttsx3Service(", "  function isAnnouncementEligible(") +
     "\nthis.healthApi = { checkPyttsx3Service, verifyTtsService, enableVoiceAnnouncer, disableVoiceAnnouncer };", context);
-  return { api: context.healthApi, refs, settings, requests, readiness, statuses, voiceStates,
+  return { api: context.healthApi, refs, settings, requests, readiness, statuses, voiceStates, delays,
     respond(value) { response = value; } };
 }
+
+test("Enable retries a voice service that is still starting and becomes ready without a second click", async () => {
+  let checks = 0;
+  const h = voiceHealthHarness(() => {
+    if (++checks < 3) throw new Error("Cannot reach the voice service");
+    return { engine: "pyttsx3", ready: true, dry_run: false };
+  });
+  h.refs.voiceEnabledRef.current = false;
+  await h.api.enableVoiceAnnouncer();
+  assert.equal(checks, 3);
+  assert.deepEqual(h.delays, [2500, 2500]);
+  assert.match(h.statuses[1], /not ready yet.*Retrying 1\/2/);
+  assert.equal(h.refs.voiceEnabledRef.current, true);
+  assert.equal(h.refs.ttsReadyRef.current, true);
+  assert.deepEqual(h.voiceStates, [true]);
+  assert.deepEqual(h.requests.map(({ url }) => url), Array(3).fill("http://isolated-tts.test/health?init=1"));
+});
+
+test("Enable reports a clear error and stays disabled when the voice service never becomes ready", async () => {
+  const h = voiceHealthHarness(new Error("Cannot reach the voice service at http://isolated-tts.test"));
+  h.refs.voiceEnabledRef.current = false;
+  await h.api.enableVoiceAnnouncer();
+  assert.equal(h.requests.length, 3);
+  assert.equal(h.refs.voiceEnabledRef.current, false);
+  assert.equal(h.refs.ttsReadyRef.current, false);
+  assert.deepEqual(h.voiceStates, [false]);
+  assert.match(h.statuses.at(-1), /^Voice service unavailable: Cannot reach the voice service/);
+});
+
+test("Pause during an Enable retry stops further attempts and leaves Voice paused", async () => {
+  let h;
+  h = voiceHealthHarness(new Error("starting"), () => { h.api.disableVoiceAnnouncer(); });
+  h.refs.voiceEnabledRef.current = false;
+  await h.api.enableVoiceAnnouncer();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.refs.voiceEnabledRef.current, false);
+  assert.deepEqual(h.voiceStates, [false]);
+  assert.match(h.statuses.at(-1), /paused/);
+});
 
 test("idle health monitoring recovers an offline service and avoids warming an already healthy engine", async () => {
   const h = voiceHealthHarness(new Error("Cannot reach local voice service"));
@@ -274,6 +317,8 @@ function createDisplayHarness({ enabled = true, settings = {}, speak = null, del
     PYTTSX3_TTS_BASE_URL: "http://isolated-tts.test",
     PYTTSX3_SPEAK_TIMEOUT_MS: 45000,
     PYTTSX3_RETRY_MS: 5000,
+    PYTTSX3_ENABLE_ATTEMPTS: 3,
+    PYTTSX3_ENABLE_RETRY_MS: 2500,
     TTS_DEBUG: false,
     // The desktop service owns playback. Any browser audio dependency would
     // fail here even though HTTP announcements are ready to play.

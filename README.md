@@ -90,29 +90,25 @@ uv venv --python 3.13 --seed .venv-voice
 
 If `uv` is not on PATH, invoke its installed executable by its full path. This setup calls the environment's Python directly, so `Activate.ps1` and changes to PowerShell's execution policy are unnecessary. `.venv-voice` is local to each computer and must not be committed. Repeat the pip install command when `requirements.txt` changes.
 
-### 3. Start all three services
+### 3. Start the application
 
-Keep three PowerShell terminals open in the project root:
+Keep two PowerShell terminals open in the project root. The backend starts the voice service for you.
 
-**Terminal 1 — voice service:**
-
-```powershell
-.\start-voice.cmd
-```
-
-You can also double-click `start-voice.cmd` in the project folder. It reuses an already healthy local service, or checks the local Python environment and Windows speech engine before starting one. Expect a startup line containing `listening on http://127.0.0.1:8765` and `dry_run=False`. Leave the service terminal running. The launcher reports setup errors without installing dependencies or stopping an existing process.
-
-**Terminal 2 — backend:**
+**Terminal 1 — backend (also starts the voice announcer):**
 
 ```powershell
 npm.cmd --prefix backend run dev
 ```
 
-**Terminal 3 — frontend:**
+**Terminal 2 — frontend:**
 
 ```powershell
 npm.cmd --prefix frontend run dev
 ```
+
+After `Queue backend listening`, the backend prints `[voice] Starting voice service at http://127.0.0.1:8765` and then `[voice] Voice service ready`. It reuses a voice service that is already running instead of starting a second one, restarts the service if it stops, and stops it when the backend exits. Service output goes to `backend/voice/voice-service.log` and `backend/voice/voice-service-error.log`. If `.venv-voice` is missing or port 8765 belongs to another application, the backend prints a `[voice]` error that says what to fix, and the Queue Display shows **Voice Offline** instead of **Voice Enabled**.
+
+If the Queue Display speakers are on a different computer from the backend, set `VOICE_SERVICE_AUTOSTART=0` in `backend/.env` and run `.\start-voice.cmd` on the display computer instead. It reuses an already healthy local service, or checks the local Python environment and Windows speech engine before starting one.
 
 Install the Node dependencies from the application setup section first if this is a new checkout. `npm.cmd` avoids the `npm.ps1` execution-policy error that can occur in PowerShell. If Node is installed without being on PATH, use `& 'C:\Program Files\nodejs\npm.cmd'` instead of `npm.cmd`.
 

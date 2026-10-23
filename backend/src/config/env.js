@@ -38,7 +38,18 @@ const env = {
   smsSenderName: process.env.SMS_SENDER_NAME || "Smart Queuing System",
   smsGatewayAddress: process.env.SMS_GATEWAY_ADDRESS || "",
   gatewayApiToken: (process.env.GATEWAY_API_TOKEN || "").trim(),
-  jwtSecret: readJwtSecret(process.env.JWT_SECRET)
+  jwtSecret: readJwtSecret(process.env.JWT_SECRET),
+  // The pyttsx3 voice announcer speaks on the computer that runs it. By default
+  // the backend starts and supervises it on Windows; set VOICE_SERVICE_AUTOSTART=0
+  // when the Queue Display speakers belong to a different computer.
+  voiceService: {
+    autostart: process.env.VOICE_SERVICE_AUTOSTART
+      ? ["1", "true", "yes", "on"].includes(process.env.VOICE_SERVICE_AUTOSTART.trim().toLowerCase())
+      : process.platform === "win32",
+    host: process.env.PYTTSX3_TTS_HOST || "127.0.0.1",
+    port: Number(process.env.PYTTSX3_TTS_PORT || 8765),
+    python: process.env.VOICE_SERVICE_PYTHON || ""
+  }
 };
 
 module.exports = env;

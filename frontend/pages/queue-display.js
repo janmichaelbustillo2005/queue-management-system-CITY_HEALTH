@@ -13,6 +13,10 @@ const PYTTSX3_TTS_BASE_URL = (process.env.NEXT_PUBLIC_PYTTSX3_TTS_URL || "http:/
 const PYTTSX3_HEALTH_TIMEOUT_MS = 6500;
 const PYTTSX3_SPEAK_TIMEOUT_MS = 45000;
 const PYTTSX3_RETRY_MS = 5000;
+// The backend starts the voice service automatically; an Enable click made while
+// it is still starting retries briefly instead of failing on the first check.
+const PYTTSX3_ENABLE_ATTEMPTS = 6;
+const PYTTSX3_ENABLE_RETRY_MS = 2500;
 const TTS_DEBUG = process.env.NEXT_PUBLIC_TTS_DEBUG !== "0";
 const TTS_LOG_PREFIX = "[QueueDisplay TTS]";
 
@@ -178,7 +182,7 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 5000) {
       throw new Error("pyttsx3 service timed out");
     }
     if (err instanceof TypeError) {
-      throw new Error(`Cannot reach the voice service at ${PYTTSX3_TTS_BASE_URL}. Start the local Python voice service on the display computer`);
+      throw new Error(`Cannot reach the voice service at ${PYTTSX3_TTS_BASE_URL}. It starts automatically with the backend on this computer; make sure the backend is running (or run start-voice.cmd)`);
     }
     throw err;
   } finally {
@@ -417,18 +421,27 @@ export default function QueueDisplayPage() {
       setVoiceStatus("Voice announcements are disabled in System Settings.");
       return;
     }
-    setVoiceStatus("Checking local pyttsx3 service...");
-    try {
-      await checkPyttsx3Service({ initialize: true });
-    } catch (err) {
-      if (!isCurrentAttempt()) return;
-      voiceEnabledRef.current = false;
-      pauseAnnouncementQueue();
-      setVoiceEnabled(false);
-      setIsSpeaking(false);
-      rememberAnnouncementRecovery();
-      setVoiceStatus(`pyttsx3 unavailable: ${err.message || "start the local TTS service"}`);
-      return;
+    setVoiceStatus("Connecting to the voice service...");
+    for (let tries = 1; ; tries += 1) {
+      try {
+        await checkPyttsx3Service({ initialize: true });
+        break;
+      } catch (err) {
+        if (!isCurrentAttempt()) return;
+        if (tries < PYTTSX3_ENABLE_ATTEMPTS) {
+          setVoiceStatus(`Voice service not ready yet (${err.message || "starting"}). Retrying ${tries}/${PYTTSX3_ENABLE_ATTEMPTS - 1}...`);
+          await delay(PYTTSX3_ENABLE_RETRY_MS);
+          if (!isCurrentAttempt()) return;
+          continue;
+        }
+        voiceEnabledRef.current = false;
+        pauseAnnouncementQueue();
+        setVoiceEnabled(false);
+        setIsSpeaking(false);
+        rememberAnnouncementRecovery();
+        setVoiceStatus(`Voice service unavailable: ${err.message || "start the local TTS service"}`);
+        return;
+      }
     }
     if (!isCurrentAttempt()) return;
     if (!voiceAnnouncementsAllowed()) {
@@ -851,7 +864,11 @@ export default function QueueDisplayPage() {
                 else enableVoiceAnnouncer();
               }}
               aria-pressed={voiceEnabled}
-              title={voiceEnabled ? "Pause voice announcements on this display." : "Enable voice announcements on this display."}
+              title={voiceEnabled
+                ? ttsReady === false
+                  ? "Voice service is not reachable; retrying automatically. Click to pause."
+                  : "Pause voice announcements on this display."
+                : "Enable voice announcements on this display."}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${
                 voiceEnabled
                   ? ttsReady === true
@@ -860,13 +877,17 @@ export default function QueueDisplayPage() {
                   : "bg-white/5 text-white/70 border border-white/10 hover:bg-white/10"
               }`}
             >
-              <i className={`fas ${voiceEnabled ? "fa-volume-up" : "fa-volume-mute"}`} />
-              {voiceEnabled ? (isSpeaking ? "Announcing…" : "Voice Enabled") : "Voice Disabled"}
-              {voiceEnabled && !isSpeaking ? (
-                <span className="text-[9px] opacity-90">
-                  ({ttsReady === true ? "Ready" : ttsReady === false ? "Offline" : "Checking"})
-                </span>
-              ) : null}
+              <i className={`fas ${!voiceEnabled ? "fa-volume-mute" : ttsReady === false ? "fa-exclamation-triangle" : "fa-volume-up"}`} />
+              {/* "Voice Enabled" only once the service has confirmed it can speak. */}
+              {!voiceEnabled
+                ? "Voice Disabled"
+                : isSpeaking
+                  ? "Announcing…"
+                  : ttsReady === true
+                    ? "Voice Enabled"
+                    : ttsReady === false
+                      ? "Voice Offline"
+                      : "Voice Connecting…"}
             </button>
             {voiceStatus ? (
               <span

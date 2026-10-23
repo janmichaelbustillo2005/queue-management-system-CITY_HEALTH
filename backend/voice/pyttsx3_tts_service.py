@@ -15,6 +15,7 @@ import json
 import math
 import os
 import queue
+import socket
 import struct
 import sys
 import threading
@@ -49,6 +50,7 @@ DEFAULT_RESET_ENGINE_AFTER_SPEAK = True
 MAX_SPEAK_ATTEMPTS = 2
 MIN_AUDIBLE_DURATION_MS = 700
 MAX_BODY_BYTES = 16 * 1024
+EXIT_PORT_IN_USE = 3
 CHIME_SAMPLE_RATE = 44100
 CHIME_START_SECONDS = 0.02
 CHIME_NOTE_SECONDS = 1.2
@@ -671,9 +673,19 @@ class TtsRequestHandler(BaseHTTPRequestHandler):
 
 
 class TtsServer(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second process listen on the same port,
+    # silently creating a duplicate speaker. Claim the port exclusively there.
+    allow_reuse_address = os.name != "nt"
+
     def __init__(self, server_address: tuple[str, int], handler_class: type[TtsRequestHandler], state: TtsState) -> None:
         super().__init__(server_address, handler_class)
         self.state = state
+
+    def server_bind(self) -> None:
+        exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
+        super().server_bind()
 
 
 def parse_args() -> argparse.Namespace:
@@ -706,7 +718,18 @@ def main() -> int:
         dry_run=args.dry_run,
         reset_engine_after_speak=not args.keep_engine,
     )
-    server = TtsServer((args.host, args.port), TtsRequestHandler, state)
+    try:
+        server = TtsServer((args.host, args.port), TtsRequestHandler, state)
+    except OSError as exc:
+        # Another voice service (or application) already owns this port. Exit
+        # without speaking so only one instance drives the display speakers.
+        print(
+            f"pyttsx3 TTS service could not listen on http://{args.host}:{args.port}: {exc}. "
+            "Another voice service may already be running; no second instance was started.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return EXIT_PORT_IN_USE
     server_thread = threading.Thread(target=server.serve_forever, name="pyttsx3-http-server", daemon=True)
     server_thread.start()
 

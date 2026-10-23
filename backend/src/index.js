@@ -3,6 +3,7 @@ const cors = require("cors");
 const env = require("./config/env");
 const routes = require("./routes");
 const { seedCounters } = require("./services/queueService");
+const { startVoiceService } = require("./services/voiceServiceLauncher");
 const { redactQueryValues } = require("./lib/requestLog");
 
 const app = express();
@@ -62,6 +63,9 @@ app.listen(env.port, "0.0.0.0", async (error) => {
     return;
   }
   console.log(`Queue backend listening on http://0.0.0.0:${env.port}`);
+  // Bring up the local voice announcer (or reuse a running one) without
+  // delaying the API; the Queue Display retries until it reports ready.
+  startVoiceService(env.voiceService);
   try {
     await seedCounters();
     console.log("Counters seeded successfully");

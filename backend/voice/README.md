@@ -4,7 +4,7 @@ The [project README](../../README.md#run-the-pyttsx3-voice-announcer-on-windows)
 
 ## Where to run it
 
-Run this service on the same computer that opens the Queue Display page, from the logged-in Windows desktop session that owns its speakers. Python produces both the bell and speech on the computer running this process; running it on the backend computer does not send audio to another display computer. The selected slow 880 Hz → 660 Hz chime plays synchronously before speech on the same worker. Bell playback uses Windows `winsound` and needs no browser audio activation. The service must be started separately; the application does not start it automatically.
+Run this service on the same computer that opens the Queue Display page, from the logged-in Windows desktop session that owns its speakers. Python produces both the bell and speech on the computer running this process; running it on the backend computer does not send audio to another display computer. The selected slow 880 Hz → 660 Hz chime plays synchronously before speech on the same worker. Bell playback uses Windows `winsound` and needs no browser audio activation. On Windows the backend starts this service automatically when it launches (see [Automatic startup](#automatic-startup)).
 
 The normal local service URL is `http://127.0.0.1:8765`. If the application is hosted elsewhere, this address still refers to the computer running the browser. Each display computer needs its own local Python service.
 
@@ -36,9 +36,26 @@ uv venv --python 3.13 --seed .venv-voice
 
 Directly invoking `.venv-voice\Scripts\python.exe` avoids virtual-environment activation and PowerShell execution-policy changes. The environment is ignored by Git and is recreated locally by each collaborator. After pulling dependency updates, rerun the pip install command.
 
-## Start and verify
+## Automatic startup
 
-Start the service in a terminal and keep it open:
+`npm.cmd --prefix backend run dev` (or `start`) launches this service right after the backend begins listening:
+
+- **No duplicates.** If a healthy `pyttsx3` service already answers on the port (for example, one started with `start-voice.cmd`), the backend reuses it. The Python service also claims its port exclusively on Windows, so a second copy exits with code 3 instead of sharing the speakers.
+- **Readiness and retries.** The backend warms up the speech engine with `/health?init=1` and logs `[voice] Voice service ready`. It checks the service every 10 seconds and restarts it after an unexpected exit, backing off from 1 to 30 seconds. The Queue Display retries automatically and shows **Voice Connecting…** or **Voice Offline** until the service is ready. An **Enable** click retries for about 12 seconds before reporting an error.
+- **Clear errors.** A missing `.venv-voice`, or a port owned by another application, is reported once as a `[voice]` line in the backend terminal. The backend never stops an unknown process.
+- **Lifecycle.** The service runs as a hidden child of the backend in the same desktop session, so audio reaches that session's speakers. It stops when the backend exits or restarts. Output goes to `voice-service.log` and `voice-service-error.log` in this folder.
+
+Settings in `backend/.env`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VOICE_SERVICE_AUTOSTART` | `1` on Windows, `0` elsewhere | Set to `0` when the display speakers are on another computer; then run `start-voice.cmd` there. |
+| `PYTTSX3_TTS_HOST` / `PYTTSX3_TTS_PORT` | `127.0.0.1` / `8765` | Address the backend starts the service on. Keep `NEXT_PUBLIC_PYTTSX3_TTS_URL` in `frontend/.env` matching. |
+| `VOICE_SERVICE_PYTHON` | `.venv-voice\Scripts\python.exe` | Python interpreter with `pyttsx3` installed. |
+
+## Start and verify manually
+
+Use this when automatic startup is off, or to run the service in a visible terminal for diagnostics. Start the service in a terminal and keep it open:
 
 ```powershell
 .\start-voice.cmd
@@ -46,7 +63,7 @@ Start the service in a terminal and keep it open:
 
 You can also double-click `start-voice.cmd` in the project root. The launcher checks `/health?init=1` and reuses an existing ready `pyttsx3` service only when `dry_run` is `False` and `last_error` is empty. Otherwise it checks the project-local Python dependencies and initializes Windows speech without speaking before starting the service in the current terminal. It does not install dependencies, stop other processes, or configure automatic startup. Launcher and service diagnostics stay in that terminal.
 
-The startup line should include `listening on http://127.0.0.1:8765` and `dry_run=False`. Keep that terminal open; stop the service with `Ctrl+C` there. Backend and frontend startup do not start this separate Python process. Run the launcher again after rebooting or closing its terminal.
+The startup line should include `listening on http://127.0.0.1:8765` and `dry_run=False`. Keep that terminal open; stop the service with `Ctrl+C` there. While it runs, a backend with automatic startup reuses it instead of starting another copy. Run the launcher again after rebooting or closing its terminal.
 
 The `.cmd` wrapper permits its bundled PowerShell script for that invocation only; it does not change the machine's execution policy. For direct Python startup or custom speech options, use:
 
@@ -106,7 +123,7 @@ Each test uses a new key. Reusing a successful key produces `duplicate: True` an
 5. Keep the page open before the doctor accepts a new patient. Registration creates a waiting patient; Frontdesk **Call Now** assigns the eligible patient to the doctor without announcing. **Doctor Accept** creates the announcement event.
 6. For an already accepted current patient, use **Re-Call** to create another announcement event. Each event has a unique key; repeated display polling does not create another announcement for the same key.
 
-The announcement reads the queue number character by character, includes the patient name, and ends with the assigned doctor and room when that setting is enabled. The existing acceptance and re-call workflow supplies these details; do not send direct patient speech requests from Frontdesk.
+The announcement reads the queue number character by character and ends with the assigned doctor and room when that setting is enabled. It never speaks or sends a patient name or identifier: the public display API and the announcement request identify the visit by queue number only. The existing acceptance and re-call workflow supplies these details; do not send direct patient speech requests from Frontdesk.
 
 Announcement behavior depends on the same-tab recovery checkpoint:
 

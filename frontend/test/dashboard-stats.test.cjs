@@ -201,11 +201,10 @@ test("the replacement is one five-card dashboard group and preserves navigation 
   assert.deepEqual(cards.map(card => card.props["aria-label"]), titles);
   assert.ok(cards.every(card => /\bdashboard-stat-card\b/.test(card.props.className)));
   assert.equal(nodes(tree, node => node.type === "h3" && ["Queue Management", "Analytics", "Records"].includes(text(node))).length, 0);
-  assert.equal(tree.props.title, "Superadmin Dashboard");
-  assert.deepEqual(Array.from(tree.props.sidebarLinks, item => item.label),
-    ["Home", "Queue Management", "Staff Management", "Analytics", "Records"]);
-  assert.equal(tree.props.sidebarLinks.find(item => item.label === "Analytics").href, "/analytics");
-  assert.equal(tree.props.sidebarLinks.find(item => item.label === "Records").href, "/records");
+  // Navigation now comes from the shared shell for the signed-in role; the page only names its section.
+  assert.equal(tree.props.title, "Dashboard");
+  assert.equal(tree.props.sidebarLinks, undefined);
+  assert.equal(typeof tree.props.onSettings, "function");
   assert.match(text(tree), /Recent Activity/);
   assert.match(text(tree), /System Status/);
   assert.match(text(tree), /Doctor Sessions/);

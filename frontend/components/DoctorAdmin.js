@@ -44,6 +44,10 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  // "loading" until the first /queue answer, "unavailable" after a failed read. Only
+  // "ready" means the rows and counts came from the server, so only then may an empty
+  // table be reported as an empty queue.
+  const [queueStatus, setQueueStatus] = useState("loading");
   const [storageMode, setStorageMode] = useState(null);
   const [recallCooldown, setRecallCooldown] = useState(false);
   const [pendingActions, setPendingActions] = useState({});
@@ -151,18 +155,13 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     modalConfirmRef.current = null;
   }
 
-  const profileMenuLinks = useMemo(() => {
-    if (user?.role === "superadmin") {
-      return [
-        { href: "/", icon: "fas fa-tachometer-alt", label: "Dashboard" },
-        { href: "/analytics", icon: "fas fa-chart-bar", label: "Analytics" },
-        { href: "/records", icon: "fas fa-history", label: "Records" }
-      ];
-    }
+  // Super Admin navigates with the sidebar; only a doctor account has its own
+  // account action here, the cancellation request.
+  const accountActions = useMemo(() => {
+    if (user?.role === "superadmin") return [];
 
     return [
       {
-        type: "button",
         icon: "fas fa-user-times",
         label: pendingCancelRequest ? "Cancel Request Pending" : "Cancel Account",
         onClick: () => {
@@ -343,6 +342,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   const isAccepted = (row) => !row?.awaiting_accept &&
     Boolean(row?.accepted_at || row?.consultation_started_at);
   const isActionPending = (patientId) => Boolean(pendingActions[String(patientId)]);
+  const shownCount = (value) => (queueStatus === "ready" ? value : "—");
 
   function requireServingPatient(patientId) {
     const row = queueRows.find((patient) => Number(patient.id) === Number(patientId));
@@ -430,6 +430,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
         setQueueRows([]);
         setCounters([]);
         setStats({ waiting: 0, serving: 0, completed: 0, total_patients: 0 });
+        setQueueStatus("unavailable");
         setLoading(false);
         return;
       }
@@ -455,9 +456,11 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
         completed: myServed.filter(q => q.status === "completed").length,
         total_patients: myServed.length
       });
+      setQueueStatus("ready");
       setError("");
     } catch (err) {
       setError(err.message);
+      setQueueStatus("unavailable");
     } finally {
       setLoading(false);
     }
@@ -573,11 +576,9 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
 
   return (
     <SiteFrame
-      title={doctorName}
+      title={`${doctorName} Queue`}
       icon="fas fa-user-md"
-      showSidebar={false}
-      showProfileMenu={true}
-      profileMenuLinks={profileMenuLinks}
+      accountActions={accountActions}
     >
       <div className="admin-content p-4 md:p-6">
         {error ? (
@@ -619,7 +620,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
               <i className="fas fa-clock" />
             </div>
             <div>
-              <div className="text-2xl font-bold brand-text">{stats.waiting}</div>
+              <div className="text-2xl font-bold brand-text">{shownCount(stats.waiting)}</div>
               <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">Matching Waiting</div>
             </div>
           </div>
@@ -628,7 +629,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
               <i className="fas fa-user-check" />
             </div>
             <div>
-              <div className="text-2xl font-bold brand-text">{stats.serving}</div>
+              <div className="text-2xl font-bold brand-text">{shownCount(stats.serving)}</div>
               <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">My Serving</div>
             </div>
           </div>
@@ -637,7 +638,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
               <i className="fas fa-check-circle" />
             </div>
             <div>
-              <div className="text-2xl font-bold brand-text">{stats.completed}</div>
+              <div className="text-2xl font-bold brand-text">{shownCount(stats.completed)}</div>
               <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">My Completed</div>
             </div>
           </div>
@@ -646,7 +647,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
               <i className="fas fa-calendar-day" />
             </div>
             <div>
-              <div className="text-2xl font-bold brand-text">{stats.total_patients}</div>
+              <div className="text-2xl font-bold brand-text">{shownCount(stats.total_patients)}</div>
               <div className="text-xs brand-text-muted uppercase tracking-wider font-semibold">Total Patients</div>
             </div>
           </div>
@@ -710,7 +711,33 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--brand-border)]">
-                {filteredRows.length === 0 ? (
+                {queueStatus !== "ready" ? (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-12 text-center brand-text-muted" role="status">
+                      {queueStatus === "loading" ? (
+                        <>
+                          <i className="fas fa-spinner animate-spin text-4xl mb-3 block" />
+                          Loading your queue...
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-exclamation-triangle text-4xl mb-3 block text-amber-500" />
+                          Queue unavailable. Patients may still be waiting; the queue could not be loaded from the server.
+                          <div className="mt-3">
+                            <button
+                              type="button"
+                              onClick={refreshAll}
+                              disabled={loading}
+                              className="px-3 py-1.5 brand-button rounded-lg text-sm font-medium disabled:opacity-50"
+                            >
+                              {loading ? "Retrying..." : "Retry"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ) : filteredRows.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="px-6 py-12 text-center brand-text-muted">
                       <i className="fas fa-inbox text-4xl mb-3 block" />

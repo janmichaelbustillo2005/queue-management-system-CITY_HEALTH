@@ -21,6 +21,14 @@ import {
 } from "../lib/queueSettings";
 
 const defaultSettings = defaultQueueSettings;
+// Header title per dashboard section; the sidebar uses the same names.
+const SECTION_TITLES = {
+  home: ["Dashboard", "fas fa-home"],
+  queue: ["Queue Management", "fas fa-list"],
+  staff: ["Staff Management", "fas fa-user-cog"]
+};
+// Final visit outcomes: Cancel does not apply; Undo/Re-queue are the recovery actions.
+const TERMINAL_QUEUE_STATUSES = ["completed", "cancelled", "no-show"];
 
 const serviceOptions = [
   { value: "consultation", label: "General Consultation" },
@@ -98,13 +106,13 @@ function buildDashboardCards(summary, counters, doctorPresence, now) {
     {
       key: "total", title: "Total Tokens Today", value: countValue(today?.total_tokens),
       comparison: comparison("total_tokens"), icon: "fas fa-file-lines",
-      gradient: "linear-gradient(135deg, #2563eb, #1e40af)",
+      tone: "blue",
       description: "Queue registrations today, compared with the full previous day. Dates use Asia/Manila."
     },
     {
       key: "served", title: "Served Tokens", value: countValue(today?.served_tokens),
       comparison: comparison("served_tokens"), icon: "fas fa-circle-check",
-      gradient: "linear-gradient(135deg, #16a34a, #15803d)",
+      tone: "green",
       description: "Completed tokens by completion date, including visits registered on earlier days."
     },
     {
@@ -112,20 +120,20 @@ function buildDashboardCards(summary, counters, doctorPresence, now) {
       value: Number.isFinite(today?.average_wait_minutes) ? `${today.average_wait_minutes.toFixed(1)} min` : "—",
       comparison: today ? (Number.isFinite(today.average_wait_minutes)
         ? formatDashboardChange(today.average_wait_minutes, yesterday?.average_wait_minutes) : "No calls yet") : "Awaiting statistics",
-      icon: "fas fa-clock", gradient: "linear-gradient(135deg, #ea580c, #c2410c)",
+      icon: "fas fa-clock", tone: "orange",
       description: "Registration to call, averaged over serving/completed tokens called today. Cancelled and no-show visits are excluded."
     },
     {
       key: "counters", title: "Active Counters",
       value: countersKnown ? `${countValue(active)}/${countValue(total)}` : total === null ? "—" : `—/${countValue(total)}`,
       comparison: countersKnown ? `${operational.toFixed(1)}% operational` : total === null ? "Counters unavailable" : "Presence unavailable",
-      icon: "fas fa-users", gradient: "linear-gradient(135deg, #9333ea, #6b21a8)",
+      icon: "fas fa-users", tone: "purple",
       description: "Enabled counters with a verified online doctor session. Counters serving a patient remain active."
     },
     {
       key: "walkins", title: "No. of Walk-ins", value: countValue(today?.walk_ins),
       comparison: comparison("walk_ins"), icon: "fas fa-person-walking",
-      gradient: "linear-gradient(135deg, #0891b2, #0e7490)",
+      tone: "teal",
       description: "Registered at the front desk: tokens stored with source admin. Website registrations are excluded."
     }
   ];
@@ -236,31 +244,27 @@ export default function HomePage() {
       String(counter.current_patient_id) !== String(patient.id);
   });
 
-  const sidebarLinks = [
-    { type: "button", onClick: () => handleSectionChange("home"), icon: "fas fa-home", label: "Home", active: activeSection === "home" },
-    { type: "button", onClick: () => handleSectionChange("queue"), icon: "fas fa-list", label: "Queue Management", active: activeSection === "queue" },
-    { type: "button", onClick: () => handleSectionChange("staff"), icon: "fas fa-user-cog", label: "Staff Management", active: activeSection === "staff" },
-    { href: "/analytics", icon: "fas fa-chart-bar", label: "Analytics", active: false },
-    { href: "/records", icon: "fas fa-history", label: "Records", active: false },
-  ];
-
-  function handleSectionChange(section) {
-    setActiveSection(section);
-    router.push({ pathname: "/", query: { section } }, undefined, { shallow: true });
-  }
-
+  // The URL decides the section, so sidebar links, Back/Forward and refresh agree.
+  // Settings opens over the current section; any other value is the dashboard.
   useEffect(() => {
     if (router.isReady) {
       if (router.query.section === "settings") { setSettingsOpen(true);
       } else if (router.query.section === "queue") {
         setActiveSection("queue");
-      } else if (router.query.section === "home") {
-        setActiveSection("home");
       } else if (router.query.section === "staff") {
         setActiveSection("staff");
+      } else {
+        setActiveSection("home");
       }
     }
   }, [router.isReady, router.query.section]);
+
+  // "Doctor & Counter Monitoring" links to an anchor inside the queue section,
+  // which is hidden until that section is shown; scroll once it is.
+  const urlHash = String(router.asPath || "").split("#")[1] || "";
+  useEffect(() => {
+    if (activeSection === "queue" && urlHash) document.getElementById?.(urlHash)?.scrollIntoView({ block: "start" });
+  }, [activeSection, urlHash]);
 
   useEffect(() => {
     let cancelled = false;
@@ -618,6 +622,8 @@ export default function HomePage() {
       return;
     }
     if (path === "/queue/cancel") {
+      // Completed, cancelled and no-show visits are final; recovery is Undo/Re-queue. The backend still decides.
+      if (TERMINAL_QUEUE_STATUSES.includes(patient.status)) { setError(`This patient is already ${patient.status}. Use Undo to recover the visit first.`); return; }
       const reason = window.prompt(`Reason for cancelling ${patient.id_num} (${patient.queue_number}):`);
       if (reason == null) return;
       if (!reason.trim()) { setError("A reason for cancel is required."); return; }
@@ -674,12 +680,8 @@ export default function HomePage() {
 
   return (
     <SiteFrame
-      title="Superadmin Dashboard"
-      icon="fas fa-user-shield"
-      welcome="Welcome, Super Admin"
-      showSidebar={true}
-      sidebarTitle="Super Admin Menu"
-      sidebarLinks={sidebarLinks}
+      title={SECTION_TITLES[activeSection][0]}
+      icon={SECTION_TITLES[activeSection][1]}
       onSettings={() => setSettingsOpen(true)}
     >
       <SettingsModal
@@ -700,16 +702,16 @@ export default function HomePage() {
           </h2>
           <div className="dashboard-stat-grid" aria-label="Today's queue statistics">
             {dashboardCards.map((card) => (
-              <article key={card.key} className="dashboard-stat-card" aria-label={card.title}
-                title={card.description} style={{ background: card.gradient }}>
-                <div className="dashboard-stat-copy">
+              <article key={card.key} className={`dashboard-stat-card dashboard-stat-${card.tone}`} aria-label={card.title}
+                title={card.description}>
+                <div className="dashboard-stat-top">
                   <h3 className="dashboard-stat-title">{card.title}</h3>
-                  <p className="dashboard-stat-value">{card.value}</p>
-                  <p className="dashboard-stat-comparison">
-                    {dashboardStatsError && card.key !== "counters" ? "Statistics unavailable" : card.comparison}
-                  </p>
+                  <span className="dashboard-stat-icon" aria-hidden="true"><i className={card.icon} /></span>
                 </div>
-                <span className="dashboard-stat-icon" aria-hidden="true"><i className={card.icon} /></span>
+                <p className="dashboard-stat-value">{card.value}</p>
+                <p className="dashboard-stat-comparison">
+                  {dashboardStatsError && card.key !== "counters" ? "Statistics unavailable" : card.comparison}
+                </p>
               </article>
             ))}
           </div>
@@ -720,65 +722,80 @@ export default function HomePage() {
               grid-template-columns: repeat(5, minmax(0, 1fr));
               gap: 12px;
             }
+            /* Pastel card look shared with the Status Analytics summary cards (StatusAnalytics.module.css). */
             .dashboard-stat-card {
-              display: flex;
-              align-items: center;
-              gap: 10px;
               min-width: 0;
-              min-height: 144px;
-              padding: 16px 14px;
-              border-radius: 14px;
-              color: #fff;
-              box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+              padding: 14px 13px 12px;
+              border: 1px solid var(--stat-border);
+              border-radius: 12px;
+              background: var(--stat-bg);
             }
-            .dashboard-stat-copy { flex: 1; min-width: 0; }
+            .dashboard-stat-blue { --stat-bg: #eff6ff; --stat-border: #dceafe; --stat-color: #2563eb; --stat-icon: #dbeafe; }
+            .dashboard-stat-green { --stat-bg: #effbf5; --stat-border: #d9f4e5; --stat-color: #059669; --stat-icon: #d8f5e6; }
+            .dashboard-stat-orange { --stat-bg: #fff7ed; --stat-border: #ffead2; --stat-color: #ea580c; --stat-icon: #ffedd5; }
+            .dashboard-stat-purple { --stat-bg: #f6f2ff; --stat-border: #eae0ff; --stat-color: #7c3aed; --stat-icon: #ebe0ff; }
+            .dashboard-stat-teal { --stat-bg: #ecfcfd; --stat-border: #d3f3f6; --stat-color: #0891b2; --stat-icon: #d4f5f9; }
+            .dashboard-stat-top {
+              display: flex;
+              align-items: flex-start;
+              justify-content: space-between;
+              gap: 6px;
+              min-height: 34px;
+            }
             .dashboard-stat-title {
-              margin: 0 0 8px;
-              min-height: 30px;
-              color: #fff;
-              font-size: 11px;
-              font-weight: 600;
-              line-height: 1.35;
+              margin: 2px 0 0;
+              min-width: 0;
+              color: #536176;
+              font-size: 10px;
+              font-weight: 650;
+              line-height: 1.5;
+            }
+            .dashboard-stat-icon {
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+              width: 28px;
+              height: 28px;
+              border-radius: 8px;
+              background: var(--stat-icon);
+              color: var(--stat-color);
+              font-size: 12px;
             }
             .dashboard-stat-value {
-              margin: 0 0 8px;
-              min-height: 32px;
-              color: #fff;
-              font-size: clamp(22px, 2vw, 28px);
-              font-weight: 700;
-              line-height: 1.15;
+              margin: 6px 0 8px;
+              color: #22314a;
+              font-size: clamp(24px, 2.5vw, 31px);
+              font-weight: 750;
+              letter-spacing: -0.8px;
+              line-height: 1.3;
               font-variant-numeric: tabular-nums;
               overflow-wrap: anywhere;
             }
             .dashboard-stat-comparison {
               margin: 0;
               min-height: 29px;
-              color: rgba(255, 255, 255, 0.95);
+              color: #64748b;
               font-size: 10px;
-              line-height: 1.4;
+              line-height: 1.6;
               overflow-wrap: anywhere;
             }
-            .dashboard-stat-icon {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              flex-shrink: 0;
-              width: 34px;
-              height: 34px;
-              border-radius: 10px;
-              background: rgba(255, 255, 255, 0.2);
-              font-size: 17px;
-            }
             .dashboard-stat-error { margin: 8px 0 0; color: #b91c1c; font-size: 12px; }
-            @media (max-width: 1199px) {
-              .dashboard-stat-card { padding: 14px 12px; gap: 8px; }
-              .dashboard-stat-icon { width: 30px; height: 30px; font-size: 15px; }
+            @media (max-width: 1100px) {
+              .dashboard-stat-card { padding: 12px 10px; }
+              .dashboard-stat-icon { width: 23px; height: 23px; font-size: 10px; }
             }
-            @media (max-width: 1023px) {
+            @media (max-width: 900px) {
               .dashboard-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+              .dashboard-stat-value { font-size: 29px; }
             }
-            @media (max-width: 639px) {
+            @media (max-width: 620px) {
               .dashboard-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+              .dashboard-stat-card { padding: 12px; }
+            }
+            @media (max-width: 380px) {
+              .dashboard-stat-card { padding: 11px 9px; }
+              .dashboard-stat-value { font-size: 27px; }
             }
             @media (max-width: 359px) {
               .dashboard-stat-grid { grid-template-columns: minmax(0, 1fr); }
@@ -1039,7 +1056,7 @@ export default function HomePage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-xs brand-text-muted">
-                    {new Date(u.created_at).toLocaleDateString()}
+                    {u.created_at ? new Date(u.created_at).toLocaleDateString() : "Not recorded"}
                   </td>
                   <td className="px-6 py-4">
                     <button 
@@ -1436,7 +1453,7 @@ export default function HomePage() {
                                   {pendingActions.has(patient.id) ? "Calling..." : "Call"}
                                 </button>
                               ) : null}
-                              {!["completed", "cancelled"].includes(patient.status) ? (
+                              {!TERMINAL_QUEUE_STATUSES.includes(patient.status) ? (
                                 <button type="button" onClick={() => queueAction("/queue/cancel", patient.id)} disabled={actionPending} className="bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-times mr-0.5" />
                                   Cancel

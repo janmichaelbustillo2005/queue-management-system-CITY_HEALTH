@@ -128,13 +128,6 @@ export default function AnalyticsPage() {
     await exportQueueData(filters);
   }
 
-  const sidebarLinks = [
-    { href: "/?section=home", icon: "fas fa-home", label: "Home", active: false },
-    { href: "/?section=queue", icon: "fas fa-list", label: "Queue Management", active: false },
-    { href: "/analytics", icon: "fas fa-chart-bar", label: "Analytics", active: true },
-    { href: "/records", icon: "fas fa-history", label: "Records", active: false }
-  ];
-
   useEffect(() => {
     setFilters(getDefaultHistoryFilters());
     setDefaultsReady(true);
@@ -217,10 +210,8 @@ export default function AnalyticsPage() {
     <>
       <Script src="https://cdn.jsdelivr.net/npm/chart.js" strategy="beforeInteractive" />
       <SiteFrame
-        title="Analytics Dashboard"
+        title="Analytics"
         icon="fas fa-chart-bar"
-        showSidebar={true}
-        sidebarLinks={sidebarLinks}
         onSettings={() => setSettingsOpen(true)}
       >
         <SettingsModal

@@ -2,12 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import SiteFrame from "../components/SiteFrame";
 import PatientQueueTable, { DOCTORS } from "../components/PatientQueueTable";
-import FrontdeskNavigation from "../components/FrontdeskNavigation";
 import QueueTicketDialog from "../components/QueueTicketDialog";
 import { defaultQueueSettings } from "../components/SettingsModal";
 import { useAuth } from "../context/AuthContext";
 import { request } from "../lib/api";
-import { frontdeskSidebarLinks } from "../lib/frontdeskNav";
 import { createQueueTicket, fetchExistingQueueTicket } from "../lib/queueTicket";
 import { fetchQueueSettings, loadLocalQueueSettings, mergeQueueSettings } from "../lib/queueSettings";
 
@@ -221,7 +219,6 @@ export default function PatientManagementPage() {
 
   const visibleDoctors = doctorFilter === "all" ? DOCTORS : DOCTORS.filter((d) => d.name === doctorFilter);
   const hasFilters = doctorFilter !== "all" || statusFilter !== "active" || search.trim() !== "";
-  const isFrontdesk = user?.id_num === "frontdesk";
 
   if (!canView) {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
@@ -231,17 +228,9 @@ export default function PatientManagementPage() {
     <SiteFrame
       title="Patient Management"
       icon="fas fa-hospital-user"
-      welcome="Welcome"
-      showSidebar={!isFrontdesk}
-      sidebarTitle="Front Desk Menu"
-      sidebarLinks={frontdeskSidebarLinks("/patient-management")}
-      showProfileMenu={isFrontdesk}
-      profileMenuLinks={frontdeskSidebarLinks("/patient-management")}
-      profileIcon="fas fa-user"
       contentClassName="frontdesk-page"
     >
       <div className="w-full max-w-7xl mx-auto px-3 md:px-6 py-4">
-        <FrontdeskNavigation activePath="/patient-management" />
         {notice.text ? (
           <div
             role={notice.type === "error" ? "alert" : "status"}

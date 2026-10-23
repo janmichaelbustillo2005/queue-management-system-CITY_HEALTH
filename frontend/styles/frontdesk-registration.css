@@ -1,35 +1,8 @@
-.frontdesk-workspace-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .5rem;
-  width: 100%;
-  margin-bottom: 1rem;
-  padding: .5rem;
-  border: 1px solid var(--brand-border);
-  background: var(--brand-surface);
-  border-radius: .85rem;
-}
-.frontdesk-workspace-nav a {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: .5rem;
-  padding: .65rem 1rem;
-  color: var(--brand-forest);
-  text-decoration: none;
-  font-size: .9rem;
-  font-weight: 600;
-  border-radius: .55rem;
-}
-.frontdesk-workspace-nav a:hover { background: var(--brand-subtle); }
-.frontdesk-workspace-nav a[aria-current="page"] { background: var(--brand-primary); color: white; }
-.frontdesk-workspace-nav a:focus-visible,
 .registration-complete a:focus-visible,
 .registration-complete button:focus-visible {
   outline: 3px solid var(--brand-primary);
   outline-offset: 3px;
 }
-.frontdesk-shell > .frontdesk-workspace-nav { max-width: 1400px; }
 .registration-complete { text-align: left; }
 .registration-success-summary { display: flex; gap: .85rem; align-items: flex-start; margin-bottom: 1.4rem; }
 .registration-success-summary > i { color: var(--brand-primary); font-size: 1.8rem; }
@@ -53,7 +26,6 @@
   .registration-ticket-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 }
 @media (max-width: 540px) {
-  .frontdesk-workspace-nav a { flex: 1 1 100%; justify-content: flex-start; }
   .registration-navigation-actions { flex-direction: column; }
   .registration-navigation-actions .btn { width: 100%; }
   .registration-success-summary h2 { font-size: 1.15rem; }

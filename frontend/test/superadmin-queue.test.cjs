@@ -515,17 +515,22 @@ test("Superadmin successful registration closes and clears entry only after save
   });
 });
 
-test("Superadmin dashboard Queue Management action synchronizes the section URL", async () => {
+test("Superadmin dashboard shows the section named in the URL, so links, history and reload agree", async () => {
   const h = await harness([], { section: "home" });
-  const frame = nodes(h.render(), node => Array.isArray(node.props?.sidebarLinks))[0];
-  const action = frame.props.sidebarLinks.find(link => link.label === "Queue Management");
-  assert.ok(action);
-  action.onClick();
-  const navigation = h.navigations.at(-1);
-  assert.ok(navigation, "dashboard action must use router navigation so a reload retains the queue section");
-  assert.equal(navigation[0].pathname, "/");
-  assert.equal(navigation[0].query.section, "queue");
-  assert.equal(navigation[2].shallow, true);
-  await h.flush();
-  assert.equal(h.router.query.section, "queue");
+  const sections = () => nodes(h.render(), node => /\bmax-w-6xl\b/.test(node.props?.className || "") && /\bcontainer\b/.test(node.props.className));
+  const shown = () => sections().map(node => !/\bhidden\b/.test(node.props.className));
+  assert.equal(h.render().props.title, "Dashboard");
+  // Section containers in page order: home, staff, queue. (Staff loads accounts this harness does not serve.)
+  assert.deepEqual(shown(), [true, false, false]);
+  for (const [section, title, visible] of [
+    ["queue", "Queue Management", [false, false, true]],
+    ["unknown-value", "Dashboard", [true, false, false]],
+    ["queue", "Queue Management", [false, false, true]]
+  ]) {
+    h.router.query = { section };
+    await h.flush();
+    assert.equal(h.render().props.title, title, section);
+    assert.deepEqual(shown(), visible, section);
+  }
+  assert.equal(h.navigations.length, 0, "the page follows the URL instead of rewriting it");
 });

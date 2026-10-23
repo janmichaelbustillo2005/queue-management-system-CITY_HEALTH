@@ -90,7 +90,7 @@ async function harness(initialRows, options = {}) {
       };
       if (name === "../lib/api") return { request: async (route, init = {}) => {
         calls.push({ route, method: init.method || "GET", ...(init.body ? { body: JSON.parse(init.body) } : {}) });
-        if (route === "/queue" && !init.method) return clone(backend);
+        if (route === "/queue" && !init.method) return options.queueResponse ? options.queueResponse(backend) : clone(backend);
         if (route === "/account-cancellation-requests/mine") return { success: true, request: null };
         return options.request ? options.request(route, init, backend) : { success: true };
       } };
@@ -129,6 +129,49 @@ function text(tree) {
 }
 const button = (tree, label) => nodes(tree, (node) => node.type === "button" &&
   (node.props["aria-label"] === label || text(node).trim() === label))[0];
+
+const statValues = (tree) => nodes(tree, (node) => node.props?.className === "text-2xl font-bold brand-text").map(text);
+
+test("a confirmed empty queue reports no patients with loaded counts", async () => {
+  const tree = (await harness([])).render();
+  assert.match(text(tree), /No patients in your queue/);
+  assert.doesNotMatch(text(tree), /Queue unavailable/);
+  assert.deepEqual(statValues(tree), ["0", "0", "0", "0"]);
+});
+
+test("a failed queue read is shown as unavailable, never as an empty queue or zero counts", async () => {
+  let failing = true;
+  const h = await harness([serving()], {
+    queueResponse: (backend) => (failing ? { error: "Cannot reach the API. Start the backend." } : clone(backend))
+  });
+  let tree = h.render();
+  assert.match(text(tree), /Cannot reach the API/);
+  assert.match(text(tree), /Queue unavailable/);
+  assert.doesNotMatch(text(tree), /No patients in your queue/);
+  assert.deepEqual(statValues(tree), ["—", "—", "—", "—"]);
+  assert.equal(button(tree, "Accept patient"), undefined);
+
+  failing = false;
+  await button(tree, "Retry").props.onClick();
+  tree = await h.flush();
+  assert.doesNotMatch(text(tree), /Queue unavailable|Cannot reach the API/);
+  assert.ok(text(tree).includes("Test patient 1"));
+  assert.ok(button(tree, "Accept patient"));
+});
+
+test("a queue read that later fails hides the stale rows instead of offering actions on them", async () => {
+  let failing = false;
+  const h = await harness([serving()], {
+    queueResponse: (backend) => (failing ? { error: "Authentication session revoked" } : clone(backend))
+  });
+  assert.ok(button(h.render(), "Accept patient"));
+  failing = true;
+  await button(h.render(), "Refresh").props.onClick();
+  const tree = h.render();
+  assert.match(text(tree), /Queue unavailable/);
+  assert.equal(button(tree, "Accept patient"), undefined);
+  assert.equal(h.actions.length, 0);
+});
 
 test("called patient shows Accept separately from consultation actions", async () => {
   const h = await harness([serving()]);
@@ -296,11 +339,27 @@ test("a doctor account viewing a different doctor, or Superadmin, cannot access 
       const h = await harness([serving(1, { awaiting_accept: false, accepted_at: acceptedAt, consultation_started_at })], { user });
       assert.equal(button(h.render(), "Start Consultation"), undefined);
       assert.equal(button(h.render(), "Complete Consultation"), undefined);
-      if (user.role === "superadmin") {
-        assert.equal(h.render().props.profileMenuLinks[0].label, "Dashboard");
-      }
+      // Super Admin navigates with the shared sidebar; the doctor's own account action is absent.
+      if (user.role === "superadmin") assert.equal(h.render().props.accountActions.length, 0);
+      else assert.deepEqual(Array.from(h.render().props.accountActions, action => action.label), ["Cancel Account"]);
     }
   }
+});
+
+test("a doctor's Cancel Account action only opens the confirmation, and an empty reason sends nothing", async () => {
+  const h = await harness([]);
+  const posts = () => h.calls.filter((call) => call.route === "/account-cancellation-requests" && call.method === "POST");
+  const action = h.render().props.accountActions[0];
+  assert.equal(action.label, "Cancel Account");
+  action.onClick();
+  await h.flush();
+  assert.match(text(h.render()), /Cancel Account Request/);
+  assert.match(text(h.render()), /stay active until a Super Admin reviews and approves/);
+  assert.equal(posts().length, 0, "opening the request never submits it");
+  button(h.render(), "Submit").props.onClick();
+  await h.flush();
+  assert.equal(posts().length, 0);
+  assert.match(text(h.render()), /Please provide a reason for cancel before submitting\./);
 });
 
 test("stale Start is rejected locally when the current doctor counter belongs to another patient", async () => {

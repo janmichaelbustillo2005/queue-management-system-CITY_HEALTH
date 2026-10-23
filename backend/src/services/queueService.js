@@ -2147,16 +2147,16 @@ async function getUsers() {
     return localData.users.map(u => ({
       id_num: u.id_num,
       role: u.role,
-      doctor_name: u.doctor_name,
-      created_at: new Date().toISOString()
+      doctor_name: u.doctor_name
     }));
   }
-  
+
+  // users has no creation timestamp on the installed schema; never select or invent one.
   try {
     const { data, error } = await supabase
       .from("users")
-      .select("id_num, role, doctor_name, created_at")
-      .order("created_at", { ascending: false });
+      .select("id_num, role, doctor_name")
+      .order("id_num", { ascending: true });
 
     if (error) {
       enableLocalFallback(error);

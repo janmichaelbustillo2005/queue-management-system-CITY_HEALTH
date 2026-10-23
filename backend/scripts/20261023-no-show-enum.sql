@@ -1,0 +1,22 @@
+-- No-show status value. SEPARATE DEPENDENCY, NOT PART OF PHASE B.2.
+-- STATUS: PREPARED, NOT INSTALLED. Needs its own written approval; do not install together
+-- with, or as a condition of, 20261023-phase-b2-records.sql.
+--
+-- Effect: the existing POST /api/queue/no-show endpoint and the Frontdesk/Doctor No-show
+-- buttons are already deployed; today PostgreSQL rejects the value, so no visit can become
+-- no-show. Installing this file therefore ACTIVATES the No-show workflow operationally.
+--
+-- PREREQUISITE (not fixed here): race N1. No-show is two statements (conditional patient
+-- update, then counters.current_patient_id = NULL by patient id). If Undo and Call for the
+-- same visit commit between them, the delayed second statement releases the NEW legitimate
+-- assignment, leaving a serving visit without its counter. Reproduced by
+-- backend/test/phase25-cancel-rpc-concurrency.test.js scenario "N1". Fix N1 (single
+-- transactional No-show RPC that releases only a pointer still matching the no-show
+-- revision) or record an explicit acceptance of the risk before approving this file.
+--
+-- Irreversible in place: PostgreSQL cannot drop an enum value. Rolling back means keeping the
+-- value unused (no rows written with it), not removing it. It writes no rows.
+-- ALTER TYPE ... ADD VALUE cannot be used by the same transaction that adds it, so run this
+-- file on its own, then 20261023-no-show-enum-verify.sql.
+ALTER TYPE public.queue_status ADD VALUE IF NOT EXISTS 'no-show' AFTER 'cancelled';
+NOTIFY pgrst, 'reload schema';

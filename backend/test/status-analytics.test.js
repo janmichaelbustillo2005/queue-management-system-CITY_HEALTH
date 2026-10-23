@@ -428,3 +428,38 @@ test("Status Analytics route preserves Superadmin auth, validates functional fil
   h.setFailure();
   assert.equal((await request("superadmin")).statusCode, 503);
 });
+
+test("period outcomes describe exactly the Total Patients group by current status and report earlier carry-ins separately", () => {
+  const yesterday = "2026-10-14";
+  const rows = [
+    patient(1, { status: "completed", created_at: at("08:00"), called_at: at("08:10"), consultation_started_at: at("08:15"), completed_at: at("09:00"), counter_id: "Doctor 1" }),
+    patient(2, { status: "waiting", created_at: at("09:00") }),
+    patient(3, { status: "serving", created_at: at("09:30"), called_at: at("09:40"), counter_id: "Doctor 2" }),
+    patient(4, { status: "cancelled", created_at: at("08:30"), completed_at: at("08:45") }),
+    patient(5, { status: "no-show", created_at: at("09:10"), completed_at: at("10:00") }),
+    patient(6, { status: "waiting", created_at: at("16:00", yesterday) }),
+    patient(7, { status: "completed", created_at: at("15:00", yesterday), called_at: at("15:20", yesterday),
+      consultation_started_at: at("15:30", yesterday), completed_at: at("08:20"), counter_id: "Doctor 1" }),
+    patient(8, { status: "waiting", created_at: at("11:00") })
+  ];
+  const h = harness(rows);
+  const result = h.aggregate();
+  assert.equal(result.outcomes.total, 5);
+  assert.equal(result.outcomes.total, result.metrics.total_patients.value, "the status breakdown must add up to Total Patients");
+  assert.deepEqual(result.outcomes.statuses.map(row => [row.status, row.label, row.count, row.percentage]), [
+    ["completed", "Completed", 1, 20], ["waiting", "Waiting", 1, 20], ["serving", "Being served", 1, 20],
+    ["cancelled", "Cancelled", 1, 20], ["no-show", "No-show", 1, 20]
+  ]);
+  assert.equal(result.outcomes.statuses.reduce((sum, row) => sum + row.count, 0), result.outcomes.total);
+  assert.equal(result.outcomes.live, true);
+  assert.deepEqual(result.outcomes.carry_in, { waiting: 1, serving: 0 });
+  assert.deepEqual(result.duration_samples, { wait: 2, service: 2 });
+
+  const pastDay = h.aggregate(rows, { date: yesterday });
+  assert.equal(pastDay.outcomes.live, false);
+  assert.equal(pastDay.outcomes.carry_in, null, "a finished period has no live queue carry-over");
+  assert.equal(pastDay.outcomes.total, 2);
+
+  const future = h.aggregate(rows, { date: "2026-10-16" });
+  assert.deepEqual(future.outcomes, { total: null, live: false, statuses: [], carry_in: null });
+});

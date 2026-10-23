@@ -1884,37 +1884,215 @@ function getDateLabel(dateValue) {
   });
 }
 
+const ANALYTICS_SERVICE_ORDER = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
+const ANALYTICS_STATUS_ORDER = ["waiting", "serving", "completed", "cancelled", "no-show"];
+const ANALYTICS_PRIORITY_ORDER = ["senior", "pwd", "pregnant", "indigenous", "solo_parent", "regular"];
+const ANALYTICS_AGE_GROUPS = [
+  { label: "0–5", max: 5 },
+  { label: "6–17", max: 17 },
+  { label: "18–35", max: 35 },
+  { label: "36–59", max: 59 },
+  { label: "60+", max: Infinity }
+];
+const ANALYTICS_NOT_RECORDED = "Not recorded";
+const ANALYTICS_OTHER_LOCATIONS = "Other locations";
+const ANALYTICS_RESIDENCY_LIMIT = 8;
+// Longer bounded ranges list only days with visits rather than years of zeros.
+const ANALYTICS_MAX_FILLED_DAYS = 366;
+
+function countBy(rows, keyOf) {
+  const counts = new Map();
+  rows.forEach((row) => {
+    const key = keyOf(row);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return counts;
+}
+
+// Known categories keep a fixed order (so each keeps its colour); anything else
+// follows by size, and "Not recorded" always comes last.
+function orderedChart(counts, order = []) {
+  const extra = [...counts.keys()]
+    .filter((key) => !order.includes(key) && key !== ANALYTICS_NOT_RECORDED)
+    .sort((a, b) => counts.get(b) - counts.get(a) || String(a).localeCompare(String(b)));
+  const labels = [...order.filter((key) => counts.has(key)), ...extra];
+  if (counts.has(ANALYTICS_NOT_RECORDED)) labels.push(ANALYTICS_NOT_RECORDED);
+  return { labels, data: labels.map((key) => counts.get(key)) };
+}
+
+function normalizeSexLabel(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return ANALYTICS_NOT_RECORDED;
+  if (text === "m" || text === "male") return "Male";
+  if (text === "f" || text === "female") return "Female";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function getAgeAtVisit(birthdate, visitAt) {
+  const birth = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(birthdate ?? ""));
+  if (!birth) return null;
+  let visitDate;
+  try {
+    visitDate = getBusinessDate(visitAt);
+  } catch (_error) {
+    return null;
+  }
+  const [visitYear, visitMonth, visitDay] = visitDate.split("-").map(Number);
+  const [birthYear, birthMonth, birthDay] = birth.slice(1).map(Number);
+  const beforeBirthday = visitMonth < birthMonth || (visitMonth === birthMonth && visitDay < birthDay);
+  const age = visitYear - birthYear - (beforeBirthday ? 1 : 0);
+  return age >= 0 && age < 130 ? age : null;
+}
+
+function getAgeGroupLabel(patient) {
+  const age = getAgeAtVisit(patient.birthdate, patient.created_at);
+  if (age == null) return ANALYTICS_NOT_RECORDED;
+  return ANALYTICS_AGE_GROUPS.find((group) => age <= group.max).label;
+}
+
+function buildResidencyChart(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const label = String(row.residency ?? "").trim().replace(/\s+/g, " ");
+    const key = label ? label.toLowerCase() : ANALYTICS_NOT_RECORDED;
+    const group = groups.get(key) || { label: label || ANALYTICS_NOT_RECORDED, count: 0 };
+    group.count += 1;
+    groups.set(key, group);
+  });
+  const missing = groups.get(ANALYTICS_NOT_RECORDED);
+  groups.delete(ANALYTICS_NOT_RECORDED);
+  const ranked = [...groups.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const shown = ranked.slice(0, ANALYTICS_RESIDENCY_LIMIT);
+  const otherCount = ranked.slice(ANALYTICS_RESIDENCY_LIMIT).reduce((sum, group) => sum + group.count, 0);
+  if (otherCount) shown.push({ label: ANALYTICS_OTHER_LOCATIONS, count: otherCount });
+  if (missing) shown.push(missing);
+  return { labels: shown.map((group) => group.label), data: shown.map((group) => group.count) };
+}
+
+// A visit can carry several priority categories, so these counts can exceed
+// the number of visits. Visits without a category count as "regular".
+function buildPriorityChart(rows) {
+  const counts = new Map();
+  rows.forEach((row) => {
+    const flags = [...new Set((row.vulnerability_flags || []).filter((flag) => ANALYTICS_PRIORITY_ORDER.includes(flag)))];
+    (flags.length ? flags : ["regular"]).forEach((flag) => counts.set(flag, (counts.get(flag) || 0) + 1));
+  });
+  return orderedChart(counts, ANALYTICS_PRIORITY_ORDER);
+}
+
+function addBusinessDays(date, days) {
+  const next = new Date(`${date}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+// Patients per Manila calendar day. A bounded range lists every day, including
+// days without visits, so gaps are visible; All Time lists only days with visits.
+function buildDailyChart(rows, range) {
+  const counts = countBy(rows, (row) => getBusinessDate(row.created_at));
+  let days = [...counts.keys()].sort();
+  if (range?.start && range?.end) {
+    const first = getBusinessDate(range.start);
+    const last = getBusinessDate(new Date(Date.parse(range.end) - 1));
+    const filled = [];
+    for (let day = first; day <= last && filled.length <= ANALYTICS_MAX_FILLED_DAYS; day = addBusinessDays(day, 1)) {
+      filled.push(day);
+    }
+    if (filled.length <= ANALYTICS_MAX_FILLED_DAYS) days = filled;
+  }
+  return {
+    labels: days.map((day) => getDateLabel(`${day}T12:00:00+08:00`)),
+    data: days.map((day) => counts.get(day) || 0)
+  };
+}
+
+// Arrivals by Manila hour, in clock order, with empty hours between the first
+// and last busy hour shown as zero.
+function buildHourlyChart(rows) {
+  const hourOf = (row) => Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila", hour: "2-digit", hourCycle: "h23"
+  }).format(new Date(row.created_at)));
+  const counts = countBy(rows, hourOf);
+  if (!counts.size) return { labels: [], data: [] };
+  const hours = [...counts.keys()];
+  const labels = [];
+  const data = [];
+  for (let hour = Math.min(...hours); hour <= Math.max(...hours); hour += 1) {
+    labels.push(`${String(hour).padStart(2, "0")}:00`);
+    data.push(counts.get(hour) || 0);
+  }
+  return { labels, data };
+}
+
+function getWaitMinutes(row) {
+  const endedWaiting = row.called_at || row.completed_at;
+  return endedWaiting ? Math.round((new Date(endedWaiting) - new Date(row.created_at)) / 60000) : null;
+}
+
+function averageText(values) {
+  return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "0.0";
+}
+
+function summarizeVisits(rows) {
+  const count = (status) => rows.filter((row) => row.status === status).length;
+  const completed = count("completed");
+  const waitDurations = rows.map(getWaitMinutes).filter((minutes) => minutes != null);
+  const serviceDurations = rows.map(getServiceDurationSeconds)
+    .filter((duration) => duration != null)
+    .map((duration) => duration / 60);
+  return {
+    total_patients: rows.length,
+    completed,
+    cancelled: count("cancelled"),
+    no_show: count("no-show"),
+    waiting: count("waiting"),
+    serving: count("serving"),
+    avg_wait_time: averageText(waitDurations),
+    avg_service_time: averageText(serviceDurations),
+    completion_rate: rows.length ? ((completed * 100) / rows.length).toFixed(1) : "0.0"
+  };
+}
+
+// Visits stamp the doctor's name in counter_id; older rows may hold a counter
+// id instead. Only then are counters read, and without enabling local fallback.
+async function loadCounterAliases(rows) {
+  const needsLookup = rows.some((row) => {
+    const raw = row.counter_id == null ? "" : String(row.counter_id).trim();
+    return raw && !/^doctor\s*\d+$/i.test(raw);
+  });
+  if (!needsLookup) return [];
+  if (useLocalFallback) return localData.counters;
+  try {
+    const { data, error } = await supabase.from("counters").select("id, id_num");
+    return error ? [] : data || [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function getVisitDoctor(row, counterAliases) {
+  const raw = row.counter_id == null ? "" : String(row.counter_id).trim();
+  if (!raw) return getDoctorForService(row.service_type);
+  const named = raw.match(/^doctor\s*(\d+)$/i);
+  if (named) return `Doctor ${Number(named[1])}`;
+  return resolveDoctorCounter(raw, counterAliases)?.id_num || raw;
+}
+
 async function getAnalytics(startDate, endDate, filters = {}) {
-  const rows = await getFilteredPatients({ ...filters, startDate, endDate });
-  const serviceGroups = new Map();
-  const dayGroups = new Map();
-  const hourGroups = new Map();
-  const statusGroups = new Map();
+  const selection = { ...filters, startDate, endDate };
+  const rows = await getFilteredPatients(selection);
+  const range = getDateFilterRange(selection, new Date());
 
   let totalWaitMinutes = 0;
   let totalServiceMinutes = 0;
   let waitSamples = 0;
   let serviceSamples = 0;
-
   rows.forEach((row) => {
-    serviceGroups.set(row.service_type, (serviceGroups.get(row.service_type) || 0) + 1);
-    statusGroups.set(row.status, (statusGroups.get(row.status) || 0) + 1);
-
-    const createdAt = new Date(row.created_at);
-    const dayLabel = getDateLabel(createdAt);
-    dayGroups.set(dayLabel, (dayGroups.get(dayLabel) || 0) + 1);
-
-    const hourLabel = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "2-digit", hourCycle: "h23" }).format(createdAt) + ":00";
-    hourGroups.set(hourLabel, (hourGroups.get(hourLabel) || 0) + 1);
-
-    if (row.called_at) {
-      totalWaitMinutes += Math.round((new Date(row.called_at) - createdAt) / 60000);
-      waitSamples += 1;
-    } else if (row.completed_at) {
-      totalWaitMinutes += Math.round((new Date(row.completed_at) - createdAt) / 60000);
+    const waitMinutes = getWaitMinutes(row);
+    if (waitMinutes != null) {
+      totalWaitMinutes += waitMinutes;
       waitSamples += 1;
     }
-
     const serviceDuration = getServiceDurationSeconds(row);
     if (serviceDuration != null) {
       totalServiceMinutes += serviceDuration / 60;
@@ -1922,38 +2100,22 @@ async function getAnalytics(startDate, endDate, filters = {}) {
     }
   });
 
-  const completionCount = rows.filter((row) => row.status === "completed").length;
-  const tableData = Array.from(serviceGroups.entries())
-    .map(([serviceType, total]) => {
-      const serviceRows = rows.filter((row) => row.service_type === serviceType);
-      const completed = serviceRows.filter((row) => row.status === "completed").length;
-      const cancelled = serviceRows.filter((row) => row.status === "cancelled").length;
+  const groupRows = (keyOf) => rows.reduce((groups, row) => {
+    const key = keyOf(row);
+    groups.set(key, [...(groups.get(key) || []), row]);
+    return groups;
+  }, new Map());
 
-      const waitDurations = serviceRows
-        .filter((row) => row.called_at || row.completed_at)
-        .map((row) => Math.round((new Date(row.called_at || row.completed_at) - new Date(row.created_at)) / 60000));
-
-      const serviceDurations = serviceRows
-        .map(getServiceDurationSeconds)
-        .filter((duration) => duration != null)
-        .map((duration) => duration / 60);
-
-      return {
-        service_type: serviceType,
-        total_patients: total,
-        completed,
-        cancelled,
-        avg_wait_time: waitDurations.length
-          ? (waitDurations.reduce((sum, value) => sum + value, 0) / waitDurations.length).toFixed(1)
-          : "0.0",
-        avg_service_time: serviceDurations.length
-          ? (serviceDurations.reduce((sum, value) => sum + value, 0) / serviceDurations.length).toFixed(1)
-          : "0.0",
-        completion_rate: total ? ((completed * 100) / total).toFixed(1) : "0.0"
-      };
-    })
+  const tableData = Array.from(groupRows((row) => row.service_type).entries())
+    .map(([serviceType, serviceRows]) => ({ service_type: serviceType, ...summarizeVisits(serviceRows) }))
     .sort((a, b) => b.total_patients - a.total_patients);
 
+  const counterAliases = await loadCounterAliases(rows);
+  const doctorTable = Array.from(groupRows((row) => getVisitDoctor(row, counterAliases)).entries())
+    .map(([doctor, doctorRows]) => ({ doctor, ...summarizeVisits(doctorRows) }))
+    .sort((a, b) => a.doctor.localeCompare(b.doctor, undefined, { numeric: true }));
+
+  const completionCount = rows.filter((row) => row.status === "completed").length;
   return {
     metrics: {
       totalPatients: rows.length,
@@ -1962,34 +2124,18 @@ async function getAnalytics(startDate, endDate, filters = {}) {
       completionRate: rows.length ? Number(((completionCount * 100) / rows.length).toFixed(1)) : 0
     },
     charts: {
-      serviceTypes: {
-        labels: Array.from(serviceGroups.keys()),
-        data: Array.from(serviceGroups.values())
-      },
-      sexDistribution: {
-        labels: Array.from(rows.reduce((acc, r) => {
-          if (r.sex) acc.add(r.sex);
-          return acc;
-        }, new Set())),
-        data: Array.from(rows.reduce((acc, r) => {
-          if (r.sex) acc.set(r.sex, (acc.get(r.sex) || 0) + 1);
-          return acc;
-        }, new Map()).values())
-      },
-      dailyTrends: {
-        labels: Array.from(dayGroups.keys()),
-        data: Array.from(dayGroups.values())
-      },
-      hourly: {
-        labels: Array.from(hourGroups.keys()),
-        data: Array.from(hourGroups.values())
-      },
-      status: {
-        labels: Array.from(statusGroups.keys()),
-        data: Array.from(statusGroups.values())
-      }
+      serviceTypes: orderedChart(countBy(rows, (row) => row.service_type), ANALYTICS_SERVICE_ORDER),
+      sexDistribution: orderedChart(countBy(rows, (row) => normalizeSexLabel(row.sex)), ["Male", "Female"]),
+      dailyTrends: buildDailyChart(rows, range),
+      hourly: buildHourlyChart(rows),
+      status: orderedChart(countBy(rows, (row) => row.status), ANALYTICS_STATUS_ORDER),
+      priorityCategories: buildPriorityChart(rows),
+      ageGroups: orderedChart(countBy(rows, getAgeGroupLabel), ANALYTICS_AGE_GROUPS.map((group) => group.label)),
+      residency: buildResidencyChart(rows)
     },
-    tableData
+    tableData,
+    totals: summarizeVisits(rows),
+    doctorTable
   };
 }
 

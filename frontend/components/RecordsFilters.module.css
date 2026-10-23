@@ -1,8 +1,16 @@
 /* Records filter toolbar: Status Analytics control treatment, Superadmin brand actions. */
-.toolbar { background: #fff; border: 1px solid #dce3ec; border-radius: 12px; color: #172033; padding: 14px 16px; }
-.primary { display: grid; gap: 12px; grid-template-columns: minmax(0, 2fr) repeat(var(--filter-columns), minmax(0, 1fr)); }
-.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.label { align-items: baseline; color: #475569; display: flex; font-size: 11px; font-weight: 600; gap: 6px; line-height: 1.4; }
+/* The toolbar is a size container: its layout follows the space it actually
+   has (which the docked sidebar reduces), not the window width. */
+.toolbar { background: #fff; border: 1px solid #dce3ec; border-radius: 12px; color: #172033; container-type: inline-size; padding: 14px 16px; }
+/* One row of fields plus the Reset/Apply pair, bottom-aligned so the buttons
+   line up with the input boxes. Each field starts at its own minimum width
+   (--field-min, set per field) and wraps instead of shrinking below it. */
+.primary { align-items: flex-end; display: flex; flex-wrap: wrap; gap: 12px; }
+.field { display: flex; flex: 1 1 var(--field-min, 140px); flex-direction: column; gap: 5px; max-width: 280px; min-width: var(--field-min, 140px); }
+.searchField { max-width: 260px; }
+.dateField { max-width: 175px; }
+/* Labels stay on one line so every control in the row starts at the same height. */
+.label { align-items: baseline; color: #475569; display: flex; font-size: 11px; font-weight: 600; gap: 6px; line-height: 1.4; overflow: hidden; white-space: nowrap; }
 .hint { color: #94a3b8; font-size: 10px; font-weight: 500; }
 .input { background: #fff; border: 1px solid #dce3ec; border-radius: 8px; color: #334155; font-family: inherit; font-size: 13px; height: 38px; line-height: 1.4; margin: 0; max-width: 100%; min-width: 0; padding: 7px 10px; width: 100%; }
 select.input { cursor: pointer; padding-right: 28px; text-overflow: ellipsis; }
@@ -18,6 +26,7 @@ select.input { cursor: pointer; padding-right: 28px; text-overflow: ellipsis; }
 .advancedGrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); padding: 12px 2px 2px; }
 
 .actions { align-items: center; border-top: 1px solid #eef2f6; display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; padding-top: 12px; }
+.actionsEmpty { border-top: 0; margin-top: 0; padding-top: 0; }
 .moreButton { align-items: center; background: none; border: 1px solid transparent; border-radius: 8px; color: var(--brand-primary, #167d3f); cursor: pointer; display: inline-flex; font-family: inherit; font-size: 12px; font-weight: 600; gap: 7px; height: 34px; padding: 0 8px; }
 .moreButton:hover { background: #f1f7f3; }
 .count { background: var(--brand-primary, #167d3f); border-radius: 999px; color: #fff; font-size: 10px; line-height: 1; min-width: 18px; padding: 4px 6px; text-align: center; }
@@ -25,8 +34,10 @@ select.input { cursor: pointer; padding-right: 28px; text-overflow: ellipsis; }
 .moreButton[aria-expanded="true"] .chevron { transform: rotate(180deg); }
 .pendingNote { color: #a16207; font-size: 11px; font-weight: 500; }
 .pendingNote:empty { display: none; }
-.buttons { display: flex; gap: 8px; margin-left: auto; }
+/* Reset and Apply stay together; on a wrapped row they sit at the right edge. */
+.buttons { display: flex; flex: 0 0 auto; gap: 8px; margin-left: auto; }
 .applyButton, .resetButton { align-items: center; border: 1px solid; border-radius: 8px; cursor: pointer; display: inline-flex; font-family: inherit; font-size: 12px; font-weight: 600; gap: 7px; height: 38px; justify-content: center; padding: 0 16px; white-space: nowrap; }
+.resetButton { padding: 0 14px; }
 .applyButton { background: var(--brand-primary, #167d3f); border-color: var(--brand-primary, #167d3f); color: #fff; }
 .applyButton:hover { background: var(--brand-primary-hover, #116530); }
 .resetButton { background: #fff; border-color: #dce3ec; color: #475569; }
@@ -47,16 +58,21 @@ select.input { cursor: pointer; padding-right: 28px; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) {
   .advanced, .chevron { transition: none; }
 }
-@media (max-width: 1023px) {
-  .primary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .searchField { grid-column: 1 / -1; }
+/* Tablet-width toolbars: an even two-column grid, search and actions full width. */
+@container (max-width: 759px) {
+  .primary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .field { max-width: none; min-width: 0; }
+  .searchField, .buttons { grid-column: 1 / -1; }
+  .buttons { justify-content: flex-end; margin-left: 0; }
 }
-@media (max-width: 639px) {
-  .toolbar { padding: 12px; }
+/* Phone-width toolbars: one column, buttons sharing the full width. */
+@container (max-width: 479px) {
   .primary { grid-template-columns: minmax(0, 1fr); }
+  .applyButton, .resetButton { flex: 1 1 0; }
   .actions { align-items: stretch; flex-direction: column; }
   .moreButton { justify-content: center; }
   .pendingNote { text-align: center; }
-  .buttons { margin-left: 0; width: 100%; }
-  .applyButton, .resetButton { flex: 1 1 0; }
+}
+@media (max-width: 639px) {
+  .toolbar { padding: 12px; }
 }

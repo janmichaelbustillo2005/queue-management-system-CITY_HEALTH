@@ -3,6 +3,7 @@ const cors = require("cors");
 const env = require("./config/env");
 const routes = require("./routes");
 const { seedCounters } = require("./services/queueService");
+const { redactQueryValues } = require("./lib/requestLog");
 
 const app = express();
 
@@ -39,7 +40,7 @@ app.use(
 app.use(express.json());
 
 app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${redactQueryValues(req.url)}`);
   next();
 });
 

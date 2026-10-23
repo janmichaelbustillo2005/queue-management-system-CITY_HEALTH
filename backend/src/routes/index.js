@@ -34,7 +34,6 @@ const {
   getQueueStorageMode,
   getQueueStats,
   getTransactions,
-  renameServiceType,
   seedCounters,
   setCounterOnline,
   loginUser,
@@ -587,7 +586,9 @@ router.get("/analytics/export", authenticateToken, authorizeRole(["superadmin"])
   }
 });
 
-router.post("/setup/counters", async (_req, res) => {
+// Maintenance only: startup seeds missing counters itself (src/index.js). Inserts
+// absent Doctor 1–3 counters and never changes existing counters or patients.
+router.post("/setup/counters", authenticateToken, authorizeRole(["superadmin"]), async (_req, res) => {
   try {
     const result = await seedCounters();
     res.json({ success: true, ...result });
@@ -596,14 +597,14 @@ router.post("/setup/counters", async (_req, res) => {
   }
 });
 
-router.post("/setup/service-type", async (req, res) => {
-  try {
-    const { oldValue = "technical", newValue = "doc_processing" } = req.body;
-    await renameServiceType(oldValue, newValue);
-    res.json({ success: true, message: "Service type updated successfully" });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+// Disabled (S1): renaming a service type rewrites historical patient records and the
+// service-to-doctor routing, and no approved maintenance workflow uses it. Kept behind
+// Superadmin authentication so the route discloses nothing to other callers.
+router.post("/setup/service-type", authenticateToken, authorizeRole(["superadmin"]), (_req, res) => {
+  res.status(410).json({
+    success: false,
+    message: "Service type renaming is disabled. It changes patient history and doctor routing and requires an approved maintenance procedure."
+  });
 });
 
 // User Management Routes

@@ -185,6 +185,35 @@ describe("F5 requeue_patient_visit on real PostgreSQL with independent connectio
     assert.equal((await patient(5)).status, "waiting");
   });
 
+  // Known gap C1 (not fixed by F5): Call's patient CAS checks status/service/counter_id but not
+  // visit_state_revision, so a Cancel + Requeue committed inside Call's two-step window is an ABA
+  // the CAS cannot see. Pinned so it fails loudly once C1 is fixed; the same ABA exists with Undo.
+  test("known C1 gap: Cancel + Requeue inside Call's two-step window leaves a serving visit without its counter", async () => {
+    const { A, B } = sessions;
+    const waiting = await patient(8);
+    assert.equal(waiting.status, "waiting");
+    assert.equal((await B.client.query(`UPDATE public.counters SET current_patient_id = 8
+      WHERE id_num = 'Doctor 3' AND is_online AND current_patient_id IS NULL`)).rowCount, 1, "Call: claim");
+    await A.client.query("BEGIN");
+    await A.client.query("SELECT id FROM public.counters ORDER BY id FOR UPDATE");
+    assert.equal((await A.client.query(`UPDATE public.patients SET status = 'cancelled', completed_at = clock_timestamp()
+      WHERE id = 8 AND status = 'waiting' AND visit_state_revision = $1`, [waiting.visit_state_revision])).rowCount, 1);
+    await A.client.query("UPDATE public.counters SET current_patient_id = NULL WHERE current_patient_id = 8");
+    await A.client.query("COMMIT");
+    const requeued = await requeue(A, await patient(8));
+    assert.equal(requeued.status, "waiting");
+    assert.notEqual(requeued.visit_state_revision, waiting.visit_state_revision);
+    assert.equal((await pointers())["Doctor 3"], null, "Requeue released only this visit's pointer");
+    const serveSql = `UPDATE public.patients SET status = 'serving', counter_id = 'Doctor 3', called_at = clock_timestamp()
+      WHERE id = 8 AND status = 'waiting' AND service_type = 'family_planning' AND completed_at IS NULL AND counter_id IS NULL`;
+    // A revision-guarded CAS (the C1 fix direction) refuses the delayed serve.
+    assert.equal((await B.client.query(`${serveSql} AND visit_state_revision = $1`, [waiting.visit_state_revision])).rowCount, 0);
+    assert.equal((await B.client.query(serveSql)).rowCount, 1, "C1 reproduced: the current Call CAS matches after the ABA");
+    const after = await patient(8);
+    assert.deepEqual([after.status, after.counter_id, (await pointers())["Doctor 3"]], ["serving", "Doctor 3", null],
+      "serving visit without its counter pointer");
+  });
+
   test("a serving visit is refused immediately even while its Complete is in flight, and keeps its start", async () => {
     const { A, B } = sessions;
     const inConsultation = await patient(2);

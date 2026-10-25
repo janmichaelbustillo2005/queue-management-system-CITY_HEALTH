@@ -122,7 +122,7 @@ for (const localFallback of [false, true]) {
     assert.equal(response.status, 400);
     assert.equal((await h.service.getPatientById(patient.id)).consultation_started_at, null);
     assert.equal(h.settings.isAwaitingAccept(patient.id), true);
-    assert.equal(h.database.calls.filter((entry) => entry.action === "rpc").length, 0);
+    assert.equal(h.database.calls.filter((entry) => entry.action === "rpc" && entry.function !== "call_patient_visit").length, 0, "No consultation RPC was attempted");
   });
 
   for (const status of ["waiting", "completed", "cancelled", "no-show"]) {
@@ -671,7 +671,7 @@ test("RPC simulation: strict database read failures fail closed without falling 
   const response = await h.request("POST", "/queue/start", { patient_id: patient.id }, doctorUser());
   assert.equal(response.status, 503);
   assert.deepEqual(clone(h.database.patients[0]), before);
-  assert.equal(h.database.calls.filter((entry) => entry.action === "rpc").length, 0);
+  assert.equal(h.database.calls.filter((entry) => entry.action === "rpc" && entry.function !== "call_patient_visit").length, 0, "No consultation RPC was attempted");
   h.database.beforeQuery = null;
   assert.equal((await h.service.getQueueOverview()).patients.length, 1);
 });

@@ -1,6 +1,7 @@
-// Shared synthetic fixture for the R2.1/R2.2 cancel_patient_visit draft tests.
-// Test-only: reads the revision 2 SQL from its proposal document and the real Node
-// resolver functions from source text. Never loads .env, dotenv or the Supabase client.
+// Shared synthetic fixture for the R2.1/R2.2/W1 cancel_patient_visit tests.
+// Test-only: reads the W1 migration (the executable successor of the revision 2 proposal)
+// and the real Node resolver functions from source text. Never loads .env, dotenv or the
+// Supabase client.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -20,11 +21,12 @@ const MIGRATIONS = [
   "backend/scripts/20261014-phase22-undo-waiting.sql"
 ];
 
+const W1_MIGRATION = "backend/scripts/20261025-w1-atomic-cancel.sql";
+
+// The SQL these suites install. Until W1 it was the draft block in
+// docs/phase25-cancel-atomicity-proposal-rev2.md; that document is kept unchanged as history.
 function proposalSql() {
-  const doc = read("docs/phase25-cancel-atomicity-proposal-rev2.md");
-  const block = doc.slice(doc.indexOf("## 4. Draft SQL")).match(/```sql\r?\n([\s\S]*?)```/);
-  assert.ok(block, "revision 2 SQL block not found");
-  return block[1];
+  return read(W1_MIGRATION);
 }
 
 // The real Node function, evaluated from source without loading queueService.
@@ -106,6 +108,6 @@ const SEED = `
 `;
 
 module.exports = {
-  repo, read, CANCEL, HELPER, MIGRATIONS, proposalSql, nodeFunction,
+  repo, read, CANCEL, HELPER, MIGRATIONS, W1_MIGRATION, proposalSql, nodeFunction,
   BASE_SCHEMA, SUPABASE_DEFAULT_PRIVILEGES, ACCOUNTS, SEED
 };

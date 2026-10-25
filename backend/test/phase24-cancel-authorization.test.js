@@ -394,15 +394,28 @@ for (const localFallback of [false, true]) {
 // verify the service's conditional-write and revision logic, not PostgreSQL row
 // locking between independent connections.
 // ---------------------------------------------------------------------------
+// W1: Cancel's write is the cancel_patient_visit RPC; with it absent only a waiting visit
+// without a counter pointer is cancelled, by a single compare-and-set (the "absent" runs).
+const beforeCancelWrite = (h, installed, intervene) => {
+  if (!installed) h.database.cancelRpcInstalled = false;
+  const hook = installed ? "beforeRpc" : "beforeQuery";
+  h.database[hook] = async (operation) => {
+    if (installed ? operation !== "cancel_patient_visit" : operation.table !== "patients" || operation.action !== "update") return undefined;
+    h.database[hook] = null;
+    await intervene();
+    return undefined;
+  };
+};
+
 test("mock Supabase: Complete committed by another instance before Cancel's write wins; completed history is not overwritten", async () => {
   const h = await setup(false);
   const patient = await startedPatient(h, 2);
   h.advance(10000);
   let raced = false;
-  h.database.beforeQuery = async (query) => {
-    if (raced || query.table !== "patients" || query.action !== "update") return undefined;
+  h.database.beforeRpc = async (name) => {
+    if (raced || name !== "cancel_patient_visit") return undefined;
     raced = true;
-    h.database.beforeQuery = null;
+    h.database.beforeRpc = null;
     const done = await h.request("POST", "/queue/complete", { patient_id: patient.id }, doctor(2));
     assert.equal(done.status, 200, done.body.message);
     return undefined;
@@ -417,21 +430,18 @@ test("mock Supabase: Complete committed by another instance before Cancel's writ
 
 // F5: a waiting visit can no longer be re-queued, so the waiting -> waiting ABA is produced by
 // a committed Cancel followed by Undo (both rotate the revision and restore "waiting").
-test("mock Supabase: a Cancel and Undo between Cancel's validation and write make the stale Cancel fail without touching the new visit", async () => {
+for (const installed of [true, false]) test(`mock Supabase (W1 RPC ${installed ? "installed" : "absent"}): a Cancel and Undo between Cancel's validation and write make the stale Cancel fail without touching the new visit`, async () => {
   const h = await setup(false);
   const patient = await waitingPatient(h, 1);
   let revisionAtRace;
-  h.database.beforeQuery = async (query) => {
-    if (query.table !== "patients" || query.action !== "update") return undefined;
-    h.database.beforeQuery = null;
+  beforeCancelWrite(h, installed, async () => {
     h.advance();
     const intervening = await h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Intervening cancellation" }, FRONTDESK);
     assert.equal(intervening.status, 200, intervening.body.message);
     const undo = await h.request("POST", "/queue/undo", { patient_id: patient.id }, FRONTDESK);
     assert.equal(undo.status, 200, undo.body.message);
     revisionAtRace = (await row(h, patient)).visit_state_revision;
-    return undefined;
-  };
+  });
   const response = await cancel(h, patient, FRONTDESK);
   assert.equal(response.status, 409, response.body.message);
   const stored = await row(h, patient);
@@ -440,16 +450,13 @@ test("mock Supabase: a Cancel and Undo between Cancel's validation and write mak
   assert.notEqual(stored.reason, "Synthetic cancellation");
 });
 
-test("mock Supabase: a Call between Cancel's validation and write cannot be overwritten by the stale Cancel", async () => {
+for (const installed of [true, false]) test(`mock Supabase (W1 RPC ${installed ? "installed" : "absent"}): a Call between Cancel's validation and write cannot be overwritten by the stale Cancel`, async () => {
   const h = await setup(false);
   const patient = await waitingPatient(h, 3);
-  h.database.beforeQuery = async (query) => {
-    if (query.table !== "patients" || query.action !== "update") return undefined;
-    h.database.beforeQuery = null;
+  beforeCancelWrite(h, installed, async () => {
     h.advance();
     await h.service.callPatient(patient.id, "Doctor 3");
-    return undefined;
-  };
+  });
   const response = await cancel(h, patient, FRONTDESK);
   assert.equal(response.status, 409);
   const stored = await row(h, patient);

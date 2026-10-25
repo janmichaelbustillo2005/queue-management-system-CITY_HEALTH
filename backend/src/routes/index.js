@@ -240,7 +240,7 @@ router.post("/queue/call", authenticateToken, async (req, res) => {
     if (accountDoctor && requestedDoctor != null && requestedDoctor !== accountDoctor) {
       return res.status(403).json({ success: false, message: "You can only call patients assigned to your doctor." });
     }
-    await callPatient(Number(patient_id), requestedDoctor ?? accountDoctor);
+    await callPatient(Number(patient_id), requestedDoctor ?? accountDoctor, req.user);
     console.info("[voice][queue-call]", {
       patient_id: Number(patient_id),
       requested_counter: requestedDoctor ?? accountDoctor,
@@ -371,6 +371,9 @@ router.post("/queue/cancel", authenticateToken, async (req, res) => {
     const trimmedReason = String(reason || "").trim();
     if (!trimmedReason) {
       return res.status(400).json({ success: false, message: "Reason for cancel is required" });
+    }
+    if (trimmedReason.length > 1000) {
+      return res.status(400).json({ success: false, message: "Reason for cancel is too long (maximum 1000 characters)" });
     }
     const result = await cancelPatient(Number(patient_id), trimmedReason, counter_id || counterId || null, req.user);
     if (result?.already_cancelled) {

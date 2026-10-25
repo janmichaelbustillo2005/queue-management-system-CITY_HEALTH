@@ -149,6 +149,16 @@ function fakeSupabase(database, now, localFallback) {
     if (name === "requeue_patient_visit" && !database.requeueRpcInstalled) {
       return { data: null, error: { code: "PGRST202", message: "Could not find the function public.requeue_patient_visit" } };
     }
+    // The C1 atomic Call is a reviewed, uninstalled migration: absent unless a test opts in.
+    if (name === "call_patient_visit" && !database.callRpcInstalled) {
+      return { data: null, error: { code: "PGRST202", message: "Could not find the function public.call_patient_visit" } };
+    }
+    // The W1 atomic Cancel is also uninstalled, but without it a serving visit cannot be
+    // cancelled at all (fail closed), so it is emulated unless a test sets
+    // cancelRpcInstalled = false to model the current database. W1 tests cover both.
+    if (name === "cancel_patient_visit" && database.cancelRpcInstalled === false) {
+      return { data: null, error: { code: "PGRST202", message: "Could not find the function public.cancel_patient_visit" } };
+    }
     if (name === "complete_patient_consultation" && !Object.hasOwn(args, "p_expected_started_at")) {
       return { data: null, error: { code: "PGRST202", message: "Required completion RPC argument p_expected_started_at is missing" } };
     }
@@ -219,6 +229,108 @@ function fakeSupabase(database, now, localFallback) {
           }
         }
         patient.visit_state_revision = crypto.randomUUID();
+        if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
+        database.patients.splice(0, database.patients.length, ...patients);
+        database.counters.splice(0, database.counters.length, ...counters);
+        return { data: database.rpcReturnsArray ? [clone(patient)] : clone(patient), error: null };
+      }
+      if (name === "cancel_patient_visit") {
+        // Mirrors 20261025-w1-atomic-cancel.sql step by step, with all-or-nothing writes;
+        // PostgreSQL locking itself is covered by w1-atomic-cancel-concurrency.test.js.
+        const fail = (code, message) => ({ data: null, error: { code, message } });
+        const blank = (value) => (value == null || value === "" ? null : value);
+        const trimmed = (value) => String(value ?? "").trim();
+        const resolve = (value) => {
+          const raw = trimmed(value).toLowerCase();
+          const number = raw.match(/^(?:doctor\s*)?(\d+)$/)?.[1];
+          return raw ? [...counters].sort((a, b) => a.id - b.id).find((row) => trimmed(row.id_num).toLowerCase() === raw ||
+            String(row.id) === raw || (number && String(row.id_num).toLowerCase() === `doctor ${Number(number)}`)) || null : null;
+        };
+        const doctorFor = (service) => ["consultation", "checkup"].includes(service) ? "Doctor 1"
+          : ["prenatal", "maternity"].includes(service) ? "Doctor 2" : service === "family_planning" ? "Doctor 3" : "Doctor 1";
+        if (!args.p_patient_id || !args.p_session_id || !trimmed(args.p_user_id_num) || !args.p_role ||
+            !args.p_expected_revision || !args.p_expected_status) {
+          return fail("22023", "A patient, authenticated session and visit snapshot are required");
+        }
+        const reason = trimmed(args.p_reason);
+        if (!reason) return fail("22023", "Reason for cancel is required");
+        if (reason.length > 1000) return fail("22023", "Reason for cancel is too long (maximum 1000 characters)");
+        if (!user || !["admin", "superadmin"].includes(user.role) || user.role !== args.p_role ||
+            blank(user.doctor_name) !== blank(args.p_doctor_name)) {
+          return fail("28000", "Your account no longer matches your session. Sign in again.");
+        }
+        const session = database.sessions?.get(args.p_session_id);
+        if ((database.revokedSessions || new Set()).has(args.p_session_id) || (database.sessions &&
+            (!session || session.user_id_num !== args.p_user_id_num || session.role !== args.p_role ||
+             session.doctor_name !== blank(args.p_doctor_name) || session.revoked_at || Date.parse(session.expires_at) <= Date.parse(timestamp)))) {
+          return fail("28000", "Your authentication session expired or was revoked. Please sign in again.");
+        }
+        const assignment = trimmed(user.doctor_name).toLowerCase();
+        const kind = user.role === "superadmin" ? "superadmin" : ["", "front desk", "frontdesk"].includes(assignment) ? "frontdesk" : "doctor";
+        const actorCounter = kind === "doctor" ? resolve(user.doctor_name) : null;
+        if (kind === "doctor" && !actorCounter) return fail("42501", "Your current account is not assigned to this doctor. Sign in again.");
+        if (!patient) return fail("P0002", "Patient not found");
+        const owner = trimmed(patient.counter_id) ? resolve(patient.counter_id)
+          : patient.status !== "serving" ? resolve(doctorFor(patient.service_type)) : null;
+        if (kind === "doctor" && (!owner || owner.id !== actorCounter.id)) return fail("42501", "You can only cancel patients assigned to your doctor.");
+        const requested = trimmed(args.p_requested_counter) ? resolve(args.p_requested_counter) : null;
+        if (trimmed(args.p_requested_counter)) {
+          if (!requested) return fail("22023", "The requested doctor is not a valid counter");
+          if (owner && requested.id !== owner.id) return fail("QM003", "The requested doctor does not match this patient's assigned doctor");
+        }
+        if (patient.visit_state_revision !== args.p_expected_revision || patient.status !== args.p_expected_status) {
+          return fail("40001", "Patient visit changed; refresh before retrying cancellation");
+        }
+        if (patient.status === "completed") return fail("QM001", "A completed consultation cannot be cancelled");
+        if (patient.status === "no-show") return fail("QM002", "This patient was marked no-show. Undo the no-show before cancelling.");
+        if (patient.status !== "cancelled") {
+          if (!["waiting", "serving"].includes(patient.status)) return fail("QM500", "Unsupported visit status");
+          const stamp = !trimmed(patient.counter_id) && owner && requested?.id === owner.id ? owner.id_num : null;
+          Object.assign(patient, { status: "cancelled", completed_at: timestamp, reason, visit_state_revision: crypto.randomUUID() });
+          if (stamp) patient.counter_id = stamp;
+        }
+        for (const row of counters) if (row.current_patient_id === patient.id) row.current_patient_id = null;
+        if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
+        database.patients.splice(0, database.patients.length, ...patients);
+        database.counters.splice(0, database.counters.length, ...counters);
+        return { data: database.rpcReturnsArray ? [clone(patient)] : clone(patient), error: null };
+      }
+      if (name === "call_patient_visit") {
+        // Mirrors 20261025-c1-atomic-call.sql's checks and all-or-nothing writes; PostgreSQL
+        // locking itself is covered by c1-atomic-call-concurrency.test.js.
+        const fail = (code, message) => ({ data: null, error: { code, message } });
+        const doctorFor = (service) => ["consultation", "checkup"].includes(service) ? "Doctor 1"
+          : ["prenatal", "maternity"].includes(service) ? "Doctor 2" : service === "family_planning" ? "Doctor 3" : "Doctor 1";
+        if (!args.p_user_id_num || !args.p_expected_revision || !args.p_queue_start || !args.p_queue_end ||
+            !["Doctor 1", "Doctor 2", "Doctor 3"].includes(args.p_doctor_name)) {
+          return fail("22023", "A patient, doctor, staff identity, visit revision and queue window are required");
+        }
+        if (!user || !["admin", "superadmin"].includes(user.role)) return fail("42501", "An authenticated staff account is required to call patients");
+        const assignment = String(user.doctor_name ?? "").trim();
+        if (user.role === "admin" && !["", "front desk", "frontdesk"].includes(assignment.toLowerCase()) && assignment !== args.p_doctor_name) {
+          return fail("42501", "You can only call patients assigned to your doctor.");
+        }
+        if (!counter) return fail("P0001", `${args.p_doctor_name} counter was not found`);
+        if (!patient) return fail("P0002", "Patient not found");
+        if (patient.visit_state_revision !== args.p_expected_revision) return fail("40001", "Patient visit changed; refresh the queue before calling");
+        if (patient.status !== "waiting" || patient.completed_at != null) return fail("P0001", "Only a waiting patient without a completion timestamp can be called");
+        if (doctorFor(patient.service_type) !== args.p_doctor_name) return fail("P0001", "This patient is assigned to another doctor");
+        if (patient.counter_id != null && patient.counter_id !== args.p_doctor_name) return fail("P0001", "This waiting patient has a conflicting doctor assignment");
+        if (counter.is_online !== true) return fail("P0001", `${args.p_doctor_name} is marked offline in System Settings. Enable availability before calling patients.`);
+        const reserved = patient.counter_id === args.p_doctor_name && counter.current_patient_id === patient.id;
+        if ((counter.current_patient_id != null && !reserved) || patients.some((row) => row.status === "serving" && row.id !== patient.id &&
+            (row.counter_id === args.p_doctor_name || (row.counter_id == null && doctorFor(row.service_type) === args.p_doctor_name)))) {
+          return fail("P0001", `${args.p_doctor_name} is already serving a patient`);
+        }
+        if (counters.some((row) => row.id !== counter.id && row.current_patient_id === patient.id)) return fail("P0001", "This patient is already assigned to another doctor");
+        const start = timestampMicroseconds(args.p_queue_start);
+        const end = timestampMicroseconds(args.p_queue_end);
+        const next = patients.filter((row) => row.status === "waiting" && doctorFor(row.service_type) === args.p_doctor_name &&
+            timestampMicroseconds(row.created_at) >= start && timestampMicroseconds(row.created_at) < end)
+          .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0) || Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id)[0];
+        if (next?.id !== patient.id) return fail("P0001", `Call the next eligible patient for ${args.p_doctor_name} according to queue priority`);
+        Object.assign(patient, { status: "serving", counter_id: args.p_doctor_name, called_at: timestamp, visit_state_revision: crypto.randomUUID() });
+        counter.current_patient_id = patient.id;
         if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
         database.patients.splice(0, database.patients.length, ...patients);
         database.counters.splice(0, database.counters.length, ...counters);
@@ -371,6 +483,8 @@ function createHarness(options = {}) {
         json(data) { this.body = clone(data); return this; }, send(data) { this.body = data; return this; },
         setHeader(name, value) { this.headers[name] = value; return this; }
       };
+      // The real middleware only admits tokens whose jti names a valid persisted session.
+      if (user && !Object.hasOwn(user, "jti")) user = { ...user, jti: crypto.randomUUID() };
       const request = { body, user, query, params: {} };
       const run = async (index) => {
         const handler = middleware[index];

@@ -660,8 +660,9 @@ async function clearCounterAssignment(patientId) {
   }
 }
 
-// Reject overlapping calls in this process; conditional database writes also
-// protect the doctor slot and patient when requests come from another process.
+// Reject overlapping calls in this process. Across processes the database decides: the C1
+// call_patient_visit RPC re-validates and writes patient and counter in one transaction, and
+// the fallback used until it is installed guards both writes with conditions.
 const callsInProgress = new Set();
 
 function compareWaitingPriority(a, b) {
@@ -670,20 +671,55 @@ function compareWaitingPriority(a, b) {
     Number(a.id) - Number(b.id);
 }
 
-async function callPatient(patientId, counterId = null) {
+const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
+
+// C1: returns the called row, or null when the migration is not installed. Any rejection
+// leaves patient and counter unchanged. A lost response may hide a committed call, so it is
+// never treated as success: no pending acceptance is created for an unconfirmed call (the
+// assigned doctor can still accept a serving visit that has no acceptance state).
+async function callPatientVisitRpc(patient, doctorName, actor, { start, end }) {
+  let result;
+  try {
+    result = await supabase.rpc("call_patient_visit", {
+      p_patient_id: patient.id, p_doctor_name: doctorName, p_user_id_num: actor?.id_num ?? null,
+      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end
+    });
+  } catch {
+    throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
+  }
+  const { data, error } = result || {};
+  if (error) {
+    if (MISSING_RPC_CODES.includes(error.code)) return null;
+    if (!error.code) throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
+    const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
+      ["P0001", "22023"].includes(error.code) ? 400 : 503;
+    throw consultationError(error.message || "Failed to call patient", status);
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || Number(row.id) !== patient.id || row.status !== "serving" || row.counter_id !== doctorName ||
+      !row.called_at || row.completed_at != null || !row.visit_state_revision ||
+      row.visit_state_revision === patient.visit_state_revision) {
+    throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
+  }
+  return row;
+}
+
+// `actor` is the verified request identity; omit it only for trusted in-process callers.
+// The installed C1 RPC re-checks the persisted account itself and requires an actor.
+async function callPatient(patientId, counterId = null, actor = undefined) {
   if (!Number.isSafeInteger(patientId) || patientId <= 0) {
     throw new Error("A valid patient ID is required");
   }
 
   // Never silently switch to development data during a queue mutation.
-  const localCall = useLocalFallback;
-  let patient;
-  if (localCall) {
-    patient = localData.patients.find((p) => p.id === patientId);
-  } else {
-    const { data, error } = await supabase.from("patients").select("*").eq("id", patientId).maybeSingle();
-    if (error) throw formatError(error, "Failed to load patient for calling");
-    patient = data;
+  const { patient, counters: accountCounters, user, local: localCall } = await loadCancellationContext(patientId, actor);
+  // R2: identify the caller from the persisted account; token and body claims are never authority.
+  const who = resolveCancelActor(actor, user, accountCounters);
+  if (who.kind === "doctor") {
+    if (counterId != null && resolveDoctorCounter(counterId, accountCounters)?.id !== who.counter.id) {
+      throw consultationError("You can only call patients assigned to your doctor.", 403);
+    }
+    counterId = who.counter.id_num;
   }
   if (!patient) throw new Error("Patient not found");
   if (patient.status !== "waiting" || patient.completed_at != null) {
@@ -706,13 +742,15 @@ async function callPatient(patientId, counterId = null) {
     let counters;
     let waitingPatients;
     let servingPatients;
+    // The RPC re-ranks over the same window under its locks.
+    const queueRange = getTodayRange();
     if (localCall) {
       counters = localData.counters;
-      waitingPatients = localData.patients.filter((p) => p.status === "waiting" && isCreatedInRange(p, getTodayRange()));
+      waitingPatients = localData.patients.filter((p) => p.status === "waiting" && isCreatedInRange(p, queueRange));
       servingPatients = localData.patients.filter((p) => p.status === "serving" &&
         (p.counter_id === doctorName || (p.counter_id == null && getDoctorForService(p.service_type) === doctorName)));
     } else {
-      const { start, end } = getTodayRange();
+      const { start, end } = queueRange;
       const [counterResult, waiting, serving] = await Promise.all([
         supabase.from("counters").select("id, id_num, is_online, current_patient_id"),
         fetchPatientPages(() => supabase.from("patients").select("*").eq("status", "waiting")
@@ -752,13 +790,21 @@ async function callPatient(patientId, counterId = null) {
     }
 
     const calledAt = new Date().toISOString();
+    // Phase 2.1+ rows carry a revision; the RPC needs it to detect any change since this read.
+    const atomicCall = !localCall && patient.visit_state_revision
+      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange)
+      : null;
     if (localCall) {
       // No await between the final checks and both in-memory updates.
       patient.status = "serving";
       patient.counter_id = doctorName;
       patient.called_at = calledAt;
+      patient.visit_state_revision = randomUUID();
       counter.current_patient_id = patientId;
-    } else {
+    } else if (!atomicCall) {
+      // Fallback until the C1 migration is installed: two conditional statements. The patient
+      // compare-and-set includes the revision, so a Cancel + Requeue or Undo committed between
+      // them (status back to waiting, new revision) can no longer be called by this request.
       // Claim an empty online doctor slot, or validate this patient's existing
       // Undo reservation. Only newly claimed slots may be released on failure.
       let claimQuery = supabase.from("counters")
@@ -782,6 +828,7 @@ async function callPatient(patientId, counterId = null) {
         patientQuery = patient.counter_id == null
           ? patientQuery.is("counter_id", null)
           : patientQuery.eq("counter_id", doctorName);
+        if (patient.visit_state_revision) patientQuery = patientQuery.eq("visit_state_revision", patient.visit_state_revision);
         const { data: calledPatient, error: updateError } = await patientQuery.select("id").maybeSingle();
         if (updateError) {
           uncertainOwnUpdate = !reservedForPatient && !updateError.code &&
@@ -1121,6 +1168,55 @@ async function authorizeVisitAction(patientId, actor, counterId = null, { denyMe
   return { existing, who, owner, requested, counters, local };
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CANCEL_MIGRATION_REQUIRED = "Cancelling a patient who is being served (or still holds a doctor counter) needs the W1 database migration (backend/scripts/20261025-w1-atomic-cancel.sql). Nothing was changed.";
+const UNCONFIRMED_CANCEL_MESSAGE = "Could not confirm the cancellation. Refresh the queue before retrying.";
+const NO_SESSION_CANCEL_MESSAGE = "An authenticated staff session is required to cancel this patient.";
+// 28000: the session or account no longer matches the token (sign in again, as the middleware
+// answers); 42501: a valid account without permission. QM codes are the function's business rules.
+const CANCEL_RPC_STATUS = {
+  "22023": 400, "28000": 401, "42501": 403, P0002: 404, "40001": 409,
+  QM001: 400, QM002: 409, QM003: 409
+};
+
+// W1: returns the row from cancel_patient_visit, or null when the migration is not installed.
+// Any error means nothing was committed, except a lost response, which is never reported as success.
+async function cancelPatientVisitRpc(existing, actor, reason, counterId) {
+  if (!UUID_PATTERN.test(existing.visit_state_revision || "")) return null;
+  if (typeof actor?.jti !== "string" || !UUID_PATTERN.test(actor.jti)) {
+    throw consultationError("Your authentication session is invalid. Please sign in again.", 401);
+  }
+  let result;
+  try {
+    result = await supabase.rpc("cancel_patient_visit", {
+      p_patient_id: existing.id, p_session_id: actor.jti, p_user_id_num: actor.id_num, p_role: actor.role,
+      p_doctor_name: actor.doctor_name || null, p_expected_revision: existing.visit_state_revision,
+      p_expected_status: existing.status, p_reason: reason,
+      p_requested_counter: String(counterId ?? "").trim() ? String(counterId) : null
+    });
+  } catch {
+    throw consultationError(UNCONFIRMED_CANCEL_MESSAGE, 503);
+  }
+  const { data, error } = result || {};
+  if (error) {
+    if (MISSING_RPC_CODES.includes(error.code)) return null;
+    if (!error.code) throw consultationError(UNCONFIRMED_CANCEL_MESSAGE, 503);
+    const status = CANCEL_RPC_STATUS[error.code];
+    if (!status) {
+      // Deadlock, lock or statement timeout, invariant failure, unavailable database: rolled back.
+      throw consultationError("The cancellation could not be completed and nothing was changed. Please retry.", 503);
+    }
+    throw consultationError(error.message || "Failed to cancel patient", status);
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  const repeat = existing.status === "cancelled";
+  if (!row || Number(row.id) !== existing.id || row.status !== "cancelled" || !row.visit_state_revision ||
+      (row.visit_state_revision === existing.visit_state_revision) !== repeat) {
+    throw consultationError(UNCONFIRMED_CANCEL_MESSAGE, 503);
+  }
+  return parsePatientPriority(row);
+}
+
 // Returns the patient after cancelling. A repeated cancel of an already
 // cancelled patient is explicitly idempotent: it returns { already_cancelled: true }
 // and writes nothing. `counterId` is only an optional consistency check against
@@ -1128,8 +1224,8 @@ async function authorizeVisitAction(patientId, actor, counterId = null, { denyMe
 // request identity; omit it only for trusted in-process callers.
 async function cancelPatient(patientId, reason = null, counterId = null, actor = undefined) {
   // No in-process lock: a Cancel may legitimately race a Start/Complete served by
-  // another backend instance, so correctness rests on the conditional write below
-  // (status + visit_state_revision), not on this process's memory.
+  // another backend instance, so correctness rests on the database (the W1 RPC, or the
+  // waiting-only compare-and-set on status + visit_state_revision), not on this process's memory.
   return performCancellation(patientId, reason, counterId, actor);
 }
 
@@ -1142,9 +1238,18 @@ async function performCancellation(patientId, reason, counterId, actor) {
   if (existing.status === "no-show") {
     throw consultationError("This patient was marked no-show. Undo the no-show before cancelling.", 409);
   }
+  const pointed = counters.some((counter) => Number(counter.current_patient_id) === patientId);
   if (existing.status === "cancelled") {
     // Terminal and unchanged: original reason, completion time, assignment and history stay as recorded.
-    await releaseStaleCounterPointer(patientId, counters, local);
+    if (local) {
+      await releaseStaleCounterPointer(patientId, counters, local);
+    } else if (pointed) {
+      // W1: a stale pointer is released only under the RPC's locks. A separate release could
+      // clear the counter of a later Requeue/Undo + Call of this same visit.
+      const row = actor == null ? null : await cancelPatientVisitRpc(existing, actor, reason, counterId);
+      if (!row) throw consultationError(actor == null ? NO_SESSION_CANCEL_MESSAGE : CANCEL_MIGRATION_REQUIRED, 503);
+      return { ...row, already_cancelled: true };
+    }
     return { ...parsePatientPriority(existing), already_cancelled: true };
   }
 
@@ -1172,6 +1277,20 @@ async function performCancellation(patientId, reason, counterId, actor) {
     }
     clearRecallCount(patientId);
     return parsePatientPriority(current);
+  }
+
+  // W1: the RPC cancels the visit and releases its counter(s) in one transaction. Trusted
+  // in-process callers have no session to re-validate and take the path below.
+  const atomic = actor == null ? null : await cancelPatientVisitRpc(existing, actor, trimmedReason, counterId);
+  if (atomic) {
+    clearRecallCount(patientId);
+    return atomic;
+  }
+  // Not installed. The only transition that stays safe is one with no counter release: a
+  // waiting visit that no counter points at, cancelled by a single compare-and-set below. A
+  // serving visit (or any pointer) would need the two-step release W1 showed to be unsafe.
+  if (existing.status !== "waiting" || pointed) {
+    throw consultationError(actor == null ? NO_SESSION_CANCEL_MESSAGE : CANCEL_MIGRATION_REQUIRED, 503);
   }
 
   const updatePayload = { status: "cancelled", completed_at: completedAt, reason: trimmedReason };
@@ -1205,8 +1324,6 @@ async function performCancellation(patientId, reason, counterId, actor) {
     throw consultationError("Patient visit changed; refresh before retrying cancellation", 409);
   }
 
-  // Releases only a counter whose pointer is this patient.
-  await clearCounterAssignment(patientId);
   clearRecallCount(patientId);
   return parsePatientPriority(data);
 }

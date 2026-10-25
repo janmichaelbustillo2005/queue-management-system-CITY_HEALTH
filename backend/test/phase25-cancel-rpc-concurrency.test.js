@@ -1,9 +1,9 @@
-// R2.2: independent-connection PostgreSQL verification of the DRAFT cancel_patient_visit.
+// R2.2 / W1: independent-connection PostgreSQL verification of cancel_patient_visit.
 // Runs ONLY against a disposable LOCAL PostgreSQL 17 cluster: PHASE25_PG_URL must point at
 // 127.0.0.1/localhost and the server must report cluster_name = PHASE25_PG_CLUSTER
 // (default "r22-disposable-cancel-verification") and listen only on 127.0.0.1. The suite
-// creates a fresh database, installs the repository migrations and the exact revision 2
-// SQL as a non-superuser "postgres" owner (as in Supabase's SQL editor), and drops the
+// creates a fresh database, installs the repository migrations and the W1 migration
+// (20261025-w1-atomic-cancel.sql) as a non-superuser "postgres" owner (as in Supabase's SQL editor), and drops the
 // database afterwards. It never reads .env and never connects to Supabase.
 // Skipped unless PHASE25_PG_URL and PHASE25_PG_MODULE (path to a `pg` package) are set.
 // Optional: PHASE25_PG_EVIDENCE=<file> writes the operation order, observed lock waits and
@@ -290,8 +290,8 @@ describe("R2.2 cancel_patient_visit on real PostgreSQL with independent connecti
       expectCode(await settle(cancel(A, 4, "admin1", await patient(4))), "QM001");
       expectCode(await settle(cancel(A, 5, "admin3", await patient(5))), "QM002");
       expectCode(await settle(cancel(A, 1, "frontdesk", await patient(1), { requested: "Doctor 2" })), "QM003");
-      expectCode(await settle(cancel(A, 2, "admin1", await patient(2), { overrides: { p_session_id: actors.admin2.session } })), "42501");
-      expectCode(await settle(cancel(A, 2, "admin1", await patient(2), { overrides: { p_role: "superadmin" } })), "42501");
+      expectCode(await settle(cancel(A, 2, "admin1", await patient(2), { overrides: { p_session_id: actors.admin2.session } })), "28000");
+      expectCode(await settle(cancel(A, 2, "admin1", await patient(2), { overrides: { p_role: "superadmin" } })), "28000");
       assert.deepEqual(await state(), before);
     });
 
@@ -308,15 +308,15 @@ describe("R2.2 cancel_patient_visit on real PostgreSQL with independent connecti
     test("revoked, expired, password-changed and reassigned sessions are refused on real PostgreSQL", async () => {
       const before = await state();
       await observer.client.query("SELECT public.revoke_staff_auth_session($1, 'admin1')", [actors.admin1.session]);
-      expectCode(await settle(cancel(sessions.A, 2, "admin1", await patient(2))), "42501");
+      expectCode(await settle(cancel(sessions.A, 2, "admin1", await patient(2))), "28000");
       await observer.client.query(`UPDATE public.staff_auth_sessions SET created_at = clock_timestamp() - interval '9 hours',
         expires_at = clock_timestamp() - interval '1 second' WHERE session_id = $1`, [actors.frontdesk.session]);
-      expectCode(await settle(cancel(sessions.A, 1, "frontdesk", await patient(1))), "42501");
+      expectCode(await settle(cancel(sessions.A, 1, "frontdesk", await patient(1))), "28000");
       await observer.client.query("UPDATE public.users SET password = 'changed-synthetic' WHERE id_num = 'admin2'");
-      expectCode(await settle(cancel(sessions.A, 3, "admin2", await patient(3))), "42501");
+      expectCode(await settle(cancel(sessions.A, 3, "admin2", await patient(3))), "28000");
       await observer.client.query("UPDATE public.users SET doctor_name = 'Doctor 1' WHERE id_num = 'admin3'");
       await observer.client.query("UPDATE public.staff_auth_sessions SET revoked_at = NULL WHERE session_id = $1", [actors.admin3.session]);
-      expectCode(await settle(cancel(sessions.A, 2, "admin3", await patient(2))), "42501");
+      expectCode(await settle(cancel(sessions.A, 2, "admin3", await patient(2))), "28000");
       assert.deepEqual(clinical((await state()).patients), clinical(before.patients));
       assert.deepEqual((await state()).counters, before.counters);
     });
@@ -542,7 +542,7 @@ describe("R2.2 cancel_patient_visit on real PostgreSQL with independent connecti
       await step(ev, A, "revoke_staff_auth_session(admin1)", () => A.client.query("SELECT public.revoke_staff_auth_session($1, 'admin1')", [actors.admin1.session]));
       const waiting = await blockedStep(ev, B, A, "cancel P2 (admin1)", () => cancel(B, 2, "admin1", snap));
       await exec(ev, A, "COMMIT");
-      expectCode(await waiting.pending, "42501");
+      expectCode(await waiting.pending, "28000");
       assert.deepEqual(await patient(2), snap);
       assert.equal(await pointer("Doctor 1"), 2);
     });
@@ -567,7 +567,7 @@ describe("R2.2 cancel_patient_visit on real PostgreSQL with independent connecti
       await step(ev, A, "UPDATE users SET password (admin1)", () => A.client.query("UPDATE public.users SET password = 'changed-synthetic' WHERE id_num = 'admin1'"));
       const waiting = await blockedStep(ev, B, A, "cancel P2 (admin1)", () => cancel(B, 2, "admin1", snap));
       await exec(ev, A, "COMMIT");
-      expectCode(await waiting.pending, "42501");
+      expectCode(await waiting.pending, "28000");
       assert.deepEqual(await patient(2), snap);
     });
 
@@ -577,7 +577,7 @@ describe("R2.2 cancel_patient_visit on real PostgreSQL with independent connecti
       await step(ev, A, "reassign admin2 -> Doctor 1", () => A.client.query("UPDATE public.users SET doctor_name = 'Doctor 1' WHERE id_num = 'admin2'"));
       const waiting = await blockedStep(ev, B, A, "cancel P2 (admin2, token claims Doctor 2)", () => cancel(B, 2, "admin2", snap));
       await exec(ev, A, "COMMIT");
-      expectCode(await waiting.pending, "42501");
+      expectCode(await waiting.pending, "28000");
       assert.deepEqual(await patient(2), snap);
     });
 

@@ -265,7 +265,8 @@ for (const localFallback of [false, true]) {
 
     // Withdrawal: cancelling Alice removes her serving entry and every announcement for her.
     h.advance(1000);
-    await h.service.cancelPatient(made.alice.id);
+    const cancelled = await h.request("POST", "/queue/cancel", { patient_id: made.alice.id, reason: "Synthetic withdrawal" }, { id_num: "frontdesk", role: "admin", doctor_name: null });
+    assert.equal(cancelled.status, 200, cancelled.body.message);
     const withdrawn = (await h.request("GET", "/display", {}, null)).body;
     assert.ok(!withdrawn.all_serving.some((entry) => entry.id === made.alice.id));
     assert.ok(!withdrawn.voice_announcements.some((event) => event.id === made.alice.id));

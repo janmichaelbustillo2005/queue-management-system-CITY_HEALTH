@@ -4,6 +4,7 @@
 // independent-connection PostgreSQL concurrency test.
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { randomUUID } = require("node:crypto");
 const { createHarness, clone } = require("./helpers/queueHarness");
 
 const doctor = (number) => ({ id_num: `admin${number}`, role: "admin", doctor_name: `Doctor ${number}` });
@@ -517,11 +518,40 @@ test("mock Supabase: a stale Requeue cannot overwrite a consultation completed a
 });
 
 // ---------------------------------------------------------------------------
-// The patient update and the counter release are two separate statements today. These tests
-// pin the documented partial-failure window and show that a retry repairs the counter without
-// rewriting the patient. They do NOT make Cancel atomic; that needs the proposed database function.
+// No-show's patient update and counter release are still two separate statements (N1, not
+// changed by W1). This test pins its partial-failure window and shows that a retry repairs the
+// counter without rewriting the patient. Cancel is atomic since W1 (next test).
 // ---------------------------------------------------------------------------
-for (const name of ["cancel", "no-show"]) {
+test("mock Supabase (W1): a failure inside the cancel transaction commits nothing; a legacy stuck pointer is repaired only by the owner's retry", async () => {
+  const h = await setup(false);
+  const patient = await startedPatient(h, 1);
+  const bystander = await startedPatient(h, 2, "Bystander");
+  const before = await row(h, patient);
+  const send = (user, extra = {}) => h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Synthetic", ...extra }, user);
+  h.database.beforeRpcCommit = ({ name }) => { if (name === "cancel_patient_visit") throw new Error("isolated counter release failure"); };
+  const failed = await send(doctor(1));
+  assert.equal(failed.status, 503, failed.body?.message);
+  assert.match(failed.body.message, /nothing was changed/);
+  assert.deepEqual(await row(h, patient), before, "no terminal visit with a live pointer");
+  assert.equal(await pointer(h, 1), patient.id);
+  assert.equal(await pointer(h, 2), bystander.id);
+  h.database.beforeRpcCommit = null;
+  // The state the pre-W1 two-step could leave behind: cancelled, counter still pointing at it.
+  const stuck = h.database.patients.find((entry) => entry.id === patient.id);
+  Object.assign(stuck, { status: "cancelled", completed_at: new Date(h.clock.now).toISOString(), reason: "Legacy", visit_state_revision: randomUUID() });
+  const legacy = await row(h, patient);
+  h.advance(60000);
+  assert.equal((await send(doctor(2))).status, 403);
+  assert.equal(await pointer(h, 1), patient.id);
+  const retry = await send(doctor(1), { reason: "A different reason" });
+  assert.equal(retry.status, 200, retry.body?.message);
+  assert.equal(retry.body.already_cancelled, true);
+  assert.equal(await pointer(h, 1), null);
+  assert.equal(await pointer(h, 2), bystander.id, "other doctors' counters are untouched");
+  assert.deepEqual(await row(h, patient), legacy, "reason, completion time, assignment and revision are unchanged");
+});
+
+for (const name of ["no-show"]) {
   test(`mock Supabase: ${name} committed the patient but failed to release the counter - the window is observable and a retry repairs only the pointer`, async () => {
     const h = await setup(false);
     const patient = name === "cancel" ? await startedPatient(h, 1) : await calledPatient(h, 1);

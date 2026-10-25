@@ -56,18 +56,19 @@ test("a statistics outage after a committed registration retains one successful 
   assert.equal((await h.service.getQueueOverview()).patients.length, 1);
 });
 
-test("a failed counter release reports an error and retains database mode and the persisted pointer", async () => {
+test("a failed cancellation reports an error and retains database mode, the patient and the persisted pointer", async () => {
   const h = createHarness();
   const patient = await h.service.createQueueEntry(registration);
   await h.service.callPatient(patient.id, "Doctor 1");
-  h.database.beforeQuery = (query) => {
-    if (query.table === "counters" && query.action === "update") {
-      return { data: null, error: { message: "fetch failed (isolated counter release outage)" } };
-    }
+  const before = JSON.parse(JSON.stringify(h.database.patients[0]));
+  // W1: the patient and its counter change in one RPC, so an outage leaves both as they were.
+  h.database.beforeRpc = (name) => {
+    if (name === "cancel_patient_visit") return { data: null, error: { message: "fetch failed (isolated cancellation outage)" } };
   };
   const cancelled = await h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Isolated cancellation" });
   assert.equal(cancelled.status, 503);
   assert.equal(h.service.getQueueStorageMode(), "supabase");
+  assert.deepEqual(h.database.patients[0], before);
   assert.equal(h.database.counters[0].current_patient_id, patient.id);
 });
 

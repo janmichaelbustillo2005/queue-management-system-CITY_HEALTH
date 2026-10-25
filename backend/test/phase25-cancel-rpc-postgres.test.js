@@ -1,5 +1,6 @@
-// R2.1 revision 2: isolated validation of the DRAFT cancel_patient_visit RPC.
-// Executes the exact SQL block from docs/phase25-cancel-atomicity-proposal-rev2.md in a
+// R2.1 revision 2 / W1: isolated validation of cancel_patient_visit.
+// Executes backend/scripts/20261025-w1-atomic-cancel.sql (the executable successor of the
+// revision 2 proposal; session failures are 28000 instead of 42501) in a
 // fresh, synthetic, in-memory PGlite database after the repository's Phase 2, A, 2.1, B
 // and 2.2 migrations. Never loads .env, the Supabase client or the original schema/seed
 // script, and never touches real patient data.
@@ -118,7 +119,7 @@ describe("R2.1 revision 2 cancel_patient_visit (isolated PGlite, single connecti
 
   // ---------------------------------------------------------------------------
   describe("installation, ownership and grants", () => {
-    test("installs from the document after Phase 2, A, 2.1, B and 2.2 and is repeatable", async () => {
+    test("installs from the W1 migration after Phase 2, A, 2.1, B and 2.2 and is repeatable", async () => {
       const before = await state();
       await db.exec(proposalSql());
       assert.deepEqual(await state(), before);
@@ -190,40 +191,40 @@ describe("R2.1 revision 2 cancel_patient_visit (isolated PGlite, single connecti
   describe("persisted session and account validation (B4)", () => {
     test("revoked (logout) and expired sessions are refused without writes", async () => {
       await db.query("SELECT public.revoke_staff_auth_session($1, $2)", [actors.admin1.session, "admin1"]);
-      await rejectsUnchanged(() => cancel(2, "admin1"), "42501");
+      await rejectsUnchanged(() => cancel(2, "admin1"), "28000");
       await db.query(`UPDATE public.staff_auth_sessions SET created_at = clock_timestamp() - interval '9 hours',
         expires_at = clock_timestamp() - interval '1 second' WHERE session_id = $1`, [actors.frontdesk.session]);
-      await rejectsUnchanged(() => cancel(1, "frontdesk"), "42501");
+      await rejectsUnchanged(() => cancel(1, "frontdesk"), "28000");
     });
 
     test("password change, auth_revision rotation and account deletion revoke the session", async () => {
       await db.query("UPDATE public.users SET password = 'changed-synthetic' WHERE id_num = 'admin1'");
-      await rejectsUnchanged(() => cancel(2, "admin1"), "42501");
+      await rejectsUnchanged(() => cancel(2, "admin1"), "28000");
       await db.query("UPDATE public.users SET auth_revision = gen_random_uuid() WHERE id_num = 'frontdesk'");
-      await rejectsUnchanged(() => cancel(1, "frontdesk"), "42501");
+      await rejectsUnchanged(() => cancel(1, "frontdesk"), "28000");
       await db.query("DELETE FROM public.users WHERE id_num = 'admin3'");
-      await rejectsUnchanged(() => cancel(8, "admin3"), "42501");
+      await rejectsUnchanged(() => cancel(8, "admin3"), "28000");
     });
 
     test("a doctor reassignment refuses the old token even if the session row were not revoked", async () => {
       await db.query("UPDATE public.users SET doctor_name = 'Doctor 2' WHERE id_num = 'admin1'");
-      await rejectsUnchanged(() => cancel(2, "admin1"), "42501");
+      await rejectsUnchanged(() => cancel(2, "admin1"), "28000");
       // Simulate a missing revocation: reinstate the session row with the old claims.
       await db.query("UPDATE public.staff_auth_sessions SET revoked_at = NULL WHERE session_id = $1", [actors.admin1.session]);
-      await rejectsUnchanged(() => cancel(2, "admin1"), "42501");
-      await rejectsUnchanged(() => cancel(3, "admin1"), "42501");
+      await rejectsUnchanged(() => cancel(2, "admin1"), "28000");
+      await rejectsUnchanged(() => cancel(3, "admin1"), "28000");
     });
 
     test("client-controlled identity parameters cannot impersonate another actor", async () => {
       const a = actors.admin2;
-      await rejectsUnchanged(() => cancel(2, "admin2", { overrides: { p_user_id_num: "admin1", p_doctor_name: "Doctor 1" } }), "42501");
-      await rejectsUnchanged(() => cancel(2, "admin1", { overrides: { p_session_id: a.session } }), "42501");
-      await rejectsUnchanged(() => cancel(2, "admin1", { overrides: { p_session_id: randomUUID() } }), "42501");
-      await rejectsUnchanged(() => cancel(3, "admin1", { overrides: { p_role: "superadmin" } }), "42501");
-      await rejectsUnchanged(() => cancel(3, "admin1", { overrides: { p_doctor_name: "Doctor 2" } }), "42501");
-      await rejectsUnchanged(() => cancel(3, "admin1", { overrides: { p_doctor_name: null } }), "42501");
-      await rejectsUnchanged(() => cancel(3, "frontdesk2", { overrides: { p_doctor_name: null } }), "42501");
-      await rejectsUnchanged(() => cancel(3, "frontdesk", { overrides: { p_user_id_num: "nobody" } }), "42501");
+      await rejectsUnchanged(() => cancel(2, "admin2", { overrides: { p_user_id_num: "admin1", p_doctor_name: "Doctor 1" } }), "28000");
+      await rejectsUnchanged(() => cancel(2, "admin1", { overrides: { p_session_id: a.session } }), "28000");
+      await rejectsUnchanged(() => cancel(2, "admin1", { overrides: { p_session_id: randomUUID() } }), "28000");
+      await rejectsUnchanged(() => cancel(3, "admin1", { overrides: { p_role: "superadmin" } }), "28000");
+      await rejectsUnchanged(() => cancel(3, "admin1", { overrides: { p_doctor_name: "Doctor 2" } }), "28000");
+      await rejectsUnchanged(() => cancel(3, "admin1", { overrides: { p_doctor_name: null } }), "28000");
+      await rejectsUnchanged(() => cancel(3, "frontdesk2", { overrides: { p_doctor_name: null } }), "28000");
+      await rejectsUnchanged(() => cancel(3, "frontdesk", { overrides: { p_user_id_num: "nobody" } }), "28000");
     });
   });
 
@@ -327,9 +328,9 @@ describe("R2.1 revision 2 cancel_patient_visit (isolated PGlite, single connecti
       assertCancelledFrom(await cancel(1, "frontdesk", { reason: `  ${"y".repeat(1000)}\t` }), before, { reason: "y".repeat(1000) });
     });
 
-    test("unknown patient is 404 only after the caller is identified (P0002 vs 42501)", async () => {
+    test("unknown patient is 404 only after the caller is identified (P0002 vs 28000)", async () => {
       await rejectsUnchanged(() => cancel(999, "frontdesk"), "P0002");
-      await rejectsUnchanged(() => cancel(999, "frontdesk", { overrides: { p_session_id: randomUUID() } }), "42501");
+      await rejectsUnchanged(() => cancel(999, "frontdesk", { overrides: { p_session_id: randomUUID() } }), "28000");
     });
 
     test("completed (QM001) and no-show (QM002) are refused with history intact", async () => {
@@ -527,7 +528,7 @@ describe("R2.1 revision 2 cancel_patient_visit (isolated PGlite, single connecti
     test("8. Logout or session revocation between Node's check and the RPC refuses the cancel", async () => {
       const snapshot = await patient(2);
       await db.query("SELECT public.revoke_staff_user_sessions('admin1')");
-      await rejectsUnchanged(() => cancel(2, "admin1", { snapshot }), "42501");
+      await rejectsUnchanged(() => cancel(2, "admin1", { snapshot }), "28000");
     });
 
     test("9. Counter reassignment or rename during cancellation never releases another patient's counter", async () => {

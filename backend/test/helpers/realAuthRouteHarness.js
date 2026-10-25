@@ -39,6 +39,8 @@ function createRealAuthHarness(options = {}) {
     user.auth_revision = crypto.randomUUID();
   }
   const sessions = new Map();
+  // The emulated W1 cancel_patient_visit re-validates these sessions, as the SQL function does.
+  database.sessions = sessions;
   const blank = (value) => (value == null || value === "" ? null : value);
   const denied = (message) => ({ data: null, error: { code: "42501", message } });
 

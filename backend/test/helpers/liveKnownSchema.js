@@ -81,4 +81,4 @@ async function liveKnownDatabase(PGlite, { migrations = INSTALLED_MIGRATIONS } =
   return db;
 }
 
-module.exports = { liveKnownDatabase, readScript, INSTALLED_MIGRATIONS };
+module.exports = { liveKnownDatabase, liveKnownSchema, readScript, INSTALLED_MIGRATIONS };

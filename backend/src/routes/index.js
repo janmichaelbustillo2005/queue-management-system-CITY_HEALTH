@@ -14,6 +14,9 @@ const {
   buildCsv,
   callPatient,
   cancelPatient,
+  cancelHistoricalWaitingVisit,
+  getHistoricalBacklog,
+  getHistoricalBacklogVisit,
   authorizeVisitAction,
   noShowPatient,
   recallPatient,
@@ -382,6 +385,46 @@ router.post("/queue/cancel", authenticateToken, async (req, res) => {
     }
     clearAwaitingAccept(patient_id);
     res.json({ success: true, message: "Patient cancelled successfully" });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
+  }
+});
+
+// Historical Waiting Backlog (H1 Stage 1): Superadmin only, by the persisted session's role.
+// Reads never write; Cancel is one reviewed visit through the W1 cancellation path.
+router.get("/queue/backlog", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const { search, date, service, doctor, page, limit } = req.query;
+    const data = await getHistoricalBacklog({ search, date, service, doctor, page, limit });
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, ...data });
+  } catch (error) {
+    // Unexpected failures never echo database details to the browser.
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : "Historical backlog is unavailable. Please retry." });
+  }
+});
+
+router.get("/queue/backlog/:id", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const visit = await getHistoricalBacklogVisit(Number(req.params.id));
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, visit });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : "Historical backlog is unavailable. Please retry." });
+  }
+});
+
+router.post("/queue/backlog/:id/cancel", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const patientId = Number(req.params.id);
+    const { reason, expected_revision, acknowledge_review } = req.body || {};
+    const result = await cancelHistoricalWaitingVisit(patientId,
+      { reason, expectedRevision: expected_revision, acknowledged: acknowledge_review === true }, req.user);
+    if (result?.already_cancelled) {
+      return res.json({ success: true, already_cancelled: true, message: "This visit was already cancelled; no changes were made" });
+    }
+    clearAwaitingAccept(patientId);
+    res.json({ success: true, message: "Visit cancelled. Its registration history was kept." });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }

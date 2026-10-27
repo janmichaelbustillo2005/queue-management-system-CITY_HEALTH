@@ -1172,6 +1172,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const CANCEL_MIGRATION_REQUIRED = "Cancelling a patient who is being served (or still holds a doctor counter) needs the W1 database migration (backend/scripts/20261025-w1-atomic-cancel.sql). Nothing was changed.";
 const UNCONFIRMED_CANCEL_MESSAGE = "Could not confirm the cancellation. Refresh the queue before retrying.";
 const NO_SESSION_CANCEL_MESSAGE = "An authenticated staff session is required to cancel this patient.";
+const BACKLOG_W1_REQUIRED = "Historical backlog cancellation needs the W1 database function (backend/scripts/20261025-w1-atomic-cancel.sql). Nothing was changed.";
 // 28000: the session or account no longer matches the token (sign in again, as the middleware
 // answers); 42501: a valid account without permission. QM codes are the function's business rules.
 const CANCEL_RPC_STATUS = {
@@ -1229,10 +1230,19 @@ async function cancelPatient(patientId, reason = null, counterId = null, actor =
   return performCancellation(patientId, reason, counterId, actor);
 }
 
-async function performCancellation(patientId, reason, counterId, actor) {
+// `backlog` (Historical Backlog only) holds the snapshot the Superadmin reviewed. The visit must
+// still be that exact earlier-day waiting revision; the W1 RPC then re-checks the same revision
+// under its locks, so nothing reviewed can change between this check and the commit.
+async function performCancellation(patientId, reason, counterId, actor, backlog = null) {
   const { existing, owner, requested, counters, local } = await authorizeVisitAction(patientId, actor, counterId, {
     denyMessage: "You can only cancel patients assigned to your doctor."
   });
+
+  if (backlog) {
+    // A duplicate or concurrent backlog cancel writes nothing, not even a stale-pointer release.
+    if (existing.status === "cancelled") return { ...parsePatientPriority(existing), already_cancelled: true };
+    assertBacklogCancellable(existing, counters, backlog);
+  }
 
   if (existing.status === "completed") throw consultationError("A completed consultation cannot be cancelled");
   if (existing.status === "no-show") {
@@ -1286,6 +1296,8 @@ async function performCancellation(patientId, reason, counterId, actor) {
     clearRecallCount(patientId);
     return atomic;
   }
+  // The Historical Backlog cancels only through W1, never through the compare-and-set below.
+  if (backlog) throw consultationError(BACKLOG_W1_REQUIRED, 503);
   // Not installed. The only transition that stays safe is one with no counter release: a
   // waiting visit that no counter points at, cancelled by a single compare-and-set below. A
   // serving visit (or any pointer) would need the two-step release W1 showed to be unsafe.
@@ -1326,6 +1338,226 @@ async function performCancellation(patientId, reason, counterId, actor) {
 
   clearRecallCount(patientId);
   return parsePatientPriority(data);
+}
+
+// Historical Waiting Backlog (H1 Stage 1, Superadmin only). A historical visit is stored as
+// waiting and was registered before today's Manila business date by the server clock. It may
+// be a valid carry-over, so reading the backlog never writes; a cancel is one visit at a time
+// through performCancellation (W1). Only the fields the review needs are read: no mobile
+// number, birth date, residency or PhilHealth data.
+const BACKLOG_COLUMNS = "id, id_num, queue_number, service_type, status, counter_id, priority_score, vulnerability_flags, created_at, called_at, consultation_started_at, completed_at, reason, visit_state_revision";
+// The backlog is filtered in this process (doctor ownership needs the counters). Beyond this
+// many rows the response says it is truncated rather than silently dropping visits.
+const BACKLOG_FETCH_LIMIT = 500;
+const BACKLOG_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
+const BACKLOG_UNAVAILABLE = "Historical backlog storage is unavailable. Please retry.";
+
+function historicalCutoff(now = new Date()) {
+  const businessDate = getBusinessDate(now);
+  return { businessDate, before: getBusinessDayRange(businessDate).start };
+}
+
+const isHistoricalWaiting = (patient, before) =>
+  patient?.status === "waiting" && Date.parse(patient.created_at) < Date.parse(before);
+
+// A clean waiting visit has no call, assignment, consultation or completion recorded (registration
+// stores none, and Requeue/Undo clear them). Anything else is shown for manual review and never
+// repaired here. Only a counter that still points at the visit blocks cancellation: W1 would
+// release that counter, and Stage 1 never changes a doctor counter as a side effect.
+function backlogFlags(patient, counters) {
+  const flags = [];
+  const pointing = counters.filter((counter) => Number(counter.current_patient_id) === Number(patient.id));
+  if (pointing.length) {
+    flags.push({ code: "counter_conflict", blocking: true, label: "Doctor counter points at this visit",
+      detail: `${pointing.map((counter) => counter.id_num).join(", ")} still lists this waiting visit as its current patient. Cancelling would release that counter, so cancellation is blocked until the counter state is reviewed.` });
+  }
+  if (!UUID_PATTERN.test(patient.visit_state_revision || "")) {
+    flags.push({ code: "no_revision", blocking: true, label: "No visit revision",
+      detail: "This visit has no stored revision, so a safe cancellation cannot be confirmed." });
+  }
+  if (patient.called_at) {
+    flags.push({ code: "previously_called", label: "Call recorded",
+      detail: "A call timestamp is stored although the visit is waiting. It may have been called and returned to the queue." });
+  }
+  const stored = String(patient.counter_id ?? "").trim();
+  if (stored) {
+    flags.push({ code: "stored_assignment", label: "Doctor assignment stored",
+      detail: resolveDoctorCounter(stored, counters)
+        ? `The visit still stores the assignment "${stored}" from an earlier call.`
+        : `The stored assignment "${stored}" matches no doctor counter.` });
+  }
+  if (patient.consultation_started_at) {
+    flags.push({ code: "consultation_started", label: "Consultation start recorded",
+      detail: "A consultation start is stored although the visit is waiting." });
+  }
+  if (patient.completed_at) {
+    flags.push({ code: "completion_recorded", label: "Completion time recorded",
+      detail: "A completion or cancellation time is stored although the visit is waiting." });
+  }
+  return flags;
+}
+
+function backlogView(patient, counters) {
+  const parsed = parsePatientPriority(patient);
+  const stored = String(patient.counter_id ?? "").trim();
+  const owner = resolveCancelOwner(patient, counters);
+  const flags = backlogFlags(patient, counters);
+  return {
+    id: Number(patient.id),
+    queue_number: patient.queue_number,
+    patient_name: patient.id_num ?? null,
+    service_type: patient.service_type,
+    status: patient.status,
+    // Same reading as Records: a stored assignment, or the doctor the service routes to.
+    doctor: stored ? (owner?.id_num || stored) : (owner?.id_num || getDoctorForService(patient.service_type)),
+    doctor_source: stored ? (owner ? "stored" : "unresolved") : "service",
+    priority_score: parsed.priority_score,
+    priority_categories: parsed.vulnerability_flags,
+    created_at: patient.created_at,
+    called_at: patient.called_at ?? null,
+    consultation_started_at: patient.consultation_started_at ?? null,
+    completed_at: patient.completed_at ?? null,
+    reason: parsed.reason,
+    visit_state_revision: patient.visit_state_revision ?? null,
+    flags,
+    requires_review: flags.length > 0,
+    cancel_blocked: flags.find((flag) => flag.blocking)?.detail || null
+  };
+}
+
+async function loadBacklogCounters() {
+  if (useLocalFallback) return localData.counters;
+  const { data, error } = await supabase.from("counters").select("id, id_num, current_patient_id");
+  if (error) throw consultationError(BACKLOG_UNAVAILABLE, 503);
+  return data || [];
+}
+
+async function loadBacklogSource(before) {
+  if (useLocalFallback) {
+    const patients = localData.patients.filter((row) => isHistoricalWaiting(row, before))
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id);
+    return { patients: patients.slice(0, BACKLOG_FETCH_LIMIT), counters: localData.counters, truncated: patients.length > BACKLOG_FETCH_LIMIT };
+  }
+  let patients, counters;
+  try {
+    const { data, error } = await supabase.from("patients").select(BACKLOG_COLUMNS)
+      .eq("status", "waiting").lt("created_at", before)
+      .order("created_at", { ascending: true }).order("id", { ascending: true })
+      .range(0, BACKLOG_FETCH_LIMIT);
+    if (error) throw consultationError(BACKLOG_UNAVAILABLE, 503);
+    patients = data || [];
+    counters = await loadBacklogCounters();
+  } catch (error) {
+    throw error?.statusCode ? error : consultationError(BACKLOG_UNAVAILABLE, 503);
+  }
+  return { patients: patients.slice(0, BACKLOG_FETCH_LIMIT), counters, truncated: patients.length > BACKLOG_FETCH_LIMIT };
+}
+
+function readBacklogFilters({ search = "", date = "", service = "", doctor = "", page = 1, limit = 20 } = {}) {
+  const text = (value) => {
+    if (typeof value !== "string" || value.length > 100) throw consultationError("Invalid filter", 400);
+    return value.trim();
+  };
+  const filters = { search: text(search), date: text(date), service: text(service), doctor: text(doctor), page: Number(page), limit: Number(limit) };
+  if (!Number.isInteger(filters.page) || filters.page < 1 || filters.page > 100000 ||
+      !Number.isInteger(filters.limit) || filters.limit < 1 || filters.limit > 100) {
+    throw consultationError("Invalid pagination", 400);
+  }
+  if (filters.service && !BACKLOG_SERVICES.includes(filters.service)) throw consultationError("Invalid filter", 400);
+  return filters;
+}
+
+// The earlier-day waiting visits, oldest first, with review flags. `now` is the server clock.
+async function getHistoricalBacklog(query = {}, now = new Date()) {
+  const filters = readBacklogFilters(query);
+  const dateRange = filters.date ? getBusinessDayRange(filters.date) : null;
+  const { businessDate, before } = historicalCutoff(now);
+  const { patients, counters, truncated } = await loadBacklogSource(before);
+  const doctor = filters.doctor ? resolveDoctorCounter(filters.doctor, counters) : null;
+  if (filters.doctor && !doctor) throw consultationError("Invalid filter", 400);
+  const all = patients.map((patient) => backlogView(patient, counters));
+  const search = filters.search.toLowerCase();
+  const rows = all.filter((row) =>
+    (!search || String(row.queue_number ?? "").toLowerCase().includes(search)) &&
+    (!dateRange || (Date.parse(row.created_at) >= Date.parse(dateRange.start) && Date.parse(row.created_at) < Date.parse(dateRange.end))) &&
+    (!filters.service || row.service_type === filters.service) &&
+    (!doctor || resolveDoctorCounter(row.doctor, counters)?.id === doctor.id));
+  const offset = (filters.page - 1) * filters.limit;
+  return {
+    business_date: businessDate,
+    registered_before: before,
+    observed_at: new Date(now).toISOString(),
+    total_backlog: all.length,
+    requires_review: all.filter((row) => row.requires_review).length,
+    truncated,
+    total: rows.length,
+    page: filters.page,
+    limit: filters.limit,
+    rows: rows.slice(offset, offset + filters.limit)
+  };
+}
+
+// The current stored state of one visit for the review panel, and whether it is still eligible.
+async function getHistoricalBacklogVisit(patientId, now = new Date()) {
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required", 400);
+  const { before } = historicalCutoff(now);
+  let patient, counters;
+  if (useLocalFallback) {
+    patient = localData.patients.find((row) => row.id === patientId) || null;
+    counters = localData.counters;
+  } else {
+    try {
+      const { data, error } = await supabase.from("patients").select(BACKLOG_COLUMNS).eq("id", patientId).maybeSingle();
+      if (error) throw consultationError(BACKLOG_UNAVAILABLE, 503);
+      patient = data;
+      counters = await loadBacklogCounters();
+    } catch (error) {
+      throw error?.statusCode ? error : consultationError(BACKLOG_UNAVAILABLE, 503);
+    }
+  }
+  if (!patient) throw consultationError("Patient not found", 404);
+  const eligible = isHistoricalWaiting(patient, before);
+  return {
+    ...backlogView(patient, counters),
+    registered_before: before,
+    eligible,
+    ineligible_reason: eligible ? null
+      : patient.status !== "waiting" ? `This visit is no longer waiting (current status: ${patient.status}).`
+      : "This visit was registered today, so it is part of today's queue, not the historical backlog."
+  };
+}
+
+function assertBacklogCancellable(existing, counters, { expectedRevision, before, acknowledged }) {
+  if (existing.status !== "waiting") {
+    throw consultationError(`This visit is no longer waiting (current status: ${existing.status}). Nothing was changed.`, 409);
+  }
+  if ((existing.visit_state_revision ?? null) !== expectedRevision) {
+    throw consultationError("This visit changed after it was reviewed. Review it again before cancelling. Nothing was changed.", 409);
+  }
+  if (!isHistoricalWaiting(existing, before)) {
+    throw consultationError("This visit was registered today and is not part of the historical backlog. Nothing was changed.", 409);
+  }
+  const flags = backlogFlags(existing, counters);
+  const blocking = flags.find((flag) => flag.blocking);
+  if (blocking) throw consultationError(`${blocking.detail} Nothing was changed.`, 409);
+  if (flags.length && acknowledged !== true) {
+    throw consultationError("This visit requires review. Confirm that you reviewed its history before cancelling. Nothing was changed.", 409);
+  }
+}
+
+// Superadmin cancels one reviewed historical visit. Reuses performCancellation, so the W1 RPC
+// re-validates the session, locks counters then the patient, and commits only that revision.
+async function cancelHistoricalWaitingVisit(patientId, { reason, expectedRevision, acknowledged = false } = {}, actor, now = new Date()) {
+  if (actor?.role !== "superadmin") throw consultationError("Only Superadmin can manage the historical backlog.", 403);
+  const trimmedReason = String(reason ?? "").trim();
+  if (!trimmedReason) throw consultationError("Reason for cancel is required", 400);
+  if (trimmedReason.length > 1000) throw consultationError("Reason for cancel is too long (maximum 1000 characters)", 400);
+  if (typeof expectedRevision !== "string" || !UUID_PATTERN.test(expectedRevision)) {
+    throw consultationError("The reviewed visit revision is required. Review the visit again before cancelling.", 400);
+  }
+  return performCancellation(patientId, trimmedReason, null, actor, {
+    expectedRevision, before: historicalCutoff(now).before, acknowledged
+  });
 }
 
 // Returns the patient after marking no-show. A repeated no-show is idempotent
@@ -2759,6 +2991,9 @@ module.exports = {
   buildCsv,
   callPatient,
   cancelPatient,
+  cancelHistoricalWaitingVisit,
+  getHistoricalBacklog,
+  getHistoricalBacklogVisit,
   authorizeVisitAction,
   clearTodaysQueues,
   completePatient,

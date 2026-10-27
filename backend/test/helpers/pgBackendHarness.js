@@ -70,10 +70,11 @@ function createPgBackendHarness(pool, { onRequest } = {}) {
     "../services/presenceService": presence, "../services/queueService": queue, "../services/settingsService": settings
   });
 
-  async function request(method, route, { token, body = {} } = {}) {
+  // `route` is the registered pattern (e.g. "/queue/backlog/:id"); `params` fills it.
+  async function request(method, route, { token, body = {}, query = {}, params = {} } = {}) {
     const chain = handlers.get(`${method.toUpperCase()} ${route}`);
     if (!chain) throw new Error(`Missing route ${method} ${route}`);
-    const req = { headers: token ? { authorization: `Bearer ${token}` } : {}, body, query: {}, params: {} };
+    const req = { headers: token ? { authorization: `Bearer ${token}` } : {}, body, query, params };
     const res = {
       statusCode: 200, headers: {}, status(code) { this.statusCode = code; return this; },
       json(data) { this.body = clone(data); return this; }, send(data) { this.body = data; return this; },

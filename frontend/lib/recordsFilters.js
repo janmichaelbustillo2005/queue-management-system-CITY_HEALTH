@@ -75,6 +75,17 @@ export const RECORD_FILTERS = {
       field("presence", "Session presence", "select", { options: PRESENCE_OPTIONS, allLabel: "Any presence" }),
       field("doctor", "Linked doctor", "select", { options: DOCTOR_OPTIONS, allLabel: "All doctor links" })
     ]
+  },
+  // Historical Waiting Backlog (GET /api/queue/backlog), not get_central_records. Every row is
+  // already waiting, so there is no status filter; search matches the ticket number only.
+  backlog: {
+    primary: [
+      field("search", "Ticket number", "search", { placeholder: "Search ticket number" }),
+      field("date", "Registration date", "date", { hint: "Manila", hintTitle: "Registration date in Manila time (Asia/Manila)" }),
+      field("service", "Service", "select", { options: SERVICE_OPTIONS, allLabel: "All services" }),
+      field("doctor", "Assigned doctor", "select", { options: DOCTOR_OPTIONS, allLabel: "All doctors" })
+    ],
+    advanced: []
   }
 };
 

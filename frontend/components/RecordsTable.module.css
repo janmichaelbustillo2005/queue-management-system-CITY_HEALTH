@@ -36,6 +36,9 @@
 .sticky { left: 0; position: sticky; z-index: 1; }
 .table thead th.sticky { z-index: 3; }
 .scrolled .sticky { box-shadow: 6px 0 6px -6px rgba(15, 23, 42, 0.25); }
+/* Tables with several row actions keep them in view at the right edge. */
+.stickyEnd { box-shadow: -6px 0 6px -6px rgba(15, 23, 42, 0.25); position: sticky; right: 0; z-index: 1; }
+.table thead th.stickyEnd { z-index: 3; }
 .numeric { font-variant-numeric: tabular-nums; text-align: right !important; }
 .wrap { max-width: 16rem; min-width: 9rem; overflow-wrap: anywhere; white-space: normal !important; }
 .identifier { font-variant-numeric: tabular-nums; font-weight: 600 !important; }
@@ -69,6 +72,15 @@
 .rowButton:hover, .pagerButton:hover:not(:disabled) { background: #f1f7f3; border-color: var(--brand-primary, #167d3f); }
 .rowButton:focus-visible, .pagerButton:focus-visible { outline: 3px solid rgba(22, 125, 63, 0.3); outline-offset: 2px; }
 .pagerButton:disabled { background: #f8fafc; border-color: #e5e9ee; color: #a0aab3; cursor: not-allowed; }
+/* Several row actions sit side by side; a destructive one is red in words and border. */
+.actionGroup { display: inline-flex; gap: 6px; justify-content: flex-end; }
+.dangerButton { border-color: #f1c4c4; color: #991b1b; }
+.dangerButton:hover { background: #fef2f2; border-color: #b91c1c; }
+.dangerButton:focus-visible { outline-color: rgba(185, 28, 28, 0.3); }
+
+/* Review flags: the indicator, then the specific flags in small text. */
+.flags { align-items: flex-start; display: inline-flex; flex-direction: column; gap: 3px; }
+.flagList { color: #64748b; font-size: 12px; line-height: 1.4; }
 
 /* Footer: what is shown on the left, page navigation on the right. */
 .footer {
@@ -100,6 +112,7 @@
 @media (max-width: 639px) {
   .sticky { position: static; }
   .scrolled .sticky { box-shadow: none; }
+  .stickyEnd { box-shadow: none; position: static; }
   .footer { align-items: stretch; flex-direction: column; }
   .pager { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
   .pagerDivider { display: none; }

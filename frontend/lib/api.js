@@ -74,7 +74,7 @@ export async function request(path, options = {}) {
         window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT));
       }
       // Return error object instead of throwing, so UI can handle gracefully
-      return { error: errorMsg };
+      return { error: errorMsg, status: response.status };
     }
 
     return data;

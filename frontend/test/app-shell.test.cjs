@@ -134,7 +134,7 @@ const links = (user) => {
 test("each role sees one organized menu of its own sections", () => {
   assert.deepEqual(plain(menu(accounts.superadmin)), [
     ["Overview", ["Dashboard"]],
-    ["Queue Operations", ["Queue Management", "Doctor & Counter Monitoring", "Live Queue Display"]],
+    ["Queue Operations", ["Queue Management", "Doctor & Counter Monitoring", "Historical Backlog", "Live Queue Display"]],
     ["Records Management", ["Patient Records", "Staff Records", "User Accounts"]],
     ["Reports & Analytics", ["Analytics"]],
     ["System Administration", ["Staff Management", "System Settings"]]
@@ -194,7 +194,7 @@ test("the highlighted item follows the URL, including Records categories and the
     ["/?section=staff", "Staff Management"], ["/?section=settings", "System Settings"],
     ["/records", "Patient Records"], ["/records?category=patients", "Patient Records"],
     ["/records?category=staff", "Staff Records"], ["/records?category=accounts", "User Accounts"],
-    ["/records?category=unknown", "Patient Records"], ["/analytics", "Analytics"]
+    ["/records?category=unknown", "Patient Records"], ["/analytics", "Analytics"], ["/queue-backlog", "Historical Backlog"]
   ];
   for (const [url, label] of cases) assert.deepEqual(plain(active(accounts.superadmin, url)), [label], url);
   assert.deepEqual(plain(active(accounts.superadmin, "/admin1")), [], "no false highlight on pages outside the menu");

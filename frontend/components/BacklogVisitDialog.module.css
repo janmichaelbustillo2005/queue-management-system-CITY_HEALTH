@@ -1,0 +1,72 @@
+/* Historical Backlog review / cancel dialog. Same palette and button shapes as the Records tables. */
+.dialog {
+  background: #fff; border: 1px solid #dce3ec; border-radius: 12px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  color: #1f2937; max-height: calc(100dvh - 32px); max-width: min(720px, calc(100vw - 32px)); padding: 0; width: 100%;
+}
+.dialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+.header {
+  align-items: center; background: #fff; border-bottom: 1px solid #e5e9ee; display: flex; gap: 12px;
+  justify-content: space-between; padding: 14px 18px; position: sticky; top: 0; z-index: 1;
+}
+.title { align-items: center; display: flex; font-size: 17px; font-weight: 700; gap: 10px; margin: 0; }
+.title i { color: var(--brand-primary, #167d3f); }
+.iconButton {
+  align-items: center; background: #fff; border: 1px solid #cfd8d3; border-radius: 6px; color: #475569; cursor: pointer;
+  display: inline-flex; height: 36px; justify-content: center; width: 36px;
+}
+.iconButton:focus-visible, .secondary:focus-visible, .link:focus-visible { outline: 3px solid rgba(22, 125, 63, 0.3); outline-offset: 2px; }
+.body { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 16px 18px 18px; }
+
+.details { display: grid; gap: 10px 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+.detail { min-width: 0; }
+.detail dt { color: #64748b; font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+.detail dd { font-size: 14px; margin: 0; overflow-wrap: anywhere; }
+.wide { grid-column: 1 / -1; }
+.muted { color: #94a3b8; }
+.timezone { align-items: center; color: #64748b; display: flex; font-size: 12px; gap: 6px; margin: 0; }
+
+.notice { align-items: flex-start; border: 1px solid; border-radius: 8px; display: flex; flex-wrap: wrap; font-size: 13.5px; gap: 10px; padding: 10px 12px; }
+.notice > i { margin-top: 3px; }
+.notice > div { flex: 1; min-width: 0; }
+.notice > span { flex: 1; min-width: 12rem; }
+.noticeTitle { font-weight: 700; margin: 0 0 4px; }
+.noticeNote { font-size: 12.5px; margin: 6px 0 0; opacity: 0.9; }
+.flagList { margin: 0; padding-left: 18px; }
+.flagList li + li { margin-top: 3px; }
+.warning { background: #fff8eb; border-color: #f4dcae; color: #8a4b0c; }
+.error { background: #fef2f2; border-color: #f6cccc; color: #991b1b; }
+.info { background: #eff6ff; border-color: #cfe0fb; color: #1e40af; }
+.success { background: #ecf7f0; border-color: #c7e6d2; color: #166534; }
+.clean { align-items: center; color: #166534; display: flex; font-size: 13.5px; gap: 8px; margin: 0; }
+
+.form { display: flex; flex-direction: column; gap: 8px; }
+.effect { background: #f8fafc; border: 1px solid #e5e9ee; border-radius: 8px; font-size: 13.5px; line-height: 1.5; margin: 0; padding: 10px 12px; }
+.label { font-size: 13.5px; font-weight: 600; }
+.textarea {
+  border: 1px solid #cfd8d3; border-radius: 6px; font: inherit; font-size: 14px; min-height: 76px; padding: 8px 10px; resize: vertical; width: 100%;
+}
+.textarea:focus { border-color: var(--brand-primary, #167d3f); outline: 3px solid rgba(22, 125, 63, 0.2); }
+.reasonMeta { align-items: center; color: #64748b; display: flex; font-size: 12px; gap: 12px; justify-content: space-between; }
+.link { background: none; border: 0; color: var(--brand-primary, #167d3f); cursor: pointer; font: inherit; font-weight: 600; padding: 4px 0; text-decoration: underline; }
+.checkbox { align-items: flex-start; display: flex; font-size: 13.5px; gap: 8px; }
+.checkbox input { height: 18px; margin-top: 1px; width: 18px; }
+.hint { color: #8a4b0c; font-size: 12.5px; margin: 0; min-height: 1em; }
+
+.footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.secondary, .danger {
+  align-items: center; border: 1px solid; border-radius: 6px; cursor: pointer; display: inline-flex; font: inherit;
+  font-size: 13.5px; font-weight: 600; gap: 7px; height: 38px; justify-content: center; padding: 0 14px; white-space: nowrap;
+}
+.secondary { background: #fff; border-color: #cfd8d3; color: #1f3b2d; }
+.secondary:hover:not(:disabled) { background: #f1f7f3; border-color: var(--brand-primary, #167d3f); }
+.danger { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+.danger:hover:not(:disabled) { background: #991b1b; }
+.danger:focus-visible { outline: 3px solid rgba(185, 28, 28, 0.35); outline-offset: 2px; }
+.secondary:disabled, .danger:disabled { background: #f8fafc; border-color: #e5e9ee; color: #a0aab3; cursor: not-allowed; }
+
+@media (max-width: 639px) {
+  .dialog { border-radius: 10px; max-width: calc(100vw - 16px); }
+  .details { grid-template-columns: minmax(0, 1fr); }
+  .footer { flex-direction: column-reverse; }
+  .footer > button { height: 44px; width: 100%; }
+}

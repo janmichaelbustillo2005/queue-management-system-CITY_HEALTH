@@ -75,6 +75,7 @@ const SUPERADMIN_GROUPS = [
       (at) => onDashboard(at, "queue") && at.hash !== "doctor-monitoring"),
     link("monitoring", "Doctor & Counter Monitoring", "fas fa-user-md", "/?section=queue#doctor-monitoring",
       (at) => onDashboard(at, "queue") && at.hash === "doctor-monitoring"),
+    link("historical-backlog", "Historical Backlog", "fas fa-history", "/queue-backlog", (at) => at.path === "/queue-backlog"),
     liveDisplay
   ] },
   { id: "records", label: "Records Management", items: [

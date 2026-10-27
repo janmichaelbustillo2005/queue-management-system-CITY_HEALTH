@@ -8,7 +8,7 @@ import { RECORD_FILTERS } from "../lib/recordsFilters";
 
 const TIME_KEYS = ["created_at", "called_at", "consultation_started_at", "completed_at", "last_login", "last_seen", "occurred_at"];
 const NUMERIC_KEYS = ["priority_score"];
-const WRAP_KEYS = ["display_name", "doctor", "patient_name", "event"];
+const WRAP_KEYS = ["display_name", "doctor", "patient_name", "event", "flags"];
 const SERVICE_LABELS = Object.fromEntries(
   RECORD_FILTERS.patients.primary.find((field) => field.key === "service").options.map((option) => [option.value, option.label])
 );
@@ -48,6 +48,17 @@ export function recordCell(row, key) {
   if (key === "authenticated") return value ? indicator("teal", "fas fa-key", "Active session") : indicator("neutral", "far fa-circle", "No active session");
   // Shown exactly as stored: the schema has no enabled/disabled flag to verify.
   if (key === "account_status") return value ? indicator("neutral", "far fa-id-badge", value) : muted("Unavailable");
+  // Historical Backlog review flags from the server: words first, then which ones apply.
+  if (key === "flags") {
+    if (!Array.isArray(value) || !value.length) return muted("None");
+    const blocked = value.some((flag) => flag.blocking);
+    return (
+      <span className={styles.flags}>
+        {blocked ? indicator("red", "fas fa-ban", "Cancel blocked") : indicator("amber", "fas fa-exclamation-triangle", "Requires review")}
+        <span className={styles.flagList}>{value.map((flag) => flag.label).join(" · ")}</span>
+      </span>
+    );
+  }
   if (key === "status" && QUEUE_STATUS[value]) return indicator(...QUEUE_STATUS[value]);
   if (key === "service_type" && SERVICE_LABELS[value]) return SERVICE_LABELS[value];
   return value ?? muted("Unavailable");
@@ -112,8 +123,13 @@ export function TableScroll({ label, children }) {
   );
 }
 
-// The Records table. `action` adds a final column with one real button per row.
-export function recordsTable({ label, columns, rows, emptyMessage = "No records found.", action }) {
+// The Records table. `action` adds a final column with one real button per row; `actions`
+// (with `actionsHeading`) adds several. A button's `tone: "danger"` marks a destructive step,
+// and `describe(row)` gives it an accessible name that includes the row.
+export function recordsTable({ label, columns, rows, emptyMessage = "No records found.", action, actions, actionsHeading }) {
+  const buttons = actions || (action ? [action] : null);
+  const heading = actions ? actionsHeading : action?.heading;
+  const actionClass = actions ? `${styles.actionCell} ${styles.stickyEnd}` : styles.actionCell;
   return (
     <TableScroll label={label}>
       <table className={styles.table}>
@@ -123,7 +139,7 @@ export function recordsTable({ label, columns, rows, emptyMessage = "No records 
             {columns.map(([key, heading], index) => (
               <th key={key} scope="col" className={cellClass(key, index)}>{heading}</th>
             ))}
-            {action ? <th scope="col" className={styles.actionCell}>{action.heading}</th> : null}
+            {buttons ? <th scope="col" className={actionClass}>{heading}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -134,18 +150,24 @@ export function recordsTable({ label, columns, rows, emptyMessage = "No records 
                   ? <th key={key} scope="row" className={cellClass(key, index)}>{recordCell(row, key)}</th>
                   : <td key={key} className={cellClass(key, index)}>{recordCell(row, key)}</td>
               ))}
-              {action ? (
-                <td className={styles.actionCell}>
-                  <button type="button" className={styles.rowButton} onClick={() => action.onClick(row)}>
-                    <i className={action.icon} aria-hidden="true" />{action.label}
-                  </button>
+              {buttons ? (
+                <td className={actionClass}>
+                  <span className={styles.actionGroup}>
+                    {buttons.map((button) => (
+                      <button key={button.label} type="button"
+                        className={`${styles.rowButton}${button.tone === "danger" ? ` ${styles.dangerButton}` : ""}`}
+                        aria-label={button.describe ? button.describe(row) : undefined} onClick={() => button.onClick(row)}>
+                        <i className={button.icon} aria-hidden="true" />{button.label}
+                      </button>
+                    ))}
+                  </span>
                 </td>
               ) : null}
             </tr>
           ))}
           {!rows.length ? (
             <tr>
-              <td className={styles.empty} colSpan={columns.length + (action ? 1 : 0)}>{emptyMessage}</td>
+              <td className={styles.empty} colSpan={columns.length + (buttons ? 1 : 0)}>{emptyMessage}</td>
             </tr>
           ) : null}
         </tbody>

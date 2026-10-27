@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { request } from "../lib/api";
 import {
   finiteMetric, getManilaToday, makeFilters, statusColor, isStatusAnalyticsData,
@@ -92,7 +93,10 @@ function CarryInNote({ carryIn }) {
   const waiting = finiteMetric(carryIn?.waiting) ?? 0, serving = finiteMetric(carryIn?.serving) ?? 0;
   if (!waiting && !serving) return null;
   const parts = [waiting && `${plural(waiting, "patient")} still waiting`, serving && `${plural(serving, "patient")} being served`].filter(Boolean);
-  return <p className={styles.carryInNote}><i className="fas fa-info-circle" aria-hidden="true" />Not counted above: {parts.join(" and ")} who registered on an earlier day.</p>;
+  // Earlier-day waiting visits are resolved in the Superadmin Historical Backlog; the note's
+  // count stays this period's carry-in, and the backlog page shows its own live count.
+  return <p className={styles.carryInNote}><i className="fas fa-info-circle" aria-hidden="true" /><span>Not counted above: {parts.join(" and ")} who registered on an earlier day.</span>
+    {waiting ? <Link href="/queue-backlog" className={styles.carryInLink}>View Historical Backlog<i className="fas fa-arrow-right" aria-hidden="true" /></Link> : null}</p>;
 }
 
 function StatusBreakdown({ outcomes, loading }) {

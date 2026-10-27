@@ -195,6 +195,7 @@ function harness(options = {}) {
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (name === "next/link") return { __esModule: true, default: "a" };
       if (name === "../lib/statusAnalyticsCharts") return chartModule.exports;
       if (name.endsWith(".module.css")) return { __esModule: true, default: new Proxy({}, { get: (_, key) => key }) };
       if (name === "../lib/api") return { request: async (route, init = {}) => {
@@ -305,6 +306,9 @@ test("Status Analytics shows status cards, one breakdown chart, times and doctor
   assert.match(rows, /Doctor 246\.3 min25 min/);
   assert.doesNotMatch(rows, /Enabled|Disabled/, "today's enabled setting is not a historical fact about the period");
   assert.match(content(tree), /Not counted above: 1 patient still waiting who registered on an earlier day\./);
+  const backlogLinks = nodes(tree, node => node.props?.href === "/queue-backlog");
+  assert.equal(backlogLinks.length, 1, "the carry-in note links to the Historical Backlog");
+  assert.equal(content(backlogLinks[0]), "View Historical Backlog");
   assert.match(content(tree), /Patients registered so far in this period, by their status right now\./);
   assert.match(content(tree), /How to read these numbers/);
   assert.match(content(tree), /Asia\/Manila/);
@@ -356,6 +360,17 @@ test("a finished period compares with the day before and reports current statuse
   assert.match(content(tree), /Patients registered in this period, by their current status\./);
   assert.match(content(metricCards(tree)[0]), /Down 50% vs the day before/);
   assert.doesNotMatch(content(tree), /Not counted above/);
+  assert.equal(nodes(tree, node => node.props?.href === "/queue-backlog").length, 0);
+  h.dispose();
+});
+
+test("only earlier-day waiting patients offer the Historical Backlog link; reporting numbers are unchanged", async () => {
+  const servingOnly = data({ outcomes: { ...data().outcomes, carry_in: { waiting: 0, serving: 2 } } });
+  const h = harness({ backend: { value: servingOnly } });
+  const tree = await h.settle();
+  assert.match(content(tree), /Not counted above: 2 patients being served who registered on an earlier day\./);
+  assert.equal(nodes(tree, node => node.props?.href === "/queue-backlog").length, 0, "no backlog link without earlier-day waiting visits");
+  assert.equal(cardValue(tree, "Total Patients"), "16", "carry-in visits stay out of the period's registrations");
   h.dispose();
 });
 

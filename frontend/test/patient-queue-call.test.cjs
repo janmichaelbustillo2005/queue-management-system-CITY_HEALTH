@@ -261,7 +261,7 @@ test("frontdesk cancellation of a carryover visit enables today's Call Now throu
     confirm: value => { confirmation = value; },
     request: async (route, init) => {
       const response = await backend.request(init.method, route, JSON.parse(init.body), {
-        id_num: "frontdesk", role: "admin", doctor_name: "Front Desk"
+        id_num: "frontdesk", role: "admin", doctor_name: null
       });
       return response.status === 200 ? response.body : { error: response.body.message };
     },

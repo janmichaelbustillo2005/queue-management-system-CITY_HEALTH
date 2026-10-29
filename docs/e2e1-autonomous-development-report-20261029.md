@@ -99,7 +99,8 @@ Backend `node --test test/*.test.js` with PG17 + PGlite enabled and voice venv: 
 
 Historical visit **89 (FP-008, registered 2026-09-26)** was cancelled on the hosted project at
 2026-10-29 12:03 Manila, reason "Development test concluded — visit not served.". Historical Waiting is now 19.
-Counters are consistent. Please confirm this was an authorized Historical Backlog action.
+Counters are consistent. **Confirmed by the project owner on 2026-10-29 as an authorized Historical Backlog
+cancellation.** 19 historical Waiting visits remain; they still need separate authorization before any change.
 
 ## 9. Requires your approval
 

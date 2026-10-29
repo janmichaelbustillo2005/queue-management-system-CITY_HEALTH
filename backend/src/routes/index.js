@@ -264,7 +264,7 @@ router.post("/queue/accept", authenticateToken, async (req, res) => {
     if (patient.consultation_started_at || (!isAwaitingAccept(patientId) && getAcceptedAt(patientId))) {
       return res.status(400).json({ success: false, message: "This patient is not waiting to be accepted" });
     }
-    const acceptedAt = markAccepted(patientId);
+    const acceptedAt = markAccepted(patientId, patient.called_at);
     const announcement = recordVoiceAnnouncementEvent({ patient, eventType: "accept", eventAt: acceptedAt });
     console.info("[voice][accept]", {
       patient_id: patientId,

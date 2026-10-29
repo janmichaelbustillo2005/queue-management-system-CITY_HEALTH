@@ -17,10 +17,10 @@ const SECRET = "isolated-pg-backend-harness-secret";
 const silentConsole = { log() {}, info() {}, warn() {}, error() {} };
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
-function load(relative, imports) {
+function load(relative, imports, DateImpl = Date) {
   const filename = path.join(backendDir, "src", relative);
   const module = { exports: {} };
-  const context = vm.createContext({ console: silentConsole, Date, Intl, setTimeout, clearTimeout, process: { env: {} } });
+  const context = vm.createContext({ console: silentConsole, Date: DateImpl, Intl, setTimeout, clearTimeout, process: { env: {} } });
   const wrapper = new vm.Script(`(function(require, module, exports, __dirname, __filename) {\n${fs.readFileSync(filename, "utf8")}\n})`, { filename });
   wrapper.runInContext(context)((name) => {
     if (!(name in imports)) throw new Error(`Unexpected dependency ${name} in ${relative}`);
@@ -40,15 +40,27 @@ function memoryFs() {
   };
 }
 
+// A Date whose clock runs `offsetMs` from the real one, as on a backend host whose clock is
+// not synchronized with the database server.
+function skewedDate(offsetMs) {
+  if (!offsetMs) return Date;
+  return class SkewedDate extends Date {
+    constructor(...args) { if (args.length) super(...args); else super(Date.now() + offsetMs); }
+    static now() { return Date.now() + offsetMs; }
+  };
+}
+
 // `pool` must already connect as the API role (see pgRestClient). `onRequest` may pause or
 // observe any database request the backend makes (used to force interleavings).
-function createPgBackendHarness(pool, { onRequest } = {}) {
+// `clockOffsetMs` shifts the backend's clock relative to PostgreSQL's.
+function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0 } = {}) {
+  const DateImpl = skewedDate(clockOffsetMs);
   const supabase = createPgRestClient(pool, { onRequest: (request) => (onRequest ? onRequest(request) : undefined) });
   const env = { jwtSecret: SECRET, supabaseUrl: "https://isolated-pg-harness.invalid", supabaseServiceRoleKey: "isolated" };
   const virtualFs = memoryFs();
   const sms = [];
-  const settings = load("services/settingsService.js", { fs: virtualFs, path, crypto });
-  const presence = load("services/presenceService.js", { "../lib/supabase": supabase });
+  const settings = load("services/settingsService.js", { fs: virtualFs, path, crypto }, DateImpl);
+  const presence = load("services/presenceService.js", { "../lib/supabase": supabase }, DateImpl);
   const queue = load("services/queueService.js", {
     "../lib/supabase": supabase, "../config/env": env, bcryptjs: bcrypt,
     "../lib/businessDay": require("../../src/lib/businessDay"), "node:crypto": crypto,
@@ -57,8 +69,8 @@ function createPgBackendHarness(pool, { onRequest } = {}) {
       sendQueueCalledNotification: async (...args) => sms.push({ type: "called", args })
     },
     "./settingsService": settings
-  });
-  const auth = load("middleware/auth.js", { jsonwebtoken: jwt, "../config/env": env, "../services/presenceService": presence });
+  }, DateImpl);
+  const auth = load("middleware/auth.js", { jsonwebtoken: jwt, "../config/env": env, "../services/presenceService": presence }, DateImpl);
   const handlers = new Map();
   const router = {};
   for (const method of ["get", "post", "put", "delete"]) {
@@ -68,7 +80,7 @@ function createPgBackendHarness(pool, { onRequest } = {}) {
     express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto, "../config/env": env,
     "../lib/businessDay": require("../../src/lib/businessDay"), "../middleware/auth": auth,
     "../services/presenceService": presence, "../services/queueService": queue, "../services/settingsService": settings
-  });
+  }, DateImpl);
 
   // `route` is the registered pattern (e.g. "/queue/backlog/:id"); `params` fills it.
   async function request(method, route, { token, body = {}, query = {}, params = {} } = {}) {

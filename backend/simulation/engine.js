@@ -1,16 +1,15 @@
-// PENDING D1 INTEGRATION: the dispatch below assumes the old fixed service-to-doctor mapping
-// (DOCTOR_FOR_SERVICE), which the City Health administrator has superseded (D1: all three doctors
-// are general doctors). runSimulation must be reconciled with D1's approved dispatch architecture
-// before any result is reported. The policies (policies.js) and metrics (metrics.js) only rank a
-// waiting pool and do not depend on the mapping.
-//
 // Research simulation (not used by the live queue): a seeded discrete-event model of the clinic
-// for comparing scheduling policies on identical synthetic workloads. Three doctors, each with
-// its own queue (the live service-to-doctor mapping), non-preemptive consultations, a doctor
-// picks the next patient the moment it becomes free. Times are minutes from opening.
+// for comparing scheduling policies on identical synthetic workloads. Three doctors,
+// non-preemptive consultations; a doctor picks the next patient the moment it becomes free.
+// Times are minutes from opening. Two dispatch modes, matching D1's DOCTOR_DISPATCH_MODE:
+//   "service" - each service goes to its fixed doctor (the current behavior; three queues);
+//   "shared"  - D1 Model A (provisional, pending approval): all doctors are general doctors and
+//               take the head of ONE Weighted-Priority queue; the doctor is chosen at Call.
+// Results are reported per mode; neither mode is assumed to be the approved one.
 //
 // WPS and WPS-A use the production rank function (src/lib/wpsPriority.js); WRR is in
-// policies.js. Every workload parameter is an ASSUMPTION documented in scenarios.js.
+// policies.js. Every workload parameter is an ASSUMPTION documented in scenarios.js; in shared
+// mode every doctor is assumed to take the same time for a given service.
 const { compareWps } = require("../src/lib/wpsPriority");
 
 const DOCTOR_FOR_SERVICE = {
@@ -84,34 +83,46 @@ function wpsPolicy(aging) {
   });
 }
 
-// Doctors' queues are independent (each service has one doctor), so each doctor is simulated on
-// its own: whenever it is free it picks from the patients who have arrived by then; if none has,
-// it waits for the next arrival. Consultations are never interrupted.
-function runSimulation(patients, makePolicy) {
+// Serves `chosen` on `doctor` at `now`; returns when the doctor is free again.
+function record(served, busy, inversions, chosen, waiting, doctor, now) {
+  inversions.decisions += 1;
+  if (chosen.priority_score < Math.max(...waiting.map((p) => p.priority_score))) inversions.anyBase += 1;
+  if (chosen.group === "regular" && waiting.some((p) => p.flags.some((f) => PROTECTED.includes(f)))) {
+    inversions.regularOverProtected += 1;
+  }
+  waiting.splice(waiting.indexOf(chosen), 1);
+  served.push({ ...chosen, servedBy: doctor, start: now, wait: now - chosen.arrival, end: now + chosen.serviceTime });
+  busy[doctor] += chosen.serviceTime;
+  return now + chosen.serviceTime;
+}
+
+// One queue served by `doctors`: whenever the earliest-free doctor is free it takes the policy's
+// pick from the patients who have arrived by then; if none has, the longest-idle doctor takes the
+// next arrival. `policy` is one instance shared by the queue (WRR keeps its cycle per queue).
+function serveQueue(pending, doctors, policy, served, busy, inversions) {
+  const freeAt = Object.fromEntries(doctors.map((d) => [d, 0]));
+  const waiting = [];
+  let i = 0;
+  while (i < pending.length || waiting.length) {
+    const doctor = doctors.reduce((a, b) => (freeAt[b] < freeAt[a] ? b : a));
+    let now = freeAt[doctor];
+    while (i < pending.length && pending[i].arrival <= now) waiting.push(pending[i++]);
+    if (!waiting.length) { freeAt[doctor] = pending[i].arrival; continue; }
+    freeAt[doctor] = record(served, busy, inversions, policy.select(waiting, now), waiting, doctor, now);
+  }
+}
+
+function runSimulation(patients, makePolicy, { dispatch = "service" } = {}) {
+  if (!["service", "shared"].includes(dispatch)) throw new Error(`Unknown dispatch mode ${dispatch}`);
   const served = [];
-  const busy = {};
+  const busy = Object.fromEntries(DOCTORS.map((d) => [d, 0]));
   const inversions = { anyBase: 0, regularOverProtected: 0, decisions: 0 };
-  for (const doctor of DOCTORS) {
-    const policy = makePolicy(doctor);
-    const pending = patients.filter((p) => p.doctor === doctor).sort((a, b) => a.arrival - b.arrival || a.id - b.id);
-    const waiting = [];
-    let now = 0;
-    let i = 0;
-    busy[doctor] = 0;
-    const admit = () => { while (i < pending.length && pending[i].arrival <= now) waiting.push(pending[i++]); };
-    while (i < pending.length || waiting.length) {
-      admit();
-      if (!waiting.length) { now = pending[i].arrival; continue; }
-      const chosen = policy.select(waiting, now);
-      inversions.decisions += 1;
-      if (chosen.priority_score < Math.max(...waiting.map((p) => p.priority_score))) inversions.anyBase += 1;
-      if (chosen.group === "regular" && waiting.some((p) => p.flags.some((f) => PROTECTED.includes(f)))) {
-        inversions.regularOverProtected += 1;
-      }
-      waiting.splice(waiting.indexOf(chosen), 1);
-      served.push({ ...chosen, start: now, wait: now - chosen.arrival, end: now + chosen.serviceTime });
-      busy[doctor] += chosen.serviceTime;
-      now += chosen.serviceTime;
+  const byArrival = (a, b) => a.arrival - b.arrival || a.id - b.id;
+  if (dispatch === "shared") {
+    serveQueue(patients.slice().sort(byArrival), DOCTORS, makePolicy("shared"), served, busy, inversions);
+  } else {
+    for (const doctor of DOCTORS) {
+      serveQueue(patients.filter((p) => p.doctor === doctor).sort(byArrival), [doctor], makePolicy(doctor), served, busy, inversions);
     }
   }
   const makespan = Math.max(0, ...served.map((p) => p.end));

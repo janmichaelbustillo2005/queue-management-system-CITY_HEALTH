@@ -38,7 +38,7 @@ passes in isolation and serially (110/110 PG concurrency tests serial). Environm
 
 | Severity | Finding | Recommendation |
 |---|---|---|
-| **Critical** | All 5 hosted accounts store **plaintext** passwords; lengths match the default passwords (checked read-only, values never printed). With #2 removed, `admin123` still works for doctor accounts *only if that is their stored password*. | Approve: rotate all five passwords via Staff Management (stored as bcrypt) before any shared demo/deployment. |
+| Deployment | The 5 accounts on the development project store **plaintext** default passwords (checked read-only, values never printed). The project owner confirmed (2026-10-29) these are **demo/test accounts only**, not real staff accounts, so this is accepted for development. With #2 removed, `admin123` works for a doctor account only if that is its own stored password. | Before any production deployment: create real accounts through Staff Management (stored as bcrypt) and remove or re-password the demo accounts. |
 | Medium | No login rate limiting / lockout. | Approve a policy (e.g. 10 failures / 15 min per account+IP → 429). |
 | Medium | F5 Requeue reuses the row: the cancellation reason and time **and the original registration time** are overwritten (Test C pins this). Analytics wait for re-queued visits restarts from the requeue. | Visit-history table (design + hosted migration → approval). |
 | Policy | Public registration lets an anonymous patient self-declare PWD/Pregnant/Indigenous/Solo Parent. | Decide whether categories other than birthdate-derived Senior require staff verification. |
@@ -65,29 +65,39 @@ outside the queue per clinical policy.
 - Verified: 10 unit tests (0/9/10/20 min, edges, cap, ties, categories, separation); 7 PG17 tests incl.
   120 randomized rounds where the DB accepts exactly the backend's head at ±1 ms step edges.
 
-## 5. WRR comparison simulation — PROVISIONAL, PENDING D1
+## 5. WRR comparison simulation — both D1 dispatch modes
 
-`backend/simulation/` (engine, policies, scenarios, metrics, run). WPS/WPS-A use the production rank
-function; WRR serves priority-score classes highest-first, up to `weight` per turn, FIFO in class. Six
-scenarios × 30 seeded replications; metrics: mean/P95/max wait, by group, Jain fairness, throughput,
-utilization, waits >60/120 min, lower-score-first and Regular-before-protected decisions. Every workload
-parameter is an **assumption** (`scenarios.js`), not a clinic measurement.
+`backend/simulation/` (engine, policies, scenarios, metrics, run); methodology in
+`docs/research/scheduling-simulation-methodology.md`. WPS/WPS-A use the production rank function; WRR serves
+priority-score classes highest-first, up to `weight` per turn, FIFO in class. Six scenarios × 30 seeded
+replications × **both D1 dispatch modes** (`service` = fixed doctors, current; `shared` = D1 Model A, general
+doctors, one queue). Every workload parameter is an **assumption** (`scenarios.js`), not a clinic measurement.
+Results: `output/e2e-1/20261029-simulation-both-dispatch-modes/results.md`.
 
-**Do not cite the generated numbers** (`output/e2e-1/20261029-simulation-PROVISIONAL-fixed-mapping/`): the
-dispatch assumes the superseded fixed service-to-doctor mapping.
+Model observations (synthetic): the shared queue cuts waits far more than any policy change (e.g. unequal
+workload, average 104 → 3.9 min); WPS-A is nearly identical to WPS (its +2 cap keeps Regulars below
+protected patients, so it does not relieve their longest waits under overload); WRR lowers the longest waits
+most in the priority surge but raises Senior waits and serves Regulars ahead of waiting protected patients
+(about 5/day in that scenario; 0 for both WPS variants).
 
-## 6. Reconciliation with D1 (general doctors) — pending
+## 6. Reconciliation with D1 (general doctors)
 
 D1 (`feature/d1-flexible-doctor-assignment`) branched from `83c4943`, so it already contains fixes #1–#5 and
-Tests B–D. Not in D1: WPS-A (`077ea15`), simulation (`fd7ae2a`), voice fix (`2484583`).
+Tests B–D. Not in D1: WPS-A (`077ea15`), simulation, voice fix (`2484583`). D1 (in progress, uncommitted when
+checked) adds `DOCTOR_DISPATCH_MODE` = `service` (default) | `shared` (Model A, needs
+`20261029-d1-shared-call.sql`).
 
-Architecture-dependent items to revisit once D1's dispatch is approved:
-- WPS-A Node head filter (`getDoctorForService(...) === doctorName` in `queueService.js`) and the SQL twin's
-  service→doctor `CASE` — must follow D1's dispatch; **expect a merge conflict** in `queueService.js` and the
+Done: the simulation models both modes (no shared files with D1).
+
+Still pending D1's committed code:
+- WPS-A in `shared` mode needs the aging `ORDER BY` in D1's shared Call function too (a twin of
+  `d1-shared-call.sql`), and the Node head must use the shared queue. In `service` mode the current WPS-A
+  twin applies unchanged. **Expect a merge conflict** in `queueService.js`, `env.js`, the PG harnesses and the
   frontend comparators (`PatientQueueTable.js`, `DoctorAdmin.js`, `pages/index.js`, `lib/queueTicket.js`).
-- Simulation `engine.js` dispatch (`DOCTOR_FOR_SERVICE`, per-doctor queues) → D1's model, then rerun.
-- Test B's "Doctor 1 head" and Test D's cross-doctor refusals (`/assigned to Doctor 2/`) encode the old mapping.
-Independent of D1: fixes #2, #3, #4, #6, WPS-A rank function itself, simulation policies/metrics.
+- Test B's "Doctor 1 head" and Test D's cross-doctor refusals (`/assigned to Doctor 2/`) hold for `service`
+  mode; shared-mode equivalents belong with D1's tests.
+
+Independent of D1: fixes #2, #3, #4, #6, the WPS-A rank function, the simulation.
 
 ## 7. Regression (final, worktree)
 
@@ -104,5 +114,5 @@ cancellation.** 19 historical Waiting visits remain; they still need separate au
 
 ## 9. Requires your approval
 
-Rotate the plaintext passwords; login rate-limit policy; WPS-A policy (cap, protected aging) and installing
+Replacing the demo accounts before production; login rate-limit policy; WPS-A policy (cap, protected aging) and installing
 its SQL; visit-history migration for F5; merging this branch; any hosted migration or data change.

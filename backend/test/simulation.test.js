@@ -65,3 +65,26 @@ test("metrics: percentile, Jain index and per-group summaries", () => {
   assert.equal(m.byGroup.senior.avgWait, 9);
   assert.equal(m.byGroup.regular.avgWait, 0);
 });
+
+test("shared dispatch (D1 Model A): every patient once, no doctor overlap, any free doctor takes the head", () => {
+  const workload = generateWorkload(SCENARIOS["unequal-workload"], 17);
+  for (const [name, makePolicy] of Object.entries(POLICIES)) {
+    const { served } = runSimulation(workload, makePolicy, { dispatch: "shared" });
+    assert.equal(served.length, workload.length, name);
+    assert.equal(new Set(served.map((p) => p.id)).size, workload.length);
+    for (const doctor of ["Doctor 1", "Doctor 2", "Doctor 3"]) {
+      const own = served.filter((p) => p.servedBy === doctor).sort((x, y) => x.start - y.start);
+      for (let i = 1; i < own.length; i += 1) assert.ok(own[i].start >= own[i - 1].end - 1e-9, `${name} ${doctor} overlaps`);
+    }
+    assert.ok(new Set(served.filter((p) => p.service === "consultation").map((p) => p.servedBy)).size > 1,
+      `${name}: consultations are spread over general doctors`);
+  }
+  assert.equal(runSimulation(workload, POLICIES["WPS (original)"], { dispatch: "shared" }).inversions.anyBase, 0,
+    "WPS never serves a lower score while a higher one waits in the shared queue");
+  // Three consultations arriving together go to three different free doctors at once.
+  const together = [patient(1, 1, 0), patient(2, 4, 0), patient(3, 3, 0)];
+  const served = runSimulation(together, POLICIES["WPS (original)"], { dispatch: "shared" }).served;
+  assert.deepEqual(served.map((p) => [p.id, p.start]), [[2, 0], [3, 0], [1, 0]]);
+  assert.equal(new Set(served.map((p) => p.servedBy)).size, 3);
+  assert.throws(() => runSimulation(together, POLICIES["WPS (original)"], { dispatch: "other" }), /Unknown dispatch/);
+});

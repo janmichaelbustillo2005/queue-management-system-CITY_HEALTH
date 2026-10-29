@@ -189,3 +189,25 @@ test("tickets: patients ahead counts the whole shared queue, not only the same s
   assert.equal(t.getPatientsAheadSnapshot(rows, rows[2], "shared"), 2);
   assert.equal(t.getPatientsAheadSnapshot(rows, rows[2]), 0, "service mode counts only the prenatal doctor's queue");
 });
+
+test("I1 shared queue with WPS-A: the head follows effective_priority, and a protected category wins a tie", async () => {
+  const rows = [
+    patient(1, "consultation", { priority_score: 1, effective_priority: 3, created_at: "2026-10-29T01:00:00Z" }), // Regular aged +2
+    patient(2, "prenatal", { priority_score: 3, effective_priority: 3, created_at: "2026-10-29T01:25:00Z" }),     // Pregnant, new
+    patient(3, "family_planning", { priority_score: 2, effective_priority: 2, created_at: "2026-10-29T01:20:00Z" })
+  ];
+  const h = table(rows);
+  await buttons(h.render(), "Call Now")[0].props.onClick();
+  assert.equal(h.calls[0].body.patient_id, 2, "the tie at 3 goes to the higher base priority");
+  rows[1].status = "completed";
+  const next = table(rows);
+  await buttons(next.render(), "Call Now")[0].props.onClick();
+  assert.equal(next.calls[0].body.patient_id, 1, "then the aged Regular before the newer Indigenous visit");
+});
+
+test("I1 tickets: patients ahead in the shared queue use the aged rank", () => {
+  const t = ticketHelpers();
+  const rows = [patient(1, "consultation", { effective_priority: 3 }), patient(2, "prenatal", { priority_score: 2, effective_priority: 2 }),
+    patient(3, "family_planning", { effective_priority: 1 })];
+  assert.equal(t.getPatientsAheadSnapshot(rows, rows[1], "shared"), 1, "the aged Regular is ahead of the Indigenous visit");
+});

@@ -88,3 +88,28 @@ test("shared dispatch (D1 Model A): every patient once, no doctor overlap, any f
   assert.equal(new Set(served.map((p) => p.servedBy)).size, 3);
   assert.throws(() => runSimulation(together, POLICIES["WPS (original)"], { dispatch: "other" }), /Unknown dispatch/);
 });
+
+test("I1: every policy and dispatch mode sees identical patients, service times and doctor availability", () => {
+  const { DOCTORS } = require("../simulation/engine");
+  for (const scenario of Object.values(SCENARIOS)) {
+    const workload = generateWorkload(scenario, 20261029);
+    const expected = new Map(workload.map((p) => [p.id, p.serviceTime]));
+    const totalWork = workload.reduce((sum, p) => sum + p.serviceTime, 0);
+    for (const [name, makePolicy] of Object.entries(POLICIES)) {
+      for (const dispatch of ["service", "shared"]) {
+        const { served, busy } = runSimulation(workload, makePolicy, { dispatch });
+        assert.equal(served.length, workload.length, `${name} ${dispatch}`);
+        for (const p of served) assert.equal(p.serviceTime, expected.get(p.id), "service time is fixed by the workload");
+        assert.ok(Math.abs(DOCTORS.reduce((sum, d) => sum + busy[d], 0) - totalWork) < 1e-6, "same total doctor time");
+        if (dispatch === "shared") {
+          // All three doctors are available all day: whenever a patient has to wait, every doctor is busy.
+          for (const p of served.filter((q) => q.wait > 1e-9)) {
+            for (const d of DOCTORS) {
+              assert.ok(served.some((q) => q.servedBy === d && q.start <= p.arrival && q.end > p.arrival), `${name}: ${d} idle while ${p.id} waited`);
+            }
+          }
+        }
+      }
+    }
+  }
+});

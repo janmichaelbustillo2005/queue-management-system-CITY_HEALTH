@@ -480,16 +480,16 @@ router.post("/queue/undo", authenticateToken, async (req, res) => {
   }
 });
 
-router.post("/queue/clear", authenticateToken, authorizeRole(["superadmin"]), async (_req, res) => {
+router.post("/queue/clear", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    const { archivedPatientIds } = await clearTodaysQueues();
+    const { archivedPatientIds } = await clearTodaysQueues(req.user);
     for (const patientId of archivedPatientIds) resetAcceptState(patientId);
     res.json({
       success: true,
       message: "Active queues were reset. Transaction history was preserved."
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 

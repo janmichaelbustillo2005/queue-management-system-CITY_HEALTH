@@ -1898,7 +1898,7 @@ async function undoPatientAction(patientId, actor) {
   return recoverPatientVisit(existing, "undo", actor);
 }
 
-async function clearTodaysQueues() {
+async function clearTodaysQueues(actor = null) {
   // Safe reset: archive active patients (waiting/serving) instead of deleting history.
   const archiveReason = "System queue reset";
   const completedAt = new Date().toISOString();
@@ -1924,13 +1924,28 @@ async function clearTodaysQueues() {
     return { archived: true, archivedPatientIds };
   }
   
-  const candidates = await fetchPatientPages(() => supabase.from("patients").select("id")
+  const candidates = await fetchPatientPages(() => supabase.from("patients").select("id, status, visit_state_revision")
     .gte("created_at", start).lt("created_at", end).in("status", ["waiting", "serving"]),
     "Failed to load today's reset candidates");
   const archivedPatientIds = [];
+  // With W1 installed each visit is cancelled atomically together with releasing only a counter
+  // that still points at it, so a Requeue + Call committed while the reset runs keeps its new
+  // counter. A visit that changed since it was read (409) is left as it now is.
+  let viaW1 = Boolean(actor);
+  for (const candidate of viaW1 ? candidates : []) {
+    try {
+      const row = await cancelPatientVisitRpc(candidate, actor, archiveReason, null);
+      if (!row) { viaW1 = false; break; }
+      archivedPatientIds.push(Number(row.id));
+    } catch (error) {
+      if (error.statusCode !== 409) throw error;
+    }
+  }
+  if (viaW1) return { archived: true, archivedPatientIds };
+  // Without W1: the earlier two-step archive and counter release.
   // A mutation response can be capped too. Single-row conditional updates let
   // us identify every row actually archived even when the server cap is one.
-  for (const candidate of candidates) {
+  for (const candidate of candidates.filter((row) => !archivedPatientIds.includes(Number(row.id)))) {
     const archive = (withReason) => supabase.from("patients")
       .update({ status: "cancelled", completed_at: completedAt, ...(withReason ? { reason: archiveReason } : {}) })
       .eq("id", candidate.id).gte("created_at", start).lt("created_at", end)

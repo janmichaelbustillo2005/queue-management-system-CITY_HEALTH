@@ -6,7 +6,7 @@ const doctorUser = (name) => ({ id_num: `admin${name.replace("Doctor ", "")}`, r
 const registration = (name, service = "consultation", flags = []) => ({
   idNum: name, serviceType: service, vulnerabilityFlags: flags,
   mobileNumber: "09123456789", residency: "Cabadbaran", philhealthId: "YAKAP-123",
-  birthdate: "1990-04-12", sex: "Female"
+  birthdate: "1950-04-12", sex: "Female" // 60+, so the Senior registrations below are valid
 });
 
 async function setup(localFallback = false) {
@@ -35,7 +35,7 @@ for (const localFallback of [false, true]) {
       for (const field of ["counter_id", "called_at", "completed_at", "consultation_started_at"]) assert.equal(patient[field], null);
       assert.equal(patient.philhealth_id, "YAKAP-123");
       assert.equal(patient.residency, "Cabadbaran");
-      assert.equal(patient.birthdate, "1990-04-12");
+      assert.equal(patient.birthdate, "1950-04-12");
       assert.equal(patient.sex, "Female");
     }
     const patients = (await h.service.getQueueOverview()).patients;

@@ -506,7 +506,43 @@ function computePriorityScore(vulnerabilityFlags = []) {
   return score === 0 ? 1 : score; // Base weight 1 for Regular
 }
 
-async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate, sex, source = "admin", vulnerabilityFlags = [] }) {
+const SENIOR_AGE = 60;
+
+function registrationError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+// Registration is public, so priority input is validated before anything is stored: each known
+// category counts once, and a Senior Citizen flag must agree with the birthdate (60 or older on
+// the Manila business date, as the registration form computes it); below 60 it is refused rather
+// than silently dropped. The form ticks Senior itself; the backend does not add it. Without a
+// birthdate a staff-entered Senior flag is kept.
+function normalizeRegistrationPriority(vulnerabilityFlags, birthdate, now = new Date()) {
+  const flags = vulnerabilityFlags == null ? [] : vulnerabilityFlags;
+  if (!Array.isArray(flags) || flags.some((flag) => typeof flag !== "string" || !Object.hasOwn(VULNERABILITY_WEIGHTS, flag))) {
+    throw registrationError("Unknown priority category. Use Senior Citizen, PWD, Pregnant, Indigenous Person or Solo Parent.");
+  }
+  const unique = flags.filter((flag, index) => flags.indexOf(flag) === index);
+  if (birthdate == null || birthdate === "") return { flags: unique, birthdate: null };
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(birthdate));
+  const today = getBusinessDate(now);
+  const valid = match && new Date(`${birthdate}T00:00:00Z`).toISOString().slice(0, 10) === birthdate;
+  if (!valid || birthdate > today || Number(match[1]) < 1900) {
+    throw registrationError("Enter a valid birthdate (YYYY-MM-DD) that is not in the future.");
+  }
+  const [year, month, day] = today.split("-").map(Number);
+  const age = year - Number(match[1]) - ((month * 100 + day) < (Number(match[2]) * 100 + Number(match[3])) ? 1 : 0);
+  if (age < SENIOR_AGE && unique.includes("senior")) {
+    throw registrationError("Senior Citizen priority requires age 60 or older on the birthdate entered. Check the birthdate or remove Senior Citizen.");
+  }
+  return { flags: unique, birthdate };
+}
+
+async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate: rawBirthdate, sex, source = "admin", vulnerabilityFlags: rawFlags = [] }) {
+  const { flags: vulnerabilityFlags, birthdate } = normalizeRegistrationPriority(rawFlags, rawBirthdate);
   await ensureDoctorAvailableForService(serviceType);
 
   let attempts = 0;

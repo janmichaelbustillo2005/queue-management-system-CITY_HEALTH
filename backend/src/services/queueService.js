@@ -1,6 +1,6 @@
 const supabase = require("../lib/supabase");
 const env = require("../config/env");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash, timingSafeEqual } = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const { getBusinessDate, getBusinessDayRange, getDateFilterRange } = require("../lib/businessDay");
 const {
@@ -2547,6 +2547,17 @@ async function renameServiceType(oldValue, newValue) {
   }
 }
 
+// Only the account's own password matches: there is no shared fallback password. Seeded
+// accounts may still store plaintext (legacy); those compare in constant time until they are
+// re-hashed (see docs). New and changed passwords are always stored as bcrypt hashes.
+async function passwordMatches(password, stored) {
+  if (typeof password !== "string" || typeof stored !== "string" || !stored) return false;
+  if (/^\$2[aby]\$/.test(stored)) return bcrypt.compare(password, stored);
+  const given = createHash("sha256").update(password).digest();
+  const expected = createHash("sha256").update(stored).digest();
+  return timingSafeEqual(given, expected);
+}
+
 async function loginUser(id_num, password) {
   console.log("Login attempt for id_num:", id_num);
   
@@ -2556,12 +2567,7 @@ async function loginUser(id_num, password) {
       throw new Error("Invalid username or password");
     }
     
-    // Accept both the specified password and admin123 for backward compatibility
-    let isMatch = password === user.password;
-    if (!isMatch && id_num.startsWith("admin")) {
-      isMatch = password === "admin123";
-    }
-    if (!isMatch) {
+    if (!(await passwordMatches(password, user.password))) {
       throw new Error("Invalid username or password");
     }
     
@@ -2598,21 +2604,7 @@ async function loginUser(id_num, password) {
 
     console.log("User data retrieved from DB (excluding password):", { id_num: data.id_num, role: data.role, doctor_name: data.doctor_name });
 
-    // Support both plain text (for initial seeding) and hashed passwords, plus admin123 for backward compatibility
-    let isMatch = false;
-    if (data.password && (data.password.startsWith("$2a$") || data.password.startsWith("$2b$"))) {
-      isMatch = await bcrypt.compare(password, data.password);
-      // If not a match, try admin123 for admin users for backward compatibility
-      if (!isMatch && id_num.startsWith("admin")) {
-        isMatch = password === "admin123";
-      }
-    } else {
-      isMatch = password === data.password;
-      // If not a match, try admin123 for admin users for backward compatibility
-      if (!isMatch && id_num.startsWith("admin")) {
-        isMatch = password === "admin123";
-      }
-    }
+    const isMatch = await passwordMatches(password, data.password);
 
     console.log("Password comparison result (isMatch):", isMatch);
 

@@ -56,6 +56,10 @@ const env = {
   smsGatewayAddress: process.env.SMS_GATEWAY_ADDRESS || "",
   gatewayApiToken: (process.env.GATEWAY_API_TOKEN || "").trim(),
   jwtSecret: readJwtSecret(process.env.JWT_SECRET),
+  // WPS-A (Weighted-Priority Scheduling with 10-minute Aging), proposed and off by default. It needs
+  // the call_patient_visit_wps_a database function (backend/scripts/20261029-wps-a-call-aging.sql)
+  // and policy approval; without the function, Calls are refused rather than ranked two ways.
+  wpsAging: ["1", "true", "yes", "on"].includes(String(process.env.WPS_AGING || "").trim().toLowerCase()),
   // The pyttsx3 voice announcer speaks on the computer that runs it. By default
   // the backend starts and supervises it on Windows; set VOICE_SERVICE_AUTOSTART=0
   // when the Queue Display speakers belong to a different computer.

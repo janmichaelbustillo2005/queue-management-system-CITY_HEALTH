@@ -20,6 +20,7 @@ const READY_POLL_MS = 500;
 const MONITOR_INTERVAL_MS = 10000;
 const RESTART_DELAYS_MS = [1000, 2000, 5000, 10000, 30000];
 const STABLE_RUN_MS = 60000;
+const STOP_PORT_RELEASE_MS = 5000; // after the process exits, how long stop() waits for the port to free
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const LOG_PREFIX = "[voice]";
 
@@ -256,7 +257,15 @@ function createVoiceServiceLauncher({
     const stopping = child;
     killChild();
     if (!stopping || stopping.exitCode !== null || stopping.signalCode !== null) return Promise.resolve();
-    return new Promise((resolve) => stopping.once("exit", () => resolve()));
+    // On Windows a venv's python.exe is a launcher whose interpreter child may still hold the port
+    // briefly after the launcher exits; wait (bounded) until the port is actually free, so a quick
+    // restart does not mistake our own exiting service for another application.
+    return new Promise((resolve) => stopping.once("exit", () => resolve())).then(async () => {
+      const deadline = Date.now() + STOP_PORT_RELEASE_MS;
+      while (Date.now() < deadline && (await probeHealth(host, port, { timeoutMs: 300 })).state !== "absent") {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    });
   }
 
   return {

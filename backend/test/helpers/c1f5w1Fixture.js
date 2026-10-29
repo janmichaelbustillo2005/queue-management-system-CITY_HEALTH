@@ -224,10 +224,10 @@ async function waitForLockWaiters(db, count) {
 }
 
 // A backend instance with every database request logged; `pause` may hold a request.
-async function backend(db, { pause, clockOffsetMs, doctorDispatchMode } = {}) {
+async function backend(db, { pause, clockOffsetMs, doctorDispatchMode, envOverrides } = {}) {
   const log = [];
   const h = createPgBackendHarness(db.pool, {
-    onRequest: async (request) => { log.push(request); if (pause) await pause(request); }, clockOffsetMs, doctorDispatchMode
+    onRequest: async (request) => { log.push(request); if (pause) await pause(request); }, clockOffsetMs, doctorDispatchMode, envOverrides
   });
   h.log = log;
   h.rpcs = () => log.filter((entry) => entry.kind === "rpc").map((entry) => entry.name);

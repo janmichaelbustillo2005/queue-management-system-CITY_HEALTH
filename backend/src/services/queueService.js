@@ -3,6 +3,7 @@ const env = require("../config/env");
 const { randomUUID, createHash, timingSafeEqual } = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const { getBusinessDate, getBusinessDayRange, getDateFilterRange } = require("../lib/businessDay");
+const { compareWps, effectivePriority } = require("../lib/wpsPriority");
 const {
   sendQueueCreatedNotification,
   sendQueueCalledNotification
@@ -387,12 +388,16 @@ async function getQueueOverview() {
   }
   const patients = Array.from(patientsById.values());
   const settings = getQueueSettings();
+  const rankedAt = Date.now();
 
   return {
     storage_mode: getQueueStorageMode(),
     dispatch_mode: getDispatchMode(),
+    // effective_priority is the WPS rank key at read time (equal to priority_score without aging).
+    wps: { aging: wpsAging() },
     patients: patients.map((p) => ({
       ...p,
+      effective_priority: p.status === "waiting" ? effectivePriority(p, rankedAt, wpsAging()) : p.priority_score,
       recall_count: getRecallCount(p.id),
       accepted_at: getAcceptedAt(p.id),
       awaiting_accept: p.status === "serving" && (isAwaitingAccept(p.id) ||
@@ -736,11 +741,10 @@ async function clearCounterAssignment(patientId) {
 // the fallback used until it is installed guards both writes with conditions.
 const callsInProgress = new Set();
 
-function compareWaitingPriority(a, b) {
-  return (b.priority_score || 0) - (a.priority_score || 0) ||
-    new Date(a.created_at) - new Date(b.created_at) ||
-    Number(a.id) - Number(b.id);
-}
+// WPS order at `rankedAt`; with WPS_AGING off this is priority_score DESC, created_at, id.
+const wpsAging = () => env.wpsAging === true;
+const compareWaitingPriority = (rankedAt) => (a, b) => compareWps(a, b, rankedAt, wpsAging());
+const WPS_A_REQUIRED = "WPS with Aging is enabled but its database function is not installed (backend/scripts/20261029-wps-a-call-aging.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
 
 // D1 shared queue: the waiting visits `doctorName` may take. Every configured service is
 // eligible; a legacy Phase 2.1 reservation keeps its visit for the reserved doctor only.
@@ -750,12 +754,30 @@ function isSharedCandidate(patient, doctorName) {
   return CONFIGURED_SERVICES.includes(patient.service_type) && (!reserved || patient.counter_id === doctorName);
 }
 
-function getSharedQueueHead(waitingPatients, doctorName) {
-  return waitingPatients.filter((p) => isSharedCandidate(p, doctorName)).sort(compareWaitingPriority)[0] || null;
+// The visit the shared queue gives `doctorName` at `rankedAt`: WPS, or WPS-A when aging is on.
+function getSharedQueueHead(waitingPatients, doctorName, rankedAt = Date.now()) {
+  return waitingPatients.filter((p) => isSharedCandidate(p, doctorName)).sort(compareWaitingPriority(rankedAt))[0] || null;
 }
 
 const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
 const SHARED_CALL_MIGRATION_REQUIRED = "Shared doctor dispatch needs the D1 database migration (backend/scripts/20261029-d1-shared-call.sql). Nothing was changed.";
+const SHARED_WPS_A_REQUIRED = "Shared doctor dispatch with WPS Aging needs its database function (backend/scripts/20261029-d1a-shared-wps-a-call.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
+
+// The atomic Call for the configured dispatch and aging. Each re-ranks under the same locks as
+// the backend ranked; only C1 (service dispatch, no aging) has the older two-statement fallback.
+const CALL_RPCS = {
+  service: { plain: "call_patient_visit", aging: "call_patient_visit_wps_a" },
+  shared: { plain: "call_patient_visit_shared", aging: "call_patient_visit_shared_wps_a" }
+};
+const CALL_RPC_REQUIRED = {
+  call_patient_visit_wps_a: WPS_A_REQUIRED,
+  call_patient_visit_shared: SHARED_CALL_MIGRATION_REQUIRED,
+  call_patient_visit_shared_wps_a: SHARED_WPS_A_REQUIRED
+};
+
+function getCallRpcName(shared, aging) {
+  return CALL_RPCS[shared ? "shared" : "service"][aging ? "aging" : "plain"];
+}
 
 // D1: the doctor Frontdesk or Superadmin selected (or the calling doctor itself). Any doctor
 // may take any configured service; the choice is stored on the visit by the Call.
@@ -794,16 +816,19 @@ async function assertDoctorSignedIn(doctorName) {
   }
 }
 
-// C1 (or D1 in shared dispatch): returns the called row, or null when the migration is not
-// installed. Any rejection leaves patient and counter unchanged. A lost response may hide a
+// C1, WPS-A, D1 or D1-A (getCallRpcName): returns the called row, or null when the migration is
+// not installed. Any rejection leaves patient and counter unchanged. A lost response may hide a
 // committed call, so it is never treated as success: no pending acceptance is created for an
 // unconfirmed call (the assigned doctor can still accept a serving visit that has no acceptance state).
-async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, rpcName = "call_patient_visit") {
+// The aging functions rank at `rankedAt`, the instant the backend ranked.
+async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, rankedAt, rpcName = "call_patient_visit") {
+  const aging = rpcName.endsWith("_wps_a");
   let result;
   try {
     result = await supabase.rpc(rpcName, {
       p_patient_id: patient.id, p_doctor_name: doctorName, p_user_id_num: actor?.id_num ?? null,
-      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end
+      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end,
+      ...(aging ? { p_ranked_at: new Date(rankedAt).toISOString() } : {})
     });
   } catch {
     throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
@@ -917,9 +942,11 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     if (counters.some((c) => c.id_num !== doctorName && Number(c.current_patient_id) === patientId)) {
       throw new Error("This patient is already assigned to another doctor");
     }
+    // One ranking instant for Node and the database, so aging is computed the same way in both.
+    const rankedAt = Date.now();
     const nextPatient = shared
-      ? getSharedQueueHead(waitingPatients, doctorName)
-      : waitingPatients.filter((p) => getDoctorForService(p.service_type) === doctorName).sort(compareWaitingPriority)[0];
+      ? getSharedQueueHead(waitingPatients, doctorName, rankedAt)
+      : waitingPatients.filter((p) => getDoctorForService(p.service_type) === doctorName).sort(compareWaitingPriority(rankedAt))[0];
     if (!nextPatient || Number(nextPatient.id) !== patientId) {
       throw new Error(shared
         ? "Call the next patient in the shared queue according to priority"
@@ -928,11 +955,12 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
 
     const calledAt = new Date().toISOString();
     // Phase 2.1+ rows carry a revision; the RPC needs it to detect any change since this read.
+    const rpcName = getCallRpcName(shared, wpsAging());
     const atomicCall = !localCall && patient.visit_state_revision
-      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange, shared ? "call_patient_visit_shared" : "call_patient_visit")
+      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange, rankedAt, rpcName)
       : null;
-    // Shared dispatch has no two-statement fallback: it commits only through D1.
-    if (shared && !localCall && !atomicCall) throw consultationError(SHARED_CALL_MIGRATION_REQUIRED, 503);
+    // Shared dispatch and aging rank only in the database; neither falls back to the two-step Call.
+    if (!localCall && !atomicCall && rpcName !== "call_patient_visit") throw consultationError(CALL_RPC_REQUIRED[rpcName], 503);
     if (localCall) {
       // No await between the final checks and both in-memory updates.
       patient.status = "serving";
@@ -2290,15 +2318,10 @@ async function getDisplayData() {
     return toPublicServingEntry(patient, assignedCounter);
   });
 
+  // FRD-02: Weighted-Priority order (priority score DESC, then check-in time ASC; WPS-A aging when enabled)
   const waitingQueue = patients
     .filter((patient) => patient.status === "waiting")
-    .sort((a, b) => {
-      // FRD-02: Sort by priority score DESC, then by check-in time ASC
-      if ((b.priority_score || 0) !== (a.priority_score || 0)) {
-        return (b.priority_score || 0) - (a.priority_score || 0);
-      }
-      return new Date(a.created_at) - new Date(b.created_at);
-    });
+    .sort(compareWaitingPriority(Date.now()));
   const nextInLine = waitingQueue[0] || null;
   const waitingQueueSlice = waitingQueue.slice(0, 10);
   const recentCalled = patients

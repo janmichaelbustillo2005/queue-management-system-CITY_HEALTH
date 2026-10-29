@@ -65,6 +65,9 @@ export function createQueueTicket(patient, { dispatchMode } = {}) {
   };
 }
 
+// The backend's WPS rank key (effective_priority includes WPS-A aging when enabled).
+const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
+
 /** Waiting-only snapshot of the backend's WPS order, scoped to its service doctor (or the whole
  * shared queue in shared dispatch). */
 export function getPatientsAheadSnapshot(rows, patient, dispatchMode) {
@@ -72,7 +75,7 @@ export function getPatientsAheadSnapshot(rows, patient, dispatchMode) {
   const doctor = doctorForService(patient.service_type);
   const sameQueue = (row) => dispatchMode === SHARED_DISPATCH || doctorForService(row.service_type) === doctor;
   const waiting = rows.filter(row => row.status === "waiting" && sameQueue(row))
-    .slice().sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0) ||
+    .slice().sort((a, b) => wpsRank(b) - wpsRank(a) || (b.priority_score || 0) - (a.priority_score || 0) ||
       new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
   const index = waiting.findIndex(row => sameId(row.id, patient.id));
   return index < 0 ? null : index;

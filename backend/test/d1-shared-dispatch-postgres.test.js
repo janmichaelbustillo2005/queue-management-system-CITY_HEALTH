@@ -55,6 +55,30 @@ describe("D1 installation on the C1 + F5 + W1 development state", { skip: f.unav
   });
 });
 
+describe("D1-R Records draft on the Phase B.2 development state", { skip: f.unavailable }, () => {
+  const RECORDS = "public.get_central_records(text,jsonb,integer,integer)";
+  const D1R = { name: "D1-R", preflight: "20261029-d1r-preflight.sql", migration: "20261029-d1r-records-shared.sql",
+    verify: "20261029-d1r-verify.sql", rollback: "20261029-d1r-rollback.sql", preflightRows: 7, verifyRows: null };
+  const bodyMd5 = async (db) => one(db, "SELECT md5(replace(prosrc, E'\r\n', E'\n')) AS value FROM pg_proc WHERE oid = $1::regprocedure", [RECORDS]);
+
+  test("installs over Phase B.2 without changing its behavior, and rollback restores the exact B.2 body", async () => {
+    const db = await f.createDatabase("d1r_records", [C1.migration, F5.migration, W1.migration, D1.migration]);
+    const b2Body = await bodyMd5(db);
+    const before = await f.snapshot(db);
+    await f.installStep(db, D1R);
+    assert.equal(await bodyMd5(db), "b92dbefe03b63d0b4ef92997af0649cd");
+    await db.setup.query(f.read("20261023-phase-b2-verify.sql")); // B.2's own behavioral checks still pass
+    assert.deepEqual(await f.functionPrivileges(db, RECORDS),
+      { anon: false, authenticated: false, service_role: true, public: false, owner: "postgres" });
+    assert.deepEqual(await f.snapshot(db), before, "install and both verifications left every row as it was");
+    await db.setup.query(f.read(D1R.rollback));
+    assert.equal(await bodyMd5(db), b2Body, "rollback restores Phase B.2 exactly");
+    await db.setup.query(f.read("20261023-phase-b2-verify.sql"));
+    await assert.rejects(db.setup.query(f.read(D1R.verify)), /not the reviewed D1-R body/);
+    await db.setup.query("ROLLBACK").catch(() => {});
+  });
+});
+
 describe("D1 shared queue through the real backend", { skip: f.unavailable }, () => {
   let db; let h; let tokens;
   before(async () => {

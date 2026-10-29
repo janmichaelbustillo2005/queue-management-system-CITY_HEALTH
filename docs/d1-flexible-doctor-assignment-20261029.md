@@ -29,7 +29,7 @@ All database tests ran on a private PostgreSQL 17.10 cluster (loopback `127.0.0.
 | Counter seed / dev memory | `queueService.js` `localData.counters`, `seedCounters`; `backend/supabase/City_health--Queuing.sql`; `backend/scripts/update-doctor-assignments.sql`, `migration.sql` | `counters.service_types` per doctor | Not used for routing in shared mode (descriptive only). No data change made |
 | C1 atomic Call | `backend/scripts/20261025-c1-atomic-call.sql` | the same CASE in validation, busy check and ranking | **Unchanged** (still used in service mode). Shared mode uses the new D1 function |
 | W1 atomic Cancel | `backend/scripts/20261025-w1-atomic-cancel.sql` | owner of an uncalled visit = mapped doctor; attribution stamp | **Unchanged**. Backend never forwards a doctor for an owner-less visit, so W1 neither checks nor stamps one; release is by pointer, so only the actual doctor's counter is freed |
-| Records SQL (Phase B.2) | `backend/scripts/20261023-phase-b2-records.sql` `get_central_records` | routed doctor for unassigned visits (`doctor_source: 'service'`), and doctor filter by routing | **Unchanged**. `backend/src/routes/records.js` relabels to `unassigned` in shared mode. Filter limitation: see §13 Q5 |
+| Records SQL (Phase B.2) | `backend/scripts/20261023-phase-b2-records.sql` `get_central_records` | routed doctor for unassigned visits (`doctor_source: 'service'`), and doctor filter by routing | B.2 file unchanged. Draft **D1-R** (`20261029-d1r-records-shared.sql`) adds an optional `dispatch` key; the Records route sends it in shared mode and, if B.2 refuses it, retries without it and relabels rows as `unassigned` (§5, §13 Q5) |
 | F5 Requeue, Phase 2.2 Undo, Phase 2 Start/Complete, Phase A presence | respective SQL | no service mapping (stored `counter_id` / account aliases only) | no change needed |
 | Frontdesk registration | `frontend/pages/fill-up_form.js` | `SERVICE_TO_DOCTOR`, mapped-doctor availability, "· Doctor N" in the review line, "N waiting in Doctor N's queue" | Shared: any enabled doctor; "Next available doctor"; "in the shared queue" |
 | Patient Management / Call Now | `frontend/components/PatientQueueTable.js`, `frontend/pages/patient-management.js` | `DOCTORS` assignment labels, `SERVICE_TO_DOCTOR`, one queue and one Call Now per doctor | Shared: one queue, one Call Now on its head with a doctor selector (enabled, free doctors only); served rows under their actual doctor |
@@ -103,6 +103,19 @@ is `service`.
 | `backend/scripts/20261029-d1-verify.sql` | read-only; 15 PASS checks incl. body fingerprints: D1 `0ff5318a…`, and C1/W1/F5/Complete unchanged |
 | `backend/scripts/20261029-d1-rollback.sql` | drops only the D1 function; refuses on dependents; idempotent |
 
+Optional, separately approvable — **D1-R Records** (closes the doctor-filter gap in §13 Q5):
+
+| File | Purpose |
+|---|---|
+| `backend/scripts/20261029-d1r-records-shared.sql` | replaces `get_central_records` with the Phase B.2 body plus one optional filter key `dispatch` (`''`, `service`, `shared`). Without the key, results are identical to B.2. With `shared`, a never-called visit is `doctor: null, doctor_source: 'unassigned'` and a doctor filter matches stored doctors only. Same signature, security settings and grants |
+| `backend/scripts/20261029-d1r-preflight.sql` | read-only; 7 PASS checks (B.2 body installed, D1-R not yet installed, grants) |
+| `backend/scripts/20261029-d1r-verify.sql` | body fingerprint `b92dbefe…`, grants, and behavior on two synthetic visits inserted and **rolled back** |
+| `backend/scripts/20261029-d1r-rollback.sql` | restores the exact Phase B.2 body (verbatim copy) |
+
+D1-R replaces an installed function, so it needs its own approval. Installing or rolling it back needs no
+backend deploy: the route falls back to relabelling when the key is refused. Tested on PG17: B.2's own verify
+script passes with D1-R installed, and rollback restores B.2's body fingerprint.
+
 No table, column, enum, trigger, RLS, grant-on-table or data change. C1, F5 and W1 files are not modified.
 Install order (development project only, after approval): preflight → migration → verify → set
 `DOCTOR_DISPATCH_MODE=shared` → restart backend. Rollback: unset the mode, restart, run rollback.
@@ -141,10 +154,11 @@ registered after Regular called first by any doctor; concurrency (§6); one doct
 W1/F5 (§7); offline counter, signed-out doctor, unselected/invalid doctor, doctor calling for another doctor —
 all refused with nothing changed; registration with only one doctor enabled; Records/Analytics/Transactions
 attribute the treating doctor, never the service doctor; historical rows and the Historical Backlog unchanged
-(backlog shows "unassigned"); service mode unchanged with D1 installed; shared mode without D1 → 503.
-Also `d1-dispatch-config.test.js` (3) and a Records route test.
+(backlog shows "unassigned"); service mode unchanged with D1 installed; shared mode without D1 → 503; D1-R
+install/verify/rollback over Phase B.2 (11 tests in total). Also `d1-dispatch-config.test.js` (3) and two Records
+route tests (relabel; D1-R key with one-time fallback).
 
-Full backend suite, PGlite + PG17 enabled (`node --test test/*.test.js`): **1043 tests, 1039 pass, 0 fail,
+Full backend suite, PGlite + PG17 enabled (`node --test test/*.test.js`): **1045 tests, 1041 pass, 0 fail,
 4 skipped** (voice launcher; `.venv-voice` not installed). Baseline on the same base commit before D1: 1029
 tests, 1024 pass, 4 skipped, 1 failure in the known-flaky C1 randomized soak threshold (passed in both D1 runs).
 Logs and D1 evidence JSON: `output/d1-flexible-doctor-20261029/` in the main checkout.
@@ -230,9 +244,9 @@ the City Health administrator corrected on 2026-10-29.
    queue needs per-doctor eligibility; `counters.service_types` could hold it.)
 4. **Doctor rights on uncalled visits:** implemented as "Frontdesk/Superadmin only". Should a doctor be able to
    cancel/no-show a visit nobody has called yet?
-5. **Records doctor filter:** in shared mode the Phase B.2 Records SQL still matches never-called visits to their
-   former service doctor when filtering by doctor (rows are relabelled "Unassigned"). Approve a small Records SQL
-   revision, or accept the limitation.
+5. **Records doctor filter:** with Phase B.2 alone, shared mode still matches never-called visits to their former
+   service doctor when filtering by doctor (rows are relabelled "Unassigned"). The fix is drafted and tested as
+   D1-R (§5); approve installing it on the development project together with D1, or accept the limitation.
 6. **Presence requirement:** Frontdesk may assign only to a signed-in doctor. Confirm.
 7. **Historical attribution:** in shared mode, never-called historical visits show "Unassigned" instead of the
    former service doctor (stored assignments unchanged). Confirm for reports.
@@ -242,7 +256,8 @@ the City Health administrator corrected on 2026-10-29.
 
 **NO-GO today.** Local evidence supports the design (§6–§9), but hosted testing needs approvals first:
 Q1 (queue model), Q2 (dispatch), Q3 (clinical scope), and written approval to install
-`20261029-d1-shared-call.sql` on the **development** Supabase project. Then: **conditional GO** — run preflight →
+`20261029-d1-shared-call.sql` (and, if Q5 is approved, `20261029-d1r-records-shared.sql`) on the **development**
+Supabase project. Then: **conditional GO** — run preflight →
 install → verify on the development project, set `DOCTOR_DISPATCH_MODE=shared` only on a separate test backend
 (not the adviser demonstration), and repeat the §9 scenarios with synthetic patients. Production stays
 `service` mode until the manuscript and the adviser sign off.

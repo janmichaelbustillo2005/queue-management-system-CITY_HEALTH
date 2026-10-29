@@ -51,9 +51,15 @@ router.get('/:category', async (req, res) => {
     if (filters[key] && !allowed.includes(filters[key])) return res.status(400).json({ message: 'Invalid filter' });
   }
   if (filters.visit && !/^\d{1,18}$/.test(filters.visit)) return res.status(400).json({ message: 'Invalid filter' });
+  // D1 shared dispatch: the D1-R function (20261029-d1r-records-shared.sql) reports never-called
+  // visits as unassigned and keeps them out of a doctor filter. Phase B.2 refuses the extra key
+  // (22023), so the request is repeated without it and the rows are relabelled below.
+  const shared = category === 'patients' && env.doctorDispatchMode === 'shared';
+  const read = (extra) => supabase.rpc('get_central_records', { p_category: category, p_filters: { ...filters, ...extra }, p_page: page, p_limit: limit });
   let result;
   try {
-    result = await supabase.rpc('get_central_records', { p_category: category, p_filters: filters, p_page: page, p_limit: limit });
+    result = await read(shared ? { dispatch: 'shared' } : {});
+    if (shared && result?.error?.code === '22023') result = await read({});
   } catch (_error) {
     logFailure('error', category, 'transport');
     return res.status(503).json({ message: 'Records storage unavailable. Please retry.' });
@@ -75,8 +81,8 @@ router.get('/:category', async (req, res) => {
   }
   // D1 shared dispatch: a visit that was never called has no treating doctor. Phase B.2 still
   // labels it with its former service doctor ('service'); report it as unassigned instead.
-  // (A doctor filter in get_central_records still matches those visits; see the D1 report.)
-  if (category === 'patients' && env.doctorDispatchMode === 'shared') {
+  // (Without D1-R a doctor filter still matches those visits; see the D1 report.)
+  if (shared) {
     data.rows = data.rows.map((row) => row?.doctor_source === 'service' ? { ...row, doctor: null, doctor_source: 'unassigned' } : row);
   }
   res.setHeader('Cache-Control', 'no-store');

@@ -44,10 +44,11 @@ const localData = {
   nextCancellationId: 1,
   nextPatientId: 1,
   countersMap: { "Doctor 1": 1, "Doctor 2": 2, "Doctor 3": 3 },
+  // Queue numbers are per service code, not per doctor.
   sequenceMap: {
-    "Doctor 1": 0,
-    "Doctor 2": 0,
-    "Doctor 3": 0
+    GP: 0,
+    OB: 0,
+    FP: 0
   }
 };
 
@@ -389,6 +390,7 @@ async function getQueueOverview() {
 
   return {
     storage_mode: getQueueStorageMode(),
+    dispatch_mode: getDispatchMode(),
     patients: patients.map((p) => ({
       ...p,
       recall_count: getRecallCount(p.id),
@@ -409,6 +411,25 @@ const SERVICE_CODE_MAP = {
   family_planning: "FP"
 };
 
+// Every service the three general doctors may serve (D1: the administrator's stated scope).
+const CONFIGURED_SERVICES = Object.keys(SERVICE_CODE_MAP);
+const DOCTOR_NAMES = ["Doctor 1", "Doctor 2", "Doctor 3"];
+const DISPATCH_SHARED = "shared";
+const UNASSIGNED_DOCTOR = "Unassigned";
+
+// D1: "service" (default) routes a waiting visit to its service's doctor, as before. "shared"
+// (Model A, provisional) keeps one Weighted-Priority queue; the doctor is chosen at Call and
+// stored on the visit, so a visit that was never called belongs to no doctor.
+function getDispatchMode() {
+  return env.doctorDispatchMode === DISPATCH_SHARED ? DISPATCH_SHARED : "service";
+}
+
+function isSharedDispatch() {
+  return getDispatchMode() === DISPATCH_SHARED;
+}
+
+// The legacy service-to-doctor routing. Shared dispatch uses it for nothing but a legacy serving
+// row without an assignment, which still blocks the doctor its service used to route to.
 function getDoctorForService(serviceType) {
   if (["consultation", "checkup"].includes(serviceType)) {
     return "Doctor 1";
@@ -422,11 +443,26 @@ function getDoctorForService(serviceType) {
   return "Doctor 1";
 }
 
+// The doctor a visit without a stored assignment is routed to: its service's doctor, or none
+// in shared dispatch.
+function getRoutedDoctor(serviceType) {
+  return isSharedDispatch() ? null : getDoctorForService(serviceType);
+}
+
 function getDoctorOfflineMessage(doctorName) {
   return `${doctorName} is currently offline and unavailable. Please select another available doctor.`;
 }
 
 async function ensureDoctorAvailableForService(serviceType) {
+  if (isSharedDispatch()) {
+    // Registration assigns no doctor: any enabled doctor may take the visit when it is called.
+    if (!CONFIGURED_SERVICES.includes(serviceType)) throw registrationError("Select one of the offered services.");
+    const counters = await getCounters();
+    if (!counters.some((c) => DOCTOR_NAMES.includes(c.id_num) && c.is_online !== false)) {
+      throw registrationError("No doctor is currently available. Ask Super Admin to enable a doctor counter before registering patients.");
+    }
+    return null;
+  }
   const doctorName = getDoctorForService(serviceType);
   const counters = await getCounters();
   const counter = counters.find((c) => c.id_num === doctorName || c.name === doctorName);
@@ -442,8 +478,7 @@ async function ensureDoctorAvailableForService(serviceType) {
 
 async function getNextQueueNumber(serviceType, offset = 0) {
   const doctorCode = SERVICE_CODE_MAP[serviceType] || "GP";
-  const doctorName = getDoctorForService(serviceType);
-  
+
   if (useLocalFallback) {
     // Keep local sequence at least one past any already-used number in memory
     const existing = localData.patients
@@ -451,10 +486,10 @@ async function getNextQueueNumber(serviceType, offset = 0) {
       .filter((qNum) => qNum.startsWith(`${doctorCode}-`) && qNum.split("-").length === 2)
       .map((qNum) => Number(qNum.split("-")[1]) || 0);
     const maxExisting = existing.length ? Math.max(...existing) : 0;
-    const base = Math.max(localData.sequenceMap[doctorName] || 0, maxExisting);
+    const base = Math.max(localData.sequenceMap[doctorCode] || 0, maxExisting);
     const next = base + 1 + offset;
     if (offset === 0) {
-      localData.sequenceMap[doctorName] = next;
+      localData.sequenceMap[doctorCode] = next;
     }
     return `${doctorCode}-${String(next).padStart(3, "0")}`;
   }
@@ -707,16 +742,66 @@ function compareWaitingPriority(a, b) {
     Number(a.id) - Number(b.id);
 }
 
-const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
+// D1 shared queue: the waiting visits `doctorName` may take. Every configured service is
+// eligible; a legacy Phase 2.1 reservation keeps its visit for the reserved doctor only.
+// Mirrors the candidate filter of call_patient_visit_shared.
+function isSharedCandidate(patient, doctorName) {
+  const reserved = String(patient.counter_id ?? "").trim();
+  return CONFIGURED_SERVICES.includes(patient.service_type) && (!reserved || patient.counter_id === doctorName);
+}
 
-// C1: returns the called row, or null when the migration is not installed. Any rejection
-// leaves patient and counter unchanged. A lost response may hide a committed call, so it is
-// never treated as success: no pending acceptance is created for an unconfirmed call (the
-// assigned doctor can still accept a serving visit that has no acceptance state).
-async function callPatientVisitRpc(patient, doctorName, actor, { start, end }) {
+function getSharedQueueHead(waitingPatients, doctorName) {
+  return waitingPatients.filter((p) => isSharedCandidate(p, doctorName)).sort(compareWaitingPriority)[0] || null;
+}
+
+const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
+const SHARED_CALL_MIGRATION_REQUIRED = "Shared doctor dispatch needs the D1 database migration (backend/scripts/20261029-d1-shared-call.sql). Nothing was changed.";
+
+// D1: the doctor Frontdesk or Superadmin selected (or the calling doctor itself). Any doctor
+// may take any configured service; the choice is stored on the visit by the Call.
+function resolveSharedCallDoctor(patient, counterId, counters) {
+  if (!CONFIGURED_SERVICES.includes(patient.service_type)) {
+    throw consultationError("This visit's service is not configured for doctor assignment", 400);
+  }
+  if (!String(counterId ?? "").trim()) {
+    throw consultationError("Select an available doctor to call this patient.", 400);
+  }
+  const selected = resolveDoctorCounter(counterId, counters);
+  if (!selected || !DOCTOR_NAMES.includes(selected.id_num)) {
+    throw consultationError("The selected doctor is not a valid doctor counter", 400);
+  }
+  if (String(patient.counter_id ?? "").trim() && patient.counter_id !== selected.id_num) {
+    throw new Error("This waiting patient has a conflicting doctor assignment");
+  }
+  return selected.id_num;
+}
+
+// D1: Frontdesk may assign a visit only to a doctor whose authenticated session is live
+// (Phase A presence, 75-second window). Counter availability is checked separately.
+async function assertDoctorSignedIn(doctorName) {
   let result;
   try {
-    result = await supabase.rpc("call_patient_visit", {
+    result = await supabase.rpc("get_staff_doctor_presence");
+  } catch {
+    throw consultationError("Doctor presence could not be verified. Please retry.", 503);
+  }
+  const doctors = result?.data?.doctors;
+  if (result?.error || !Array.isArray(doctors)) {
+    throw consultationError("Doctor presence could not be verified. Please retry.", 503);
+  }
+  if (doctors.find((doctor) => doctor.doctor_name === doctorName)?.online !== true) {
+    throw consultationError(`${doctorName} is not signed in. Select a doctor who is online.`, 409);
+  }
+}
+
+// C1 (or D1 in shared dispatch): returns the called row, or null when the migration is not
+// installed. Any rejection leaves patient and counter unchanged. A lost response may hide a
+// committed call, so it is never treated as success: no pending acceptance is created for an
+// unconfirmed call (the assigned doctor can still accept a serving visit that has no acceptance state).
+async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, rpcName = "call_patient_visit") {
+  let result;
+  try {
+    result = await supabase.rpc(rpcName, {
       p_patient_id: patient.id, p_doctor_name: doctorName, p_user_id_num: actor?.id_num ?? null,
       p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end
     });
@@ -761,20 +846,34 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
   if (patient.status !== "waiting" || patient.completed_at != null) {
     throw new Error("Only a waiting patient without a completion timestamp can be called");
   }
-  const doctorName = getDoctorForService(patient.service_type);
-  // Undo can retain the patient's previous doctor association while waiting.
-  if (patient.counter_id != null && patient.counter_id !== doctorName) {
-    throw new Error("This waiting patient has a conflicting doctor assignment");
+  const shared = isSharedDispatch();
+  let doctorName;
+  if (shared) {
+    doctorName = resolveSharedCallDoctor(patient, counterId, accountCounters);
+  } else {
+    doctorName = getDoctorForService(patient.service_type);
+    // Undo can retain the patient's previous doctor association while waiting.
+    if (patient.counter_id != null && patient.counter_id !== doctorName) {
+      throw new Error("This waiting patient has a conflicting doctor assignment");
+    }
+    if (counterId != null && counterId !== doctorName) {
+      throw new Error(`This patient is assigned to ${doctorName}`);
+    }
   }
-  if (counterId != null && counterId !== doctorName) {
-    throw new Error(`This patient is assigned to ${doctorName}`);
-  }
+  // In shared dispatch two doctors can be selected for the same visit; both keys are held.
+  const visitKey = `visit:${patientId}`;
   if (callsInProgress.has(doctorName)) {
     throw new Error(`A call for ${doctorName} is already processing`);
   }
+  if (callsInProgress.has(visitKey)) {
+    throw new Error("A call for this patient is already processing");
+  }
   callsInProgress.add(doctorName);
+  callsInProgress.add(visitKey);
 
   try {
+    // A doctor calling for itself is proven present by its own validated session.
+    if (shared && !localCall && who.kind !== "doctor") await assertDoctorSignedIn(doctorName);
     let counters;
     let waitingPatients;
     let servingPatients;
@@ -818,18 +917,22 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     if (counters.some((c) => c.id_num !== doctorName && Number(c.current_patient_id) === patientId)) {
       throw new Error("This patient is already assigned to another doctor");
     }
-    const nextPatient = waitingPatients
-      .filter((p) => getDoctorForService(p.service_type) === doctorName)
-      .sort(compareWaitingPriority)[0];
+    const nextPatient = shared
+      ? getSharedQueueHead(waitingPatients, doctorName)
+      : waitingPatients.filter((p) => getDoctorForService(p.service_type) === doctorName).sort(compareWaitingPriority)[0];
     if (!nextPatient || Number(nextPatient.id) !== patientId) {
-      throw new Error(`Call the next eligible patient for ${doctorName} according to queue priority`);
+      throw new Error(shared
+        ? "Call the next patient in the shared queue according to priority"
+        : `Call the next eligible patient for ${doctorName} according to queue priority`);
     }
 
     const calledAt = new Date().toISOString();
     // Phase 2.1+ rows carry a revision; the RPC needs it to detect any change since this read.
     const atomicCall = !localCall && patient.visit_state_revision
-      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange)
+      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange, shared ? "call_patient_visit_shared" : "call_patient_visit")
       : null;
+    // Shared dispatch has no two-statement fallback: it commits only through D1.
+    if (shared && !localCall && !atomicCall) throw consultationError(SHARED_CALL_MIGRATION_REQUIRED, 503);
     if (localCall) {
       // No await between the final checks and both in-memory updates.
       patient.status = "serving";
@@ -906,9 +1009,10 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
         console.error("Failed to send call notification:", err.message);
       }
     }
-    return { success: true };
+    return { success: true, doctor: doctorName };
   } finally {
     callsInProgress.delete(doctorName);
+    callsInProgress.delete(visitKey);
   }
 }
 
@@ -1152,12 +1256,14 @@ function resolveCancelActor(actor, user, counters) {
 }
 
 // The doctor a patient belongs to, from persisted data only: the stored
-// assignment first; a patient never called follows the service mapping. A
-// serving patient with no resolvable assignment is an orphan and has no owner.
+// assignment first; a patient never called follows the service mapping (in shared
+// dispatch it belongs to no doctor until it is called). A serving patient with no
+// resolvable assignment is an orphan and has no owner.
 function resolveCancelOwner(patient, counters) {
   if (String(patient.counter_id ?? "").trim()) return resolveDoctorCounter(patient.counter_id, counters);
   if (patient.status === "serving") return null;
-  return resolveDoctorCounter(getDoctorForService(patient.service_type), counters);
+  const routed = getRoutedDoctor(patient.service_type);
+  return routed ? resolveDoctorCounter(routed, counters) : null;
 }
 
 // Shared by Cancel, No-show, Recall, Re-Call, Requeue and Undo (R2/R2.1). Loads the
@@ -1292,7 +1398,7 @@ async function performCancellation(patientId, reason, counterId, actor, backlog 
     } else if (pointed) {
       // W1: a stale pointer is released only under the RPC's locks. A separate release could
       // clear the counter of a later Requeue/Undo + Call of this same visit.
-      const row = actor == null ? null : await cancelPatientVisitRpc(existing, actor, reason, counterId);
+      const row = actor == null ? null : await cancelPatientVisitRpc(existing, actor, reason, owner ? counterId : null);
       if (!row) throw consultationError(actor == null ? NO_SESSION_CANCEL_MESSAGE : CANCEL_MIGRATION_REQUIRED, 503);
       return { ...row, already_cancelled: true };
     }
@@ -1326,8 +1432,10 @@ async function performCancellation(patientId, reason, counterId, actor, backlog 
   }
 
   // W1: the RPC cancels the visit and releases its counter(s) in one transaction. Trusted
-  // in-process callers have no session to re-validate and take the path below.
-  const atomic = actor == null ? null : await cancelPatientVisitRpc(existing, actor, trimmedReason, counterId);
+  // in-process callers have no session to re-validate and take the path below. A visit with no
+  // owner (a shared-dispatch visit never called) gets no doctor from the request: W1 would
+  // otherwise check or stamp the legacy service doctor.
+  const atomic = actor == null ? null : await cancelPatientVisitRpc(existing, actor, trimmedReason, owner ? counterId : null);
   if (atomic) {
     clearRecallCount(patientId);
     return atomic;
@@ -1444,9 +1552,10 @@ function backlogView(patient, counters) {
     patient_name: patient.id_num ?? null,
     service_type: patient.service_type,
     status: patient.status,
-    // Same reading as Records: a stored assignment, or the doctor the service routes to.
-    doctor: stored ? (owner?.id_num || stored) : (owner?.id_num || getDoctorForService(patient.service_type)),
-    doctor_source: stored ? (owner ? "stored" : "unresolved") : "service",
+    // Same reading as Records: a stored assignment, or the doctor the service routes to
+    // (none in shared dispatch, where an uncalled visit is unassigned).
+    doctor: stored ? (owner?.id_num || stored) : (owner?.id_num || getRoutedDoctor(patient.service_type)),
+    doctor_source: stored ? (owner ? "stored" : "unresolved") : getRoutedDoctor(patient.service_type) ? "service" : "unassigned",
     priority_score: parsed.priority_score,
     priority_categories: parsed.vulnerability_flags,
     created_at: patient.created_at,
@@ -2050,10 +2159,10 @@ async function getFilteredPatients({ status = "", service = "", doctor = "", ...
   }
   if (selectedDoctor) patients = patients.filter((patient) => {
     // Stored ownership wins for historical visits. Older unassigned rows use
-    // the established service mapping; aliases resolve against real counters.
+    // the established service mapping (none in shared dispatch); aliases resolve against real counters.
     const assignment = patient.counter_id != null && String(patient.counter_id).trim()
       ? resolveDoctorCounter(patient.counter_id, counters)?.id_num
-      : getDoctorForService(patient.service_type);
+      : getRoutedDoctor(patient.service_type);
     return assignment === selectedDoctor.id_num;
   });
   return patients.sort(comparePatientCreation).map(parsePatientPriority);
@@ -2261,6 +2370,7 @@ async function getDisplayData() {
   return {
     settings: toPublicDisplaySettings(settings),
     storage_mode: getQueueStorageMode(),
+    dispatch_mode: getDispatchMode(),
     queue_settings: getQueueSettings(),
     voice_announcements: voiceAnnouncements,
     recent_accepted: recentAccepted,
@@ -2470,9 +2580,11 @@ async function loadCounterAliases(rows) {
   }
 }
 
+// The treating doctor stored on the visit. Without one, the service's routed doctor, or
+// "Unassigned" in shared dispatch (the visit was never called by any doctor).
 function getVisitDoctor(row, counterAliases) {
   const raw = row.counter_id == null ? "" : String(row.counter_id).trim();
-  if (!raw) return getDoctorForService(row.service_type);
+  if (!raw) return getRoutedDoctor(row.service_type) || UNASSIGNED_DOCTOR;
   const named = raw.match(/^doctor\s*(\d+)$/i);
   if (named) return `Doctor ${Number(named[1])}`;
   return resolveDoctorCounter(raw, counterAliases)?.id_num || raw;
@@ -3094,6 +3206,8 @@ module.exports = {
   getPatientsForExport,
   getQueueOverview,
   getQueueStorageMode,
+  getDispatchMode,
+  getSharedQueueHead,
   getQueueStats,
   getTransactions,
   renameServiceType,

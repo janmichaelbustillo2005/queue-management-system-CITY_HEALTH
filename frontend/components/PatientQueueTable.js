@@ -7,6 +7,14 @@ export const DOCTORS = [
   { name: "Doctor 3", assignment: "Family Planning" }
 ];
 
+// D1 shared dispatch (the backend's dispatch_mode "shared", provisional): the three general
+// doctors serve every configured service, a waiting visit belongs to no doctor until it is
+// called, and Frontdesk selects an available doctor at Call Now.
+export const SHARED_DISPATCH = "shared";
+export const SHARED_ASSIGNMENT = "All services";
+const SHARED_LANE = "Shared queue";
+const CONFIGURED_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
+
 const SERVICE_TO_DOCTOR = {
   consultation: "Doctor 1",
   checkup: "Doctor 1",
@@ -25,9 +33,12 @@ function matchesDoctor(serviceType, doctorName) {
   return SERVICE_TO_DOCTOR[serviceType] === doctorName;
 }
 
-function belongsToDoctor(row, doctorName) {
+function belongsToDoctor(row, doctorName, shared = false) {
+  if (shared) return row.counter_id === doctorName;
   return row.counter_id ? row.counter_id === doctorName : matchesDoctor(row.service_type, doctorName);
 }
+
+const isUnassigned = (row) => !String(row?.counter_id ?? "").trim();
 
 function compareQueue(a, b) {
   const rankDiff = (STATUS_RANK[a.status] ?? 4) - (STATUS_RANK[b.status] ?? 4);
@@ -41,9 +52,9 @@ function compareQueue(a, b) {
 
 // Same rules as the Doctor "My Queue Management" list: waiting/serving patients plus
 // cancellations still inside the Undo window (hidden once the doctor calls the next patient).
-function buildActiveQueue(queueRows, doctorName) {
+function buildActiveQueue(queueRows, doctorName, shared = false) {
   const queue = (queueRows ?? []).filter((row) => {
-    return ["waiting", "serving", "cancelled", "no-show"].includes(row.status) && belongsToDoctor(row, doctorName);
+    return ["waiting", "serving", "cancelled", "no-show"].includes(row.status) && belongsToDoctor(row, doctorName, shared);
   });
 
   const hasActiveServing = queue.some((row) => row.status === "serving");
@@ -54,6 +65,24 @@ function buildActiveQueue(queueRows, doctorName) {
   });
 
   return rows.slice().sort(compareQueue);
+}
+
+// The backend's shared-queue head for one doctor (getSharedQueueHead): every unassigned waiting
+// visit of a configured service, plus a legacy reservation for that doctor, by priority.
+function sharedHeadFor(queueRows, doctorName) {
+  return (queueRows ?? []).filter((row) => row.status === "waiting" && !row.isOptimistic &&
+    CONFIGURED_SERVICES.includes(row.service_type) && (isUnassigned(row) || row.counter_id === doctorName))
+    .sort(compareQueue)[0] || null;
+}
+
+// Unassigned waiting visits, plus cancellations/no-shows of visits nobody called, kept for Undo
+// until the next patient is called (the shared-lane equivalent of the doctor Undo window).
+function buildSharedQueue(queueRows) {
+  const rows = queueRows ?? [];
+  const lastCall = Math.max(0, ...rows.map((row) => Date.parse(row.called_at) || 0));
+  return rows.filter((row) => isUnassigned(row) && (row.status === "waiting" ||
+    (["cancelled", "no-show"].includes(row.status) && (Date.parse(row.completed_at) || 0) >= lastCall)))
+    .sort(compareQueue);
 }
 
 function isDoctorOnline(counters, queueSettings, doctorName) {
@@ -78,15 +107,18 @@ export default function PatientQueueTable({
   onNotify,
   onConfirm,
   onViewTicket,
-  ticketLoadingId = null
+  ticketLoadingId = null,
+  dispatchMode = "service"
 }) {
+  const shared = dispatchMode === SHARED_DISPATCH;
   const pendingCallsRef = useRef(new Set());
   const [callingDoctors, setCallingDoctors] = useState(() => new Set());
+  const [selectedDoctor, setSelectedDoctor] = useState("");
 
   const doctorStates = useMemo(() => {
     const states = {};
     for (const doctor of doctors) {
-      const activeRows = buildActiveQueue(queueRows, doctor.name);
+      const activeRows = buildActiveQueue(queueRows, doctor.name, shared);
       const serving = activeRows.find((row) => row.status === "serving");
       const counter = (counters ?? []).find((item) => item.id_num === doctor.name);
       const activePatientId = serving?.id ?? activeRows.find((row) => row.status === "waiting")?.id ?? null;
@@ -109,15 +141,32 @@ export default function PatientQueueTable({
       };
     }
     return states;
-  }, [doctors, queueRows, counters, queueSettings]);
+  }, [doctors, queueRows, counters, queueSettings, shared]);
+
+  // Shared dispatch: one queue for every doctor. Its head may go to any doctor that is enabled,
+  // has no patient and whose own backend head is the same visit (no legacy reservation first).
+  const sharedQueue = useMemo(() => (shared ? buildSharedQueue(queueRows) : []), [shared, queueRows]);
+  const sharedHead = sharedQueue.find((row) => row.status === "waiting" && !row.isOptimistic) || null;
+  const availableDoctors = shared && sharedHead ? DOCTORS.filter(({ name }) => {
+    const counter = (counters ?? []).find((item) => item.id_num === name);
+    const busy = (queueRows ?? []).some((row) => row.status === "serving" && row.counter_id === name);
+    return isDoctorOnline(counters, queueSettings, name) && counter?.current_patient_id == null && !busy &&
+      sharedHeadFor(queueRows, name)?.id === sharedHead.id;
+  }).map(({ name }) => name) : [];
+  const callDoctor = availableDoctors.includes(selectedDoctor) ? selectedDoctor : availableDoctors[0] || "";
 
   const visibleRows = useMemo(() => {
     const byId = new Map();
+    if (shared) {
+      const source = statusFilter === "active" ? sharedQueue
+        : (queueRows ?? []).filter((row) => isUnassigned(row) && (statusFilter === "all" || row.status === statusFilter));
+      for (const row of source) byId.set(row.id, { row, doctorName: null });
+    }
     for (const doctor of doctors) {
       const source =
         statusFilter === "active"
           ? doctorStates[doctor.name].activeRows
-          : (queueRows ?? []).filter((row) => (statusFilter === "all" || row.status === statusFilter) && belongsToDoctor(row, doctor.name));
+          : (queueRows ?? []).filter((row) => (statusFilter === "all" || row.status === statusFilter) && belongsToDoctor(row, doctor.name, shared));
 
       for (const row of source) {
         const existing = byId.get(row.id);
@@ -129,7 +178,7 @@ export default function PatientQueueTable({
     }
 
     const term = search.trim().toLowerCase();
-    const doctorOrder = doctors.map((d) => d.name);
+    const doctorOrder = [null, ...doctors.map((d) => d.name)];
     return Array.from(byId.values())
       .filter(
         ({ row }) =>
@@ -144,11 +193,18 @@ export default function PatientQueueTable({
         if (doctorDiff !== 0) return doctorDiff;
         return compareQueue(a.row, b.row);
       });
-  }, [doctors, doctorStates, queueRows, statusFilter, search]);
+  }, [doctors, doctorStates, queueRows, statusFilter, search, shared, sharedQueue]);
 
   const counts = useMemo(() => {
     const rows = queueRows ?? [];
     const total = { waiting: 0, serving: 0, completed: 0, cancelled: 0 };
+    if (shared) {
+      const visible = (row) => isUnassigned(row) || doctors.some(({ name }) => row.counter_id === name);
+      for (const status of Object.keys(total)) {
+        total[status] = rows.filter((row) => row.status === status && visible(row)).length;
+      }
+      return total;
+    }
     for (const { name } of doctors) {
       total.waiting += rows.filter((row) => row.status === "waiting" && matchesDoctor(row.service_type, name)).length;
       total.serving += rows.filter((row) => row.status === "serving" && belongsToDoctor(row, name)).length;
@@ -156,7 +212,7 @@ export default function PatientQueueTable({
       total.cancelled += rows.filter((row) => row.status === "cancelled" && belongsToDoctor(row, name)).length;
     }
     return total;
-  }, [doctors, queueRows]);
+  }, [doctors, queueRows, shared]);
 
   async function postAction(doctorName, path, body, fallbackMessage) {
     const data = await request(path, { method: "POST", body: JSON.stringify(body) });
@@ -176,6 +232,111 @@ export default function PatientQueueTable({
   }
 
   const isHead = (row, doctorName) => row?.id != null && row.id === doctorStates[doctorName]?.activePatientId;
+
+  async function handleSharedCall(row) {
+    if (pendingCallsRef.current.has(SHARED_LANE)) return;
+    if (row.id !== sharedHead?.id) {
+      onNotify("error", "You can only call the first patient in the shared queue.");
+      return;
+    }
+    const doctorName = callDoctor;
+    if (!doctorName) {
+      onNotify("error", "No doctor is available. Wait for a doctor to finish or ask Super Admin to enable a doctor.");
+      return;
+    }
+    // One shared call at a time from this screen; the backend serializes calls across screens.
+    pendingCallsRef.current.add(SHARED_LANE);
+    setCallingDoctors(new Set(pendingCallsRef.current));
+    try {
+      await postAction(doctorName, "/queue/call", { patient_id: row.id, counterId: doctorName }, "Patient called successfully");
+    } catch (err) {
+      onNotify("error", `${doctorName}: ${err.message || "Action failed"}`);
+      try { await onRefresh(); } catch (_) { /* Keep the call error visible. */ }
+    } finally {
+      pendingCallsRef.current.delete(SHARED_LANE);
+      setCallingDoctors(new Set(pendingCallsRef.current));
+    }
+  }
+
+  function handleSharedCancel(row) {
+    if (pendingCallsRef.current.has(SHARED_LANE)) return;
+    if (row.id !== sharedHead?.id) {
+      onNotify("error", "You can only cancel the first patient in the shared queue.");
+      return;
+    }
+    onConfirm({
+      title: "Cancel Patient",
+      message: `Cancel ${row.id_num} (${row.queue_number}) from the shared queue? Please enter a reason for canceling.`,
+      showReason: true,
+      requireReason: true,
+      onConfirm: (reason) => postAction(SHARED_LANE, "/queue/cancel", { patient_id: row.id, reason }, "Patient cancelled successfully")
+    });
+  }
+
+  function renderSharedActions(row) {
+    const calling = callingDoctors.has(SHARED_LANE);
+    if (row.status === "waiting") {
+      if (row.id !== sharedHead?.id) {
+        return <span className="text-[11px] brand-text-muted font-semibold italic px-1">Waiting for turn</span>;
+      }
+      return (
+        <>
+          <select
+            aria-label={`Doctor for ${row.queue_number}`}
+            value={callDoctor}
+            onChange={(event) => setSelectedDoctor(event.target.value)}
+            disabled={calling || !availableDoctors.length}
+            className="px-2 py-1.5 border brand-input rounded-lg text-xs bg-white"
+          >
+            {availableDoctors.length
+              ? availableDoctors.map((name) => <option key={name} value={name}>{name}</option>)
+              : <option value="">No doctor available</option>}
+          </select>
+          <button
+            type="button"
+            onClick={() => handleSharedCall(row)}
+            disabled={calling || !callDoctor}
+            title={callDoctor ? `Call this patient to ${callDoctor}` : "Every doctor is offline or serving a patient"}
+            aria-busy={calling}
+            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {calling ? "Calling..." : "Call Now"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSharedCancel(row)}
+            disabled={calling}
+            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
+          >
+            Cancel
+          </button>
+        </>
+      );
+    }
+    if (["cancelled", "no-show"].includes(row.status)) {
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => runAction(SHARED_LANE, "/queue/undo", { patient_id: row.id }, "Action undone successfully")}
+            className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors shadow-sm"
+          >
+            Undo
+          </button>
+          {queueSettings.allowQueueReassignment !== false ? (
+            <button
+              type="button"
+              onClick={() => handleRequeue(row, SHARED_LANE)}
+              className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+              Re-queue
+            </button>
+          ) : null}
+        </>
+      );
+    }
+    return <span className="brand-text-muted text-xs">—</span>;
+  }
 
   async function handleCall(row, doctorName) {
     if (pendingCallsRef.current.has(doctorName)) return;
@@ -258,6 +419,7 @@ export default function PatientQueueTable({
   }
 
   function renderActions(row, doctorName) {
+    if (doctorName == null) return renderSharedActions(row);
     const calling = callingDoctors.has(doctorName);
     if (row.status === "waiting") {
       if (!isHead(row, doctorName)) {
@@ -409,9 +571,9 @@ export default function PatientQueueTable({
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2 font-semibold brand-text text-sm whitespace-nowrap">
                       <i className="fas fa-user-md text-blue-600" />
-                      {doctorName}
+                      {doctorName ?? (row.status === "waiting" ? "Next available" : "Unassigned")}
                     </div>
-                    {!doctorStates[doctorName].online ? (
+                    {doctorName != null && !doctorStates[doctorName].online ? (
                       <span className="text-[10px] font-bold uppercase tracking-wider brand-text-muted">Offline</span>
                     ) : null}
                   </td>

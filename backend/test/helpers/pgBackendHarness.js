@@ -52,11 +52,12 @@ function skewedDate(offsetMs) {
 
 // `pool` must already connect as the API role (see pgRestClient). `onRequest` may pause or
 // observe any database request the backend makes (used to force interleavings).
-// `clockOffsetMs` shifts the backend's clock relative to PostgreSQL's.
-function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0 } = {}) {
+// `clockOffsetMs` shifts the backend's clock relative to PostgreSQL's. `doctorDispatchMode` is
+// the backend's DOCTOR_DISPATCH_MODE ("service" when omitted, "shared" for D1).
+function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0, doctorDispatchMode } = {}) {
   const DateImpl = skewedDate(clockOffsetMs);
   const supabase = createPgRestClient(pool, { onRequest: (request) => (onRequest ? onRequest(request) : undefined) });
-  const env = { jwtSecret: SECRET, supabaseUrl: "https://isolated-pg-harness.invalid", supabaseServiceRoleKey: "isolated" };
+  const env = { jwtSecret: SECRET, supabaseUrl: "https://isolated-pg-harness.invalid", supabaseServiceRoleKey: "isolated", doctorDispatchMode };
   const virtualFs = memoryFs();
   const sms = [];
   const settings = load("services/settingsService.js", { fs: virtualFs, path, crypto }, DateImpl);

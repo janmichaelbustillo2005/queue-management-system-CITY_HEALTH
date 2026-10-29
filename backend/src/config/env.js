@@ -30,8 +30,25 @@ function readJwtSecret(value) {
   return value;
 }
 
+// D1: how a waiting visit reaches a doctor. "service" (the default, unchanged behavior) routes
+// each service to its fixed doctor. "shared" (Model A, provisional, pending administrator and
+// adviser approval) keeps one Weighted-Priority queue and stores the doctor chosen at Call; it
+// needs backend/scripts/20261029-d1-shared-call.sql. Any other value stops the backend.
+const DOCTOR_DISPATCH_MODES = ["service", "shared"];
+
+function readDoctorDispatchMode(value) {
+  const mode = String(value ?? "").trim().toLowerCase() || "service";
+  if (!DOCTOR_DISPATCH_MODES.includes(mode)) {
+    const error = new Error(`Invalid DOCTOR_DISPATCH_MODE in backend/.env: use ${DOCTOR_DISPATCH_MODES.join(" or ")}.`);
+    error.code = "INVALID_DOCTOR_DISPATCH_MODE";
+    throw error;
+  }
+  return mode;
+}
+
 const env = {
   port: Number(process.env.PORT || 4000),
+  doctorDispatchMode: readDoctorDispatchMode(process.env.DOCTOR_DISPATCH_MODE),
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",

@@ -21,6 +21,11 @@ const STATUS_LABELS = {
 export const QUEUE_PASS_WIDTH = 760;
 export const QUEUE_PASS_HEIGHT = 820;
 
+// D1: the backend's dispatch_mode. In "shared" dispatch (provisional) a waiting visit has no
+// doctor until it is called; any available general doctor may take it.
+export const SHARED_DISPATCH = "shared";
+export const NEXT_AVAILABLE_DOCTOR = "Next available doctor";
+
 // Mirror the existing backend service mapping; this is display information only.
 function doctorForService(service) {
   if (service === "prenatal" || service === "maternity") return "Doctor 2";
@@ -33,15 +38,16 @@ function sameId(left, right) {
 }
 
 /** Deliberately whitelist ticket data; never carry the patient row into exports. */
-export function createQueueTicket(patient) {
+export function createQueueTicket(patient, { dispatchMode } = {}) {
   if (!patient || patient.id == null || !String(patient.id).trim() || !patient.queue_number) {
     throw new Error("The saved patient record does not have a queue ticket.");
   }
   const registeredAt = new Date(patient.created_at);
   const validDate = patient.created_at && Number.isFinite(registeredAt.getTime());
   const knownStatus = Object.prototype.hasOwnProperty.call(STATUS_LABELS, patient.status);
+  // The stored doctor once called; before that the service's doctor, or none in shared dispatch.
   const assignedDoctor = ["Doctor 1", "Doctor 2", "Doctor 3"].includes(patient.counter_id)
-    ? patient.counter_id : doctorForService(patient.service_type);
+    ? patient.counter_id : dispatchMode === SHARED_DISPATCH ? NEXT_AVAILABLE_DOCTOR : doctorForService(patient.service_type);
   return {
     patientId: patient.id,
     queueNumber: String(patient.queue_number),
@@ -59,11 +65,13 @@ export function createQueueTicket(patient) {
   };
 }
 
-/** Waiting-only snapshot of the backend's WPS order, scoped to its service doctor. */
-export function getPatientsAheadSnapshot(rows, patient) {
+/** Waiting-only snapshot of the backend's WPS order, scoped to its service doctor (or the whole
+ * shared queue in shared dispatch). */
+export function getPatientsAheadSnapshot(rows, patient, dispatchMode) {
   if (!Array.isArray(rows) || patient?.status !== "waiting") return null;
   const doctor = doctorForService(patient.service_type);
-  const waiting = rows.filter(row => row.status === "waiting" && doctorForService(row.service_type) === doctor)
+  const sameQueue = (row) => dispatchMode === SHARED_DISPATCH || doctorForService(row.service_type) === doctor;
+  const waiting = rows.filter(row => row.status === "waiting" && sameQueue(row))
     .slice().sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0) ||
       new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
   const index = waiting.findIndex(row => sameId(row.id, patient.id));
@@ -78,7 +86,7 @@ export async function fetchExistingQueueTicket(patientId) {
   if (!Array.isArray(data?.patients)) throw new Error("Ticket information could not be verified. Please retry.");
   const patient = data.patients.find(row => sameId(row.id, patientId));
   if (!patient) throw new Error("This ticket is no longer available in today's patient queue. No new registration was created.");
-  return createQueueTicket(patient);
+  return createQueueTicket(patient, { dispatchMode: data.dispatch_mode });
 }
 
 export function escapeTicketText(value) {
@@ -114,7 +122,7 @@ export function queuePassSvgContents(ticket, logoHref = SYSTEM_BRANDING.logoSrc)
       <rect x="48" y="371" width="664" height="139" rx="18" fill="#f1f7f3"/>
       <text x="380" y="410" text-anchor="middle" fill="#355347" font-size="22" font-weight="700">SERVICE</text>
       <text x="380" y="456" text-anchor="middle" fill="#0b3d2e" font-size="${serviceSize}" font-weight="700">${esc(ticket.serviceLabel)}</text>
-      <text x="380" y="492" text-anchor="middle" fill="#355347" font-size="25">Assigned to ${esc(ticket.doctorName)}</text>
+      <text x="380" y="492" text-anchor="middle" fill="#355347" font-size="25">${ticket.doctorName === NEXT_AVAILABLE_DOCTOR ? "Doctor assigned when called" : `Assigned to ${esc(ticket.doctorName)}`}</text>
       <path d="M25 549 H735" fill="none" stroke="#9cb9a7" stroke-width="2" stroke-dasharray="9 9"/>
       <circle cx="1" cy="549" r="14" fill="#f6f8f7"/><circle cx="759" cy="549" r="14" fill="#f6f8f7"/>
       <text x="48" y="598" fill="#355347" font-size="22" font-weight="700">REGISTERED · PHT</text>

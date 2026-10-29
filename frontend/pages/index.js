@@ -63,6 +63,17 @@ function compareQueuePriority(a, b) {
     new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
 }
 
+// D1 shared dispatch (the backend's dispatch_mode "shared", provisional): one Weighted-Priority
+// queue for the three general doctors; a waiting visit has no doctor until it is called.
+const SHARED_DISPATCH = "shared";
+const SHARED_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
+
+// The backend's shared-queue head for one doctor (unassigned visits plus its own legacy reservation).
+function getSharedHead(rows, doctorName) {
+  return rows.filter((row) => row.status === "waiting" && !row.isOptimistic && SHARED_SERVICES.includes(row.service_type) &&
+    (!String(row.counter_id ?? "").trim() || row.counter_id === doctorName)).sort(compareQueuePriority)[0];
+}
+
 function areSettingsEqual(left = {}, right = {}) {
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
@@ -153,6 +164,8 @@ export default function HomePage() {
   const dashboardRequestRef = useRef(null);
   const [queueRows, setQueueRows] = useState([]);
   const [counters, setCounters] = useState([]);
+  const [dispatchMode, setDispatchMode] = useState("service");
+  const sharedDispatch = dispatchMode === SHARED_DISPATCH;
   const [doctorPresence, setDoctorPresence] = useState(null);
   const [presenceNow, setPresenceNow] = useState(() => presenceClock());
   const presenceGenerationRef = useRef(0);
@@ -211,7 +224,7 @@ export default function HomePage() {
     const states = {};
     for (const doctorName of DOCTOR_NAMES) {
       const counter = counters.find((item) => (item.id_num || item.name) === doctorName);
-      const head = queueRows.filter((row) => row.status === "waiting" &&
+      const head = sharedDispatch ? getSharedHead(queueRows, doctorName) : queueRows.filter((row) => row.status === "waiting" &&
         !row.isOptimistic && getServiceDoctor(row.service_type) === doctorName)
         .slice().sort(compareQueuePriority)[0];
       const reservedForHead = head?.counter_id === doctorName && counter?.current_patient_id != null &&
@@ -225,7 +238,16 @@ export default function HomePage() {
       };
     }
     return states;
-  }, [queueRows, counters]);
+  }, [queueRows, counters, sharedDispatch]);
+
+  // Shared dispatch: the next visit and the first free doctor that may take it. The Superadmin
+  // dashboard calls it to that doctor; Patient Management lets Frontdesk choose the doctor.
+  const sharedNext = sharedDispatch ? queueRows.filter((row) => row.status === "waiting" && !row.isOptimistic &&
+    !String(row.counter_id ?? "").trim()).sort(compareQueuePriority)[0] : null;
+  const sharedCallDoctor = sharedNext ? DOCTOR_NAMES.find((doctorName) => {
+    const state = doctorQueues[doctorName];
+    return state?.enabled && !state.occupied && state.head?.id === sharedNext.id;
+  }) || null : null;
 
   const doctorStatuses = DOCTOR_NAMES.map((doctorName) => ({
     doctorName,
@@ -371,6 +393,7 @@ export default function HomePage() {
       
       setQueueRows(queueData.patients || []);
       setCounters(queueData.counters || []);
+      setDispatchMode(queueData.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
       setDashboardCountersReady(Array.isArray(queueData.counters));
       if (queueData.queue_settings) {
         setSettings((prev) => {
@@ -601,12 +624,24 @@ export default function HomePage() {
   async function queueAction(path, patientId) {
     const patient = queueRows.find((row) => row.id === patientId);
     if (!patient) { setError("Patient not found. Refresh the queue."); return; }
-    const doctorName = patient.counter_id || getServiceDoctor(patient.service_type);
+    const doctorName = patient.counter_id || (sharedDispatch && path === "/queue/call" ? sharedCallDoctor
+      : sharedDispatch ? null : getServiceDoctor(patient.service_type));
     if (pendingActionsRef.current.has(patientId) ||
-        Array.from(pendingActionsRef.current.values()).includes(doctorName)) return;
+        (doctorName && Array.from(pendingActionsRef.current.values()).includes(doctorName))) return;
     const body = { patient_id: patientId };
 
-    if (path === "/queue/call") {
+    if (path === "/queue/call" && sharedDispatch) {
+      // A legacy reservation is called only to its own doctor; anything else is the shared head.
+      const reserved = patient.counter_id ? doctorQueues[patient.counter_id] : null;
+      const callable = patient.counter_id
+        ? reserved?.head?.id === patient.id && reserved.enabled && !reserved.occupied
+        : patient.id === sharedNext?.id && Boolean(sharedCallDoctor);
+      if (patient.status !== "waiting" || !callable) {
+        setError("Only the next patient in the shared queue can be called, and only when a doctor is available.");
+        return;
+      }
+      body.counterId = patient.counter_id || sharedCallDoctor;
+    } else if (path === "/queue/call") {
       const mappedDoctor = getServiceDoctor(patient.service_type);
       const state = doctorQueues[mappedDoctor];
       if (patient.status !== "waiting" || patient.id !== state?.head?.id ||
@@ -1364,12 +1399,16 @@ export default function HomePage() {
                   </thead>
                   <tbody className="divide-y divide-[var(--brand-border)]">
                     {filteredRows.length ? filteredRows.map((patient) => {
-                      const doctorName = patient.counter_id || getServiceDoctor(patient.service_type);
-                      const state = doctorQueues[getServiceDoctor(patient.service_type)];
-                      const doctorPending = Array.from(pendingActions.values()).includes(doctorName);
+                      const sharedNextRow = sharedDispatch && patient.id === sharedNext?.id;
+                      const doctorName = patient.counter_id || (sharedNextRow ? sharedCallDoctor
+                        : sharedDispatch ? null : getServiceDoctor(patient.service_type));
+                      const state = sharedNextRow
+                        ? { head: sharedNext, enabled: Boolean(sharedCallDoctor), occupied: false }
+                        : doctorQueues[sharedDispatch ? patient.counter_id : getServiceDoctor(patient.service_type)];
+                      const doctorPending = Boolean(doctorName) && Array.from(pendingActions.values()).includes(doctorName);
                       const actionPending = pendingActions.has(patient.id) || doctorPending;
                       const isNextWaiting = patient.status === "waiting" && patient.id === state?.head?.id && !patient.isOptimistic &&
-                        (!patient.counter_id || patient.counter_id === getServiceDoctor(patient.service_type));
+                        (sharedDispatch || !patient.counter_id || patient.counter_id === getServiceDoctor(patient.service_type));
                       const canCall = isNextWaiting && state.enabled && !state.occupied;
                       const validServing = patient.status === "serving" && !inconsistentServing.some((row) => row.id === patient.id);
                       const statusClass = patient.status === "waiting"
@@ -1448,9 +1487,9 @@ export default function HomePage() {
                           <td className="px-2 py-2">
                             <div className="flex flex-wrap gap-1 items-center">
                               {isNextWaiting ? (
-                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} disabled={actionPending || !canCall} aria-busy={pendingActions.has(patient.id)} title={!state.enabled ? `${doctorName} counter is disabled` : state.occupied ? `${doctorName} is already assigned to a serving patient` : undefined} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
+                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} disabled={actionPending || !canCall} aria-busy={pendingActions.has(patient.id)} title={!doctorName ? "No doctor is available" : !state.enabled ? `${doctorName} counter is disabled` : state.occupied ? `${doctorName} is already assigned to a serving patient` : sharedDispatch ? `Call to ${doctorName}` : undefined} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-bullhorn mr-0.5" />
-                                  {pendingActions.has(patient.id) ? "Calling..." : "Call"}
+                                  {pendingActions.has(patient.id) ? "Calling..." : sharedDispatch && doctorName ? `Call to ${doctorName}` : "Call"}
                                 </button>
                               ) : null}
                               {!TERMINAL_QUEUE_STATUSES.includes(patient.status) ? (

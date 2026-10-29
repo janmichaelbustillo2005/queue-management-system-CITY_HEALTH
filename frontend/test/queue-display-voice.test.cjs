@@ -1719,3 +1719,34 @@ test("waiting cards copy the original grid geometry and track hidden-view deskto
   assert.equal(resizeListeners.size, 0, "Unmount must remove the geometry resize listener");
   assert.equal(observers[0].disconnected, true, "Unmount must disconnect source geometry observation");
 });
+
+test("D1 shared dispatch: the announcement names the doctor who actually called the visit, not the service doctor", async () => {
+  const harness = createDisplayHarness();
+  harness.seed();
+  const acceptedAt = "2026-10-29T01:01:00.000Z";
+  const prenatalOnDoctor1 = {
+    id: 401, queue_number: "OB-003", service_type: "prenatal", status: "serving", called_at: "2026-10-29T01:00:00.000Z",
+    accepted_at: acceptedAt, announcement_at: acceptedAt, announcement_key: "401:accept:d1-shared", event_type: "accept", counter_name: "Doctor 1"
+  };
+  const familyPlanningOnDoctor2 = { ...prenatalOnDoctor1, id: 402, queue_number: "FP-004", service_type: "family_planning",
+    announcement_key: "402:accept:d1-shared", announcement_at: "2026-10-29T01:02:00.000Z", accepted_at: "2026-10-29T01:02:00.000Z", counter_name: "Doctor 2" };
+  await harness.poll({ dispatch_mode: "shared", voice_announcements: [prenatalOnDoctor1, familyPlanningOnDoctor2] });
+  assert.deepEqual(harness.speech.map((item) => item.text), [
+    "Now calling queue number O B 0 0 3, please proceed to Doctor 1, Room 1.",
+    "Now calling queue number F P 0 0 4, please proceed to Doctor 2, Room 2."
+  ]);
+});
+
+test("D1 shared dispatch: the waiting view is one list in the backend's priority order", () => {
+  const sharedContext = vm.createContext({});
+  vm.runInContext([sourceSection("function groupWaitingQueues(", "let runtimeQueueSettings"),
+    "this.api = { groupSharedWaitingQueue, SHARED_WAITING_COUNTER };"].join("\n"), sharedContext);
+  const waiting = [
+    waitingPatient(7, { service_type: "family_planning" }), waitingPatient(3, { service_type: "prenatal" }),
+    waitingPatient(9), waitingPatient(4, { status: "serving" }), waitingPatient(5, { completed_at: "2026-10-29T02:00:00Z" })
+  ];
+  const groups = sharedContext.api.groupSharedWaitingQueue({ waiting_queue: waiting, all_serving: [{ id: 9 }] });
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].counter, sharedContext.api.SHARED_WAITING_COUNTER);
+  assert.deepEqual(waitingGroupIds(groups), [[7, 3]], "services are not split by doctor; serving/finished rows are excluded");
+});

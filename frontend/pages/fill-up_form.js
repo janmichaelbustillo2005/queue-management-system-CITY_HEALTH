@@ -58,22 +58,32 @@ function isDoctorAvailableInSettings(settings, doctorName) {
   return settings?.[key] !== false;
 }
 
-async function fetchDoctorAvailability(doctorName) {
+// D1 shared dispatch: registration assigns no doctor, so any enabled doctor counter is enough.
+const SHARED_DISPATCH = "shared";
+const SHARED_DOCTOR_LABEL = "Next available doctor";
+const NO_DOCTOR_AVAILABLE = "No doctor is currently available. Ask Super Admin to enable a doctor counter before registering patients.";
+
+async function fetchDoctorAvailability(doctorName, onDispatchMode = () => {}) {
   const displayData = await request("/display");
   const counter = !displayData?.error && Array.isArray(displayData?.counters)
     ? displayData.counters.find((item) => item.id_num === doctorName || item.name === doctorName)
     : null;
+  const shared = !displayData?.error && displayData?.dispatch_mode === SHARED_DISPATCH;
 
-  if (counter) {
-    return counter.is_online !== false;
+  if (counter && !shared) {
+    return { available: counter.is_online !== false, shared: false };
+  }
+  if (!displayData?.error) onDispatchMode(shared ? SHARED_DISPATCH : "service");
+  if (shared && Array.isArray(displayData.counters)) {
+    return { available: displayData.counters.some((item) => item.is_online !== false), shared: true };
   }
 
   const settingsData = await request("/settings");
   if (!settingsData?.error && settingsData?.settings) {
-    return isDoctorAvailableInSettings(settingsData.settings, doctorName);
+    return { available: isDoctorAvailableInSettings(settingsData.settings, doctorName), shared: false };
   }
 
-  return true;
+  return { available: true, shared: false };
 }
 
 const emptyForm = {
@@ -133,6 +143,15 @@ export default function FillUpFormPage() {
   const [residencySuggestions, setResidencySuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [currentDate, setCurrentDate] = useState("");
+  const [dispatchMode, setDispatchMode] = useState("service");
+  const sharedDispatch = dispatchMode === SHARED_DISPATCH;
+
+  useEffect(() => {
+    // The review line names the routed doctor only when services still have fixed doctors.
+    request("/display").then((data) => {
+      if (!data?.error) setDispatchMode(data?.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     // Keep server and initial browser markup identical, including across midnight.
@@ -194,8 +213,8 @@ export default function FillUpFormPage() {
       if (matches.length !== 1) throw new Error("The saved ticket could not be found in today's queue. Check Patient Management; do not register this patient again.");
       const savedPatient = matches[0];
       savedPatientIdRef.current = savedPatient.id;
-      setTicket(createQueueTicket(savedPatient));
-      if (captureSnapshot) setWaitingCount(getPatientsAheadSnapshot(data.patients, savedPatient));
+      setTicket(createQueueTicket(savedPatient, { dispatchMode: data.dispatch_mode }));
+      if (captureSnapshot) setWaitingCount(getPatientsAheadSnapshot(data.patients, savedPatient, data.dispatch_mode));
     } catch (error) {
       if (generation === ticketGenerationRef.current) setTicketError(error.message || "Unable to load the saved ticket. Please retry.");
     } finally {
@@ -286,10 +305,11 @@ export default function FillUpFormPage() {
     setMessage({ type: "", text: "", queue: "" });
 
     try {
-      const doctorName = getDoctorForService(form.serviceType);
-      const doctorAvailable = await fetchDoctorAvailability(doctorName);
-      if (!doctorAvailable) {
-        setMessage({ type: "danger", text: getDoctorOfflineMessage(doctorName), queue: "" });
+      const routedDoctor = getDoctorForService(form.serviceType);
+      const { available, shared } = await fetchDoctorAvailability(routedDoctor, setDispatchMode);
+      const doctorName = shared ? SHARED_DOCTOR_LABEL : routedDoctor;
+      if (!available) {
+        setMessage({ type: "danger", text: shared ? NO_DOCTOR_AVAILABLE : getDoctorOfflineMessage(doctorName), queue: "" });
         return;
       }
 
@@ -611,7 +631,7 @@ export default function FillUpFormPage() {
 
                     <section className="registration-review" aria-labelledby="registration-review-title">
                       <h3 id="registration-review-title">Review and Submit</h3>
-                      <p>{buildFullName(form) || "Enter the patient information above."} · {serviceOptions.find((option) => option.value === form.serviceType)?.label || "Select a service"}{form.serviceType ? ` · ${getDoctorForService(form.serviceType)}` : ""}</p>
+                      <p>{buildFullName(form) || "Enter the patient information above."} · {serviceOptions.find((option) => option.value === form.serviceType)?.label || "Select a service"}{form.serviceType ? ` · ${sharedDispatch ? SHARED_DOCTOR_LABEL : getDoctorForService(form.serviceType)}` : ""}</p>
                       <p className="registration-review-note">Check the patient details and classification before generating one queue number.</p>
                     </section>
                     <div className="d-flex gap-2 mt-3 mt-md-3 justify-content-end">
@@ -667,7 +687,7 @@ export default function FillUpFormPage() {
                       )}
                       {ticketError ? <p role="alert" className="text-danger mt-2">{ticketError}</p> : null}
                       {waitingCount !== null && canIssueTicket ? (
-                        <p className="registration-snapshot"><strong>{waitingCount} waiting {waitingCount === 1 ? "patient" : "patients"} ahead</strong> in {ticket?.doctorName}'s queue at registration.<br />Registration snapshot; priority arrivals and queue activity can change the order. Photos and downloaded tickets do not update.</p>
+                        <p className="registration-snapshot"><strong>{waitingCount} waiting {waitingCount === 1 ? "patient" : "patients"} ahead</strong> in {sharedDispatch ? "the shared queue" : `${ticket?.doctorName}'s queue`} at registration.<br />Registration snapshot; priority arrivals and queue activity can change the order. Photos and downloaded tickets do not update.</p>
                       ) : null}
                     </section>
 

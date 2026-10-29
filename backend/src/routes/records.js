@@ -1,5 +1,6 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
+const env = require('../config/env');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const router = express.Router();
 router.use(authenticateToken, authorizeRole(['superadmin']));
@@ -71,6 +72,12 @@ router.get('/:category', async (req, res) => {
   if (!data || !Array.isArray(data.rows) || !Number.isSafeInteger(data.total)) {
     logFailure('error', category, 'invalid-result');
     return res.status(503).json({ message: 'Records storage unavailable. The Records database returned an unexpected result.' });
+  }
+  // D1 shared dispatch: a visit that was never called has no treating doctor. Phase B.2 still
+  // labels it with its former service doctor ('service'); report it as unassigned instead.
+  // (A doctor filter in get_central_records still matches those visits; see the D1 report.)
+  if (category === 'patients' && env.doctorDispatchMode === 'shared') {
+    data.rows = data.rows.map((row) => row?.doctor_source === 'service' ? { ...row, doctor: null, doctor_source: 'unassigned' } : row);
   }
   res.setHeader('Cache-Control', 'no-store');
   return res.json(data);

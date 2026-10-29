@@ -11,12 +11,12 @@ function load(file, imports, context = {}) {
 }
 const secret='phase-b-isolated-tests';
 const okResult={data:{rows:[],total:0,page:1,limit:20,observed_at:'2026-10-23T00:00:00Z'}};
-function harness(rpc=async()=>okResult) {
+function harness(rpc=async()=>okResult, doctorDispatchMode) {
  const auth=load('src/middleware/auth.js',{jsonwebtoken:jwt,'../config/env':{jwtSecret:secret},'../services/presenceService':{validateAuthSession:async claims=>{if(claims.jti==='revoked') throw Object.assign(Error('Revoked'),{statusCode:401});return {};}}});
  let chain, calls=[], logs=[];
  const router={use:(...handlers)=>chain=handlers,get:(_path,handler)=>chain.push(handler)};
  const console={warn:(...args)=>logs.push(['warn',...args]),error:(...args)=>logs.push(['error',...args])};
- load('src/routes/records.js',{express:{Router:()=>router},'../middleware/auth':auth,'../lib/supabase':{rpc:async(name,args)=>{calls.push({name,args});return rpc(name,args);}}},{console});
+ load('src/routes/records.js',{express:{Router:()=>router},'../middleware/auth':auth,'../config/env':{doctorDispatchMode},'../lib/supabase':{rpc:async(name,args)=>{calls.push({name,args});return rpc(name,args);}}},{console});
  return {calls,logs,async request(role,query={},category='patients',session='valid') {
  const token=role?jwt.sign({role,id_num:'safe-test',jti:session},secret):null;
  const req={headers:token?{authorization:`Bearer ${token}`}:{},params:{category},query};
@@ -96,4 +96,15 @@ test('transport failures, malformed codes and unexpected results are 503 and log
   assert.equal(res.code,503,JSON.stringify(data));assert.match(res.body.message,/unexpected result/);
   assert.deepEqual(h.logs,[['error','[records] GET /api/records/patients failed: invalid-result']]);
  }
+});
+test('D1 shared dispatch reports a never-called visit as unassigned; stored doctors are unchanged',async()=>{
+ const rows=[{id:1,service_type:'prenatal',doctor:'Doctor 2',doctor_source:'service'},{id:2,service_type:'prenatal',doctor:'Doctor 3',doctor_source:'assigned'},{id:3,service_type:'consultation',doctor:'Doctor 9',doctor_source:'unresolved'}];
+ const result=()=>({data:{rows:rows.map((row)=>({...row})),total:3,page:1,limit:20}});
+ const shared=await harness(async()=>result(),'shared').request('superadmin');
+ assert.equal(shared.code,200);
+ assert.deepEqual(shared.body.rows.map(({doctor,doctor_source})=>[doctor,doctor_source]),[[null,'unassigned'],['Doctor 3','assigned'],['Doctor 9','unresolved']]);
+ const service=await harness(async()=>result()).request('superadmin');
+ assert.deepEqual(service.body.rows,rows,'service mode keeps the Phase B.2 routing label');
+ const staff=await harness(async()=>({data:{rows:[{id_num:'admin2',doctor:'Doctor 2',doctor_source:'service'}],total:1}}),'shared').request('superadmin',{},'staff');
+ assert.equal(staff.body.rows[0].doctor_source,'service','only patient visits are relabelled');
 });

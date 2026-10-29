@@ -243,13 +243,14 @@ router.post("/queue/call", authenticateToken, async (req, res) => {
     if (accountDoctor && requestedDoctor != null && requestedDoctor !== accountDoctor) {
       return res.status(403).json({ success: false, message: "You can only call patients assigned to your doctor." });
     }
-    await callPatient(Number(patient_id), requestedDoctor ?? accountDoctor, req.user);
+    const called = await callPatient(Number(patient_id), requestedDoctor ?? accountDoctor, req.user);
     console.info("[voice][queue-call]", {
       patient_id: Number(patient_id),
       requested_counter: requestedDoctor ?? accountDoctor,
+      doctor: called?.doctor ?? null,
       at: new Date().toISOString()
     });
-    res.json({ success: true, message: "Patient called successfully" });
+    res.json({ success: true, doctor: called?.doctor ?? null, message: "Patient called successfully" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }

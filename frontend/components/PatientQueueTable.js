@@ -29,14 +29,15 @@ function belongsToDoctor(row, doctorName) {
   return row.counter_id ? row.counter_id === doctorName : matchesDoctor(row.service_type, doctorName);
 }
 
+// The backend's WPS rank key (effective_priority includes WPS-A aging when enabled).
+const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
+
 function compareQueue(a, b) {
   const rankDiff = (STATUS_RANK[a.status] ?? 4) - (STATUS_RANK[b.status] ?? 4);
   if (rankDiff !== 0) return rankDiff;
-  // FRD-02: Sort by priority score DESC, then by check-in time ASC
-  if ((b.priority_score || 0) !== (a.priority_score || 0)) {
-    return (b.priority_score || 0) - (a.priority_score || 0);
-  }
-  return new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
+  // FRD-02: WPS rank DESC (a higher base priority wins a tie), then check-in time ASC
+  return wpsRank(b) - wpsRank(a) || (b.priority_score || 0) - (a.priority_score || 0) ||
+    new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
 }
 
 // Same rules as the Doctor "My Queue Management" list: waiting/serving patients plus

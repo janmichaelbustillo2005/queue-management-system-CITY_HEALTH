@@ -43,7 +43,7 @@ function harness(patients = [], now = "2026-10-15T03:00:00.000Z") {
     return query;
   } };
   const service = load("services/queueService.js", {
-    "../lib/businessDay": require("../src/lib/businessDay"),
+    "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"),
     "../lib/supabase": supabase,
     "../config/env": { supabaseUrl: "https://isolated.test", supabaseServiceRoleKey: "isolated-test-key" },
     "node:crypto": crypto, bcryptjs: {}, "./notificationService": {}, "./settingsService": {}
@@ -156,7 +156,7 @@ test("dashboard endpoint requires authenticated Superadmin, disables cache and p
   for (const method of ["get", "post", "put", "delete"]) router[method] = (route, ...chain) => handlers.set(`${method.toUpperCase()} ${route}`, chain);
   load("routes/index.js", {
     express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto,
-    "../lib/businessDay": require("../src/lib/businessDay"),
+    "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"),
     "../config/env": { jwtSecret: secret }, "../middleware/auth": auth,
     "../services/presenceService": presence, "../services/queueService": { ...h.service, getQueueStats: async () => ({ waiting: 7 }) },
     "../services/settingsService": {}

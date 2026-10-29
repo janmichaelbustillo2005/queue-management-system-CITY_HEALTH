@@ -52,18 +52,19 @@ function skewedDate(offsetMs) {
 
 // `pool` must already connect as the API role (see pgRestClient). `onRequest` may pause or
 // observe any database request the backend makes (used to force interleavings).
-// `clockOffsetMs` shifts the backend's clock relative to PostgreSQL's.
-function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0 } = {}) {
+// `clockOffsetMs` shifts the backend's clock relative to PostgreSQL's; `envOverrides` adds
+// backend configuration (e.g. { wpsAging: true }).
+function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0, envOverrides = {} } = {}) {
   const DateImpl = skewedDate(clockOffsetMs);
   const supabase = createPgRestClient(pool, { onRequest: (request) => (onRequest ? onRequest(request) : undefined) });
-  const env = { jwtSecret: SECRET, supabaseUrl: "https://isolated-pg-harness.invalid", supabaseServiceRoleKey: "isolated" };
+  const env = { jwtSecret: SECRET, supabaseUrl: "https://isolated-pg-harness.invalid", supabaseServiceRoleKey: "isolated", ...envOverrides };
   const virtualFs = memoryFs();
   const sms = [];
   const settings = load("services/settingsService.js", { fs: virtualFs, path, crypto }, DateImpl);
   const presence = load("services/presenceService.js", { "../lib/supabase": supabase }, DateImpl);
   const queue = load("services/queueService.js", {
     "../lib/supabase": supabase, "../config/env": env, bcryptjs: bcrypt,
-    "../lib/businessDay": require("../../src/lib/businessDay"), "node:crypto": crypto,
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"), "node:crypto": crypto,
     "./notificationService": {
       sendQueueCreatedNotification: (...args) => sms.push({ type: "created", args }),
       sendQueueCalledNotification: async (...args) => sms.push({ type: "called", args })
@@ -78,7 +79,7 @@ function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0 } = {}) {
   }
   load("routes/index.js", {
     express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto, "../config/env": env,
-    "../lib/businessDay": require("../../src/lib/businessDay"), "../middleware/auth": auth,
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"), "../middleware/auth": auth,
     "../services/presenceService": presence, "../services/queueService": queue, "../services/settingsService": settings
   }, DateImpl);
 

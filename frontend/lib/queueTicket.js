@@ -59,12 +59,15 @@ export function createQueueTicket(patient) {
   };
 }
 
+// The backend's WPS rank key (effective_priority includes WPS-A aging when enabled).
+const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
+
 /** Waiting-only snapshot of the backend's WPS order, scoped to its service doctor. */
 export function getPatientsAheadSnapshot(rows, patient) {
   if (!Array.isArray(rows) || patient?.status !== "waiting") return null;
   const doctor = doctorForService(patient.service_type);
   const waiting = rows.filter(row => row.status === "waiting" && doctorForService(row.service_type) === doctor)
-    .slice().sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0) ||
+    .slice().sort((a, b) => wpsRank(b) - wpsRank(a) || (b.priority_score || 0) - (a.priority_score || 0) ||
       new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
   const index = waiting.findIndex(row => sameId(row.id, patient.id));
   return index < 0 ? null : index;

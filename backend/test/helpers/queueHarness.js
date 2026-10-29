@@ -438,7 +438,7 @@ function createHarness(options = {}) {
     "../lib/supabase": supabase,
     "../config/env": options.localFallback ? {} : { supabaseUrl: "https://isolated-test.invalid", supabaseServiceRoleKey: "isolated-test-key" },
     bcryptjs: {},
-    "../lib/businessDay": require("../../src/lib/businessDay"),
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"),
     "node:crypto": crypto,
     "./notificationService": {
       sendQueueCreatedNotification: (...args) => notifications.push({ type: "created", args }),
@@ -456,7 +456,7 @@ function createHarness(options = {}) {
     jsonwebtoken: {},
     "node:crypto": crypto,
     "../config/env": {},
-    "../lib/businessDay": require("../../src/lib/businessDay"),
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"),
     "../middleware/auth": {
       // Requests provide an already verified identity. JWT cryptography itself
       // is outside this isolated route/service harness.

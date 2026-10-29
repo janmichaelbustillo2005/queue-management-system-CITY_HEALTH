@@ -306,11 +306,11 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
         const rankDiff = rank(a.status) - rank(b.status);
         if (rankDiff !== 0) return rankDiff;
 
-        // FRD-02: Sort by priority score DESC, then by check-in time ASC
-        if ((b.priority_score || 0) !== (a.priority_score || 0)) {
-          return (b.priority_score || 0) - (a.priority_score || 0);
-        }
-        return new Date(a.created_at) - new Date(b.created_at);
+        // FRD-02: WPS rank DESC (effective_priority includes WPS-A aging when enabled; a higher
+        // base priority wins a tie), then check-in time ASC
+        const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
+        return wpsRank(b) - wpsRank(a) || (b.priority_score || 0) - (a.priority_score || 0) ||
+          new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
       })
       .slice(0, 20);
   }, [doctorQueue, doctorName, counters]);

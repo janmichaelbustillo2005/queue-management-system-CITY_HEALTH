@@ -58,8 +58,11 @@ function getServiceDoctor(serviceType) {
   return "Doctor 1";
 }
 
+// The backend's WPS rank key (effective_priority includes WPS-A aging when enabled).
+const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
+
 function compareQueuePriority(a, b) {
-  return (b.priority_score || 0) - (a.priority_score || 0) ||
+  return wpsRank(b) - wpsRank(a) || (b.priority_score || 0) - (a.priority_score || 0) ||
     new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
 }
 

@@ -3,6 +3,7 @@ const env = require("../config/env");
 const { randomUUID, createHash, timingSafeEqual } = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const { getBusinessDate, getBusinessDayRange, getDateFilterRange } = require("../lib/businessDay");
+const { compareWps, effectivePriority } = require("../lib/wpsPriority");
 const {
   sendQueueCreatedNotification,
   sendQueueCalledNotification
@@ -386,11 +387,15 @@ async function getQueueOverview() {
   }
   const patients = Array.from(patientsById.values());
   const settings = getQueueSettings();
+  const rankedAt = Date.now();
 
   return {
     storage_mode: getQueueStorageMode(),
+    // effective_priority is the WPS rank key at read time (equal to priority_score without aging).
+    wps: { aging: wpsAging() },
     patients: patients.map((p) => ({
       ...p,
+      effective_priority: p.status === "waiting" ? effectivePriority(p, rankedAt, wpsAging()) : p.priority_score,
       recall_count: getRecallCount(p.id),
       accepted_at: getAcceptedAt(p.id),
       awaiting_accept: p.status === "serving" && (isAwaitingAccept(p.id) ||
@@ -701,11 +706,10 @@ async function clearCounterAssignment(patientId) {
 // the fallback used until it is installed guards both writes with conditions.
 const callsInProgress = new Set();
 
-function compareWaitingPriority(a, b) {
-  return (b.priority_score || 0) - (a.priority_score || 0) ||
-    new Date(a.created_at) - new Date(b.created_at) ||
-    Number(a.id) - Number(b.id);
-}
+// WPS order at `rankedAt`; with WPS_AGING off this is priority_score DESC, created_at, id.
+const wpsAging = () => env.wpsAging === true;
+const compareWaitingPriority = (rankedAt) => (a, b) => compareWps(a, b, rankedAt, wpsAging());
+const WPS_A_REQUIRED = "WPS with Aging is enabled but its database function is not installed (backend/scripts/20261029-wps-a-call-aging.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
 
 const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
 
@@ -713,12 +717,14 @@ const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue 
 // leaves patient and counter unchanged. A lost response may hide a committed call, so it is
 // never treated as success: no pending acceptance is created for an unconfirmed call (the
 // assigned doctor can still accept a serving visit that has no acceptance state).
-async function callPatientVisitRpc(patient, doctorName, actor, { start, end }) {
+async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, rankedAt) {
+  const aging = wpsAging();
   let result;
   try {
-    result = await supabase.rpc("call_patient_visit", {
+    result = await supabase.rpc(aging ? "call_patient_visit_wps_a" : "call_patient_visit", {
       p_patient_id: patient.id, p_doctor_name: doctorName, p_user_id_num: actor?.id_num ?? null,
-      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end
+      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end,
+      ...(aging ? { p_ranked_at: new Date(rankedAt).toISOString() } : {})
     });
   } catch {
     throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
@@ -818,9 +824,10 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     if (counters.some((c) => c.id_num !== doctorName && Number(c.current_patient_id) === patientId)) {
       throw new Error("This patient is already assigned to another doctor");
     }
+    const rankedAt = Date.now();
     const nextPatient = waitingPatients
       .filter((p) => getDoctorForService(p.service_type) === doctorName)
-      .sort(compareWaitingPriority)[0];
+      .sort(compareWaitingPriority(rankedAt))[0];
     if (!nextPatient || Number(nextPatient.id) !== patientId) {
       throw new Error(`Call the next eligible patient for ${doctorName} according to queue priority`);
     }
@@ -828,8 +835,10 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     const calledAt = new Date().toISOString();
     // Phase 2.1+ rows carry a revision; the RPC needs it to detect any change since this read.
     const atomicCall = !localCall && patient.visit_state_revision
-      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange)
+      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange, rankedAt)
       : null;
+    // Aging must be ranked the same way in the database; never fall back to the two-step Call.
+    if (!localCall && !atomicCall && wpsAging()) throw consultationError(WPS_A_REQUIRED, 503);
     if (localCall) {
       // No await between the final checks and both in-memory updates.
       patient.status = "serving";
@@ -2181,15 +2190,10 @@ async function getDisplayData() {
     return toPublicServingEntry(patient, assignedCounter);
   });
 
+  // FRD-02: Weighted-Priority order (priority score DESC, then check-in time ASC; WPS-A aging when enabled)
   const waitingQueue = patients
     .filter((patient) => patient.status === "waiting")
-    .sort((a, b) => {
-      // FRD-02: Sort by priority score DESC, then by check-in time ASC
-      if ((b.priority_score || 0) !== (a.priority_score || 0)) {
-        return (b.priority_score || 0) - (a.priority_score || 0);
-      }
-      return new Date(a.created_at) - new Date(b.created_at);
-    });
+    .sort(compareWaitingPriority(Date.now()));
   const nextInLine = waitingQueue[0] || null;
   const waitingQueueSlice = waitingQueue.slice(0, 10);
   const recentCalled = patients

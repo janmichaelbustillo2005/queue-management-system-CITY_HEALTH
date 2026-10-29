@@ -60,6 +60,11 @@ const env = {
   // the call_patient_visit_wps_a database function (backend/scripts/20261029-wps-a-call-aging.sql)
   // and policy approval; without the function, Calls are refused rather than ranked two ways.
   wpsAging: ["1", "true", "yes", "on"].includes(String(process.env.WPS_AGING || "").trim().toLowerCase()),
+  // I2 Finding 8: when the C1 call_patient_visit function cannot be used, Call refuses (503,
+  // nothing changed). Only a database that never had C1 (e.g. a local copy before
+  // backend/scripts/20261025-c1-atomic-call.sql) may opt back into the older, non-atomic
+  // two-statement Call. Never set this on a Supabase project where C1 is installed.
+  allowLegacyTwoStepCall: ["1", "true", "yes", "on"].includes(String(process.env.ALLOW_LEGACY_TWO_STEP_CALL || "").trim().toLowerCase()),
   // The pyttsx3 voice announcer speaks on the computer that runs it. By default
   // the backend starts and supervises it on Windows; set VOICE_SERVICE_AUTOSTART=0
   // when the Queue Display speakers belong to a different computer.

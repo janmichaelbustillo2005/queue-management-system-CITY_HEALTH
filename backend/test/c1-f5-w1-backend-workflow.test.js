@@ -413,16 +413,30 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
   });
 });
 
-describe("B. none installed (today's development database): fallbacks fail closed", { skip: f.unavailable }, () => {
+describe("B. none installed (a database that never had C1/F5/W1): fallbacks fail closed", { skip: f.unavailable }, () => {
   let db; let h; let tokens;
+  // I2 Finding 8: the two-step Call needs the explicit ALLOW_LEGACY_TWO_STEP_CALL opt-in.
+  const LEGACY = { envOverrides: { allowLegacyTwoStepCall: true } };
   before(async () => { db = await f.createDatabase("c1f5w1_absent"); });
   beforeEach(async () => {
     await f.resetQueue(db);
-    h = await f.backend(db);
+    h = await f.backend(db, LEGACY);
     tokens = await f.signInAll(h);
   });
 
-  test("Call falls back to the revision-guarded two-step and works", async () => {
+  test("Call without the opt-in refuses (503) with the C1 message and changes nothing", async () => {
+    const id = await register(h, db, tokens.frontdesk, { name: "Synthetic GP", mobile: "09170000004" });
+    const strict = await f.backend(db);
+    const before = await f.snapshot(db);
+    expectStatus(await post(strict, tokens.frontdesk, "/queue/call", { patient_id: id }), 503, /atomic C1 database function/);
+    assert.ok(strict.rpcs().includes("call_patient_visit"), "C1 was tried");
+    assert.equal(strict.tableWrites("counters").length + strict.tableWrites("patients").length, 0, "no two-step write");
+    assert.deepEqual(await f.snapshot(db), before);
+    assert.deepEqual(effects(strict, id), { sms: 0, awaiting: false, voice: 0 });
+    await assertConsistent(db);
+  });
+
+  test("Call with the opt-in falls back to the revision-guarded two-step and works", async () => {
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic GP", mobile: "09170000005" });
     h.log.length = 0;
     expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
@@ -437,6 +451,7 @@ describe("B. none installed (today's development database): fallbacks fail close
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic GP", mobile: "09170000006" });
     let interleaved = false;
     const racing = await f.backend(db, {
+      ...LEGACY,
       pause: async (request) => {
         if (!interleaved && request.kind === "table" && request.table === "patients" && request.action === "update") {
           interleaved = true;

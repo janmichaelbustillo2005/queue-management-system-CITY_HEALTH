@@ -738,7 +738,7 @@ async function clearCounterAssignment(patientId) {
 
 // Reject overlapping calls in this process. Across processes the database decides: the C1
 // call_patient_visit RPC re-validates and writes patient and counter in one transaction, and
-// the fallback used until it is installed guards both writes with conditions.
+// the opt-in fallback for a database without it guards both writes with conditions.
 const callsInProgress = new Set();
 
 // WPS order at `rankedAt`; with WPS_AGING off this is priority_score DESC, created_at, id.
@@ -762,14 +762,18 @@ function getSharedQueueHead(waitingPatients, doctorName, rankedAt = Date.now()) 
 const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
 const SHARED_CALL_MIGRATION_REQUIRED = "Shared doctor dispatch needs the D1 database migration (backend/scripts/20261029-d1-shared-call.sql). Nothing was changed.";
 const SHARED_WPS_A_REQUIRED = "Shared doctor dispatch with WPS Aging needs its database function (backend/scripts/20261029-d1a-shared-wps-a-call.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
+const C1_CALL_REQUIRED = "Call needs the atomic C1 database function (backend/scripts/20261025-c1-atomic-call.sql), and it could not be used. Nothing was changed. Refresh and retry; if this continues, ask the administrator to check the function.";
 
 // The atomic Call for the configured dispatch and aging. Each re-ranks under the same locks as
-// the backend ranked; only C1 (service dispatch, no aging) has the older two-statement fallback.
+// the backend ranked. Without its function every Call refuses (I2 Finding 8); only C1 (service
+// dispatch, no aging) may use the older two-statement Call, and only when
+// ALLOW_LEGACY_TWO_STEP_CALL opts in for a database that never had C1.
 const CALL_RPCS = {
   service: { plain: "call_patient_visit", aging: "call_patient_visit_wps_a" },
   shared: { plain: "call_patient_visit_shared", aging: "call_patient_visit_shared_wps_a" }
 };
 const CALL_RPC_REQUIRED = {
+  call_patient_visit: C1_CALL_REQUIRED,
   call_patient_visit_wps_a: WPS_A_REQUIRED,
   call_patient_visit_shared: SHARED_CALL_MIGRATION_REQUIRED,
   call_patient_visit_shared_wps_a: SHARED_WPS_A_REQUIRED
@@ -835,7 +839,7 @@ async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, r
   }
   const { data, error } = result || {};
   if (error) {
-    if (MISSING_RPC_CODES.includes(error.code)) return null;
+    if (CALL_MISSING_RPC_CODES.includes(error.code)) return null;
     if (!error.code) throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
     const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
       ["P0001", "22023"].includes(error.code) ? 400 : 503;
@@ -960,7 +964,14 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
       ? await callPatientVisitRpc(patient, doctorName, actor, queueRange, rankedAt, rpcName)
       : null;
     // Shared dispatch and aging rank only in the database; neither falls back to the two-step Call.
-    if (!localCall && !atomicCall && rpcName !== "call_patient_visit") throw consultationError(CALL_RPC_REQUIRED[rpcName], 503);
+    // C1 does only with the explicit opt-in (a database that never had C1).
+    if (!localCall && !atomicCall && (rpcName !== "call_patient_visit" || env.allowLegacyTwoStepCall !== true)) {
+      throw consultationError(CALL_RPC_REQUIRED[rpcName], 503);
+    }
+    if (!localCall && !atomicCall && !legacyCallWarned) {
+      legacyCallWarned = true;
+      console.warn("ALLOW_LEGACY_TWO_STEP_CALL is on: Call is using the non-atomic two-statement fallback because call_patient_visit is not available.");
+    }
     if (localCall) {
       // No await between the final checks and both in-memory updates.
       patient.status = "serving";
@@ -969,7 +980,7 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
       patient.visit_state_revision = randomUUID();
       counter.current_patient_id = patientId;
     } else if (!atomicCall) {
-      // Fallback until the C1 migration is installed: two conditional statements. The patient
+      // Opt-in fallback for a database without C1: two conditional statements. The patient
       // compare-and-set includes the revision, so a Cancel + Requeue or Undo committed between
       // them (status back to waiting, new revision) can no longer be called by this request.
       // Claim an empty online doctor slot, or validate this patient's existing
@@ -1893,6 +1904,10 @@ function assertRecoverySnapshot(current, expected) {
 }
 
 const MISSING_RPC_CODES = ["PGRST202", "PGRST204", "42883", "42703"];
+// For Call only "the function cannot be found" counts as missing. 42703 (undefined column) is
+// also raised from inside an installed function by unrelated schema drift (I2 Finding 8).
+const CALL_MISSING_RPC_CODES = MISSING_RPC_CODES.filter((code) => code !== "42703");
+let legacyCallWarned = false;
 
 // `counters` is the authorization snapshot's counter list. Requeue uses it to decide whether a
 // stale pointer to this terminal visit must be released together with the recovery (F5).

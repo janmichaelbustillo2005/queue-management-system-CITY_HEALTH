@@ -135,7 +135,11 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
       { name: "Solo Parent 20 min (1+2) vs new PWD (3)", rows: [[1, 20 * MIN, "checkup"], [3, 0]], winner: 1 },
       { name: "Indigenous 10 min (2+1) vs Regular 30 min (1+2)", rows: [[2, 10 * MIN, "maternity"], [1, 30 * MIN]], winner: 0 },
       { name: "Regular 25 min (1+2) vs new Indigenous (2): aging lets the Regular through", rows: [[1, 25 * MIN], [2, 0, "prenatal"]], winner: 0 },
-      { name: "Senior 0 min (4) vs Senior 30 min (4+2): equal category, longer wait first", rows: [[4, 0], [4, 30 * MIN, "family_planning"]], winner: 1 }
+      { name: "Senior 0 min (4) vs Senior 30 min (4+2): equal category, longer wait first", rows: [[4, 0], [4, 30 * MIN, "family_planning"]], winner: 1 },
+      { name: "Indigenous 20 min (2+2) vs new Senior (4): the Senior wins the tie", rows: [[2, 20 * MIN], [4, 0, "prenatal"]], winner: 1 },
+      // Provisional-formula consequence for the adviser (policy decision 4): an aged Indigenous visit
+      // (2+2 = 4) precedes a newly arrived PWD or Pregnant patient (3). Pinned so a change is deliberate.
+      { name: "Indigenous 20 min (2+2) vs new PWD (3): the aged Indigenous visit first (provisional cap)", rows: [[2, 20 * MIN], [3, 0, "checkup"]], winner: 0 }
     ];
     const results = [];
     for (const item of cases) {

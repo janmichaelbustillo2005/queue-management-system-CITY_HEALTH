@@ -668,25 +668,25 @@ router.post("/users", authenticateToken, authorizeRole(["superadmin"]), async (r
     const user = await createUser(req.body);
     res.json({ success: true, user, message: "User created successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
 router.put("/users/:id_num", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    const user = await updateUser(req.params.id_num, req.body);
+    const user = await updateUser(req.params.id_num, req.body || {});
     res.json({ success: true, user, message: "User updated successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
 router.delete("/users/:id_num", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    await deleteUser(req.params.id_num);
+    await deleteUser(req.params.id_num, req.user);
     res.json({ success: true, message: "User deleted successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 

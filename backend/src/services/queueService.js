@@ -2693,7 +2693,42 @@ async function getUsers() {
   }
 }
 
+const STAFF_ROLES = ["admin", "superadmin"];
+const MIN_PASSWORD_LENGTH = 8;
+
+function accountError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+function validateAccountInput({ id_num, password, role }, { creating }) {
+  if (creating && (typeof id_num !== "string" || !id_num.trim() || id_num.length > 100)) {
+    throw accountError("A user ID of up to 100 characters is required.");
+  }
+  if ((creating || role !== undefined) && !STAFF_ROLES.includes(role)) {
+    throw accountError("Role must be Doctor/Frontdesk (admin) or Superadmin.");
+  }
+  if ((creating || password) && (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH)) {
+    throw accountError(`Passwords must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  }
+}
+
+// Never leave the clinic without a Superadmin: the last one cannot be deleted or demoted.
+async function assertNotLastSuperadmin(id_num) {
+  const users = useLocalFallback ? localData.users : await (async () => {
+    const { data, error } = await supabase.from("users").select("id_num, role").eq("role", "superadmin");
+    if (error) throw formatError(error, "Failed to check Superadmin accounts");
+    return data || [];
+  })();
+  const superadmins = users.filter((user) => user.role === "superadmin");
+  if (superadmins.length <= 1 && superadmins.some((user) => user.id_num === id_num)) {
+    throw accountError("This is the last Superadmin account. Create another Superadmin before removing or demoting it.");
+  }
+}
+
 async function createUser({ id_num, password, role, doctor_name }) {
+  validateAccountInput({ id_num, password, role }, { creating: true });
   if (useLocalFallback) {
     const existing = localData.users.find(u => u.id_num === id_num);
     if (existing) {
@@ -2737,6 +2772,8 @@ async function createUser({ id_num, password, role, doctor_name }) {
 }
 
 async function updateUser(id_num, { password, role, doctor_name }) {
+  validateAccountInput({ password, role }, { creating: false });
+  if (role !== undefined && role !== "superadmin") await assertNotLastSuperadmin(id_num);
   if (useLocalFallback) {
     const userIndex = localData.users.findIndex(u => u.id_num === id_num);
     if (userIndex === -1) {
@@ -2773,7 +2810,11 @@ async function updateUser(id_num, { password, role, doctor_name }) {
   return data;
 }
 
-async function deleteUser(id_num) {
+async function deleteUser(id_num, actor = null) {
+  if (actor?.id_num != null && actor.id_num === id_num) {
+    throw accountError("You cannot delete your own account while signed in with it.");
+  }
+  await assertNotLastSuperadmin(id_num);
   if (useLocalFallback) {
     const index = localData.users.findIndex(u => u.id_num === id_num);
     if (index !== -1) {

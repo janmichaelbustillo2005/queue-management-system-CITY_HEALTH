@@ -379,17 +379,21 @@ export default function FillUpFormPage() {
       <div className="frontdesk-fullpage-wrapper">
         <div className="frontdesk-shell">
           <div className="frontdesk-fit-card frontdesk-form-card">
-            <div className="frontdesk-card-header">
+            <div className={`frontdesk-card-header${isSuccess ? " registration-success-header" : ""}`}>
               {!isSuccess ? (
                 <>
                   <h5 className="card-title fw-bold brand-text" style={{fontSize: '1rem'}}><i className="bi bi-person-plus-fill text-csu-primary"></i> Join the Queue</h5>
                   <p className="brand-text-muted" style={{fontSize: '0.78rem'}}><i className="bi bi-clock-history me-1"></i> {currentDate}</p>
                 </>
               ) : (
-                <>
-                  <h5 className="card-title fw-bold text-success"><i className="bi bi-check-circle-fill me-1"></i> Registration Complete</h5>
-                  <p className="brand-text-muted small"><i className="bi bi-ticket-detailed me-1"></i> Your queue number has been generated.</p>
-                </>
+                // The only success message on this screen.
+                <div className="registration-success-title" role="status">
+                  <i className="bi bi-check-circle-fill" aria-hidden="true" />
+                  <div>
+                    <h2 ref={successHeadingRef} tabIndex={-1}>Patient registered successfully.</h2>
+                    <p>Print the ticket, then register the next patient.</p>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -646,52 +650,59 @@ export default function FillUpFormPage() {
                 </>
               ) : (
                 <div className="registration-complete">
-                  <div className="registration-success-summary" role="status">
-                    <i className="bi bi-check-circle-fill" aria-hidden="true" />
-                    <div>
-                      <h2 ref={successHeadingRef} tabIndex={-1}>Registration Successful</h2>
-                      <p>The patient is saved. Deliver their ticket, then continue to the next patient.</p>
-                      {ticket && canIssueTicket ? <p>{ticket.serviceLabel} · {ticket.doctorName}</p> : <p>Saved queue number: <strong>{message.queue}</strong></p>}
-                    </div>
-                  </div>
-
                   <div className="registration-ticket-layout">
-                    <section className="registration-ticket-preview" aria-label="Queue ticket preview">
-                      {ticket && canIssueTicket ? <DigitalQueuePass ticket={ticket} /> : (
-                        <div className="registration-delivery" aria-live="polite">
-                          <p>{ticketLoading ? "Loading the saved queue ticket…" : "Registration is complete. Load the existing ticket to view or print it."}</p>
-                          <button type="button" className="btn btn-csu-primary" disabled={ticketLoading || !canIssueTicket} onClick={() => loadSavedTicket(message.queue)}>
+                    {/* Left: the saved ticket exactly as it is printed, photographed or downloaded. */}
+                    <section className="registration-ticket-preview" aria-labelledby="ticket-preview-title">
+                      <div className="registration-preview-heading">
+                        <h3 id="ticket-preview-title">Ticket preview</h3>
+                        <span className="registration-saved-badge"><i className="bi bi-lock" aria-hidden="true" /> Saved copy</span>
+                      </div>
+                      {ticket && canIssueTicket ? (
+                        <div className="registration-pass-frame"><DigitalQueuePass ticket={ticket} /></div>
+                      ) : (
+                        <div className="registration-ticket-fallback" aria-live="polite">
+                          <p className="registration-saved-number">Saved queue number <strong>{message.queue}</strong></p>
+                          <p>{ticketLoading ? "Loading the saved queue ticket…" : "Load the saved ticket to view or print it."}</p>
+                          <button type="button" className="registration-button" disabled={ticketLoading || !canIssueTicket} onClick={() => loadSavedTicket(message.queue)}>
                             {ticketLoading ? "Loading…" : "Retry Loading Ticket"}
                           </button>
                         </div>
                       )}
-                      {ticketError ? <p role="alert" className="text-danger mt-2">{ticketError}</p> : null}
-                      {waitingCount !== null && canIssueTicket ? (
-                        <p className="registration-snapshot"><strong>{waitingCount} waiting {waitingCount === 1 ? "patient" : "patients"} ahead</strong> in {ticket?.doctorName}'s queue at registration.<br />Registration snapshot; priority arrivals and queue activity can change the order. Photos and downloaded tickets do not update.</p>
-                      ) : null}
+                      {ticketError ? <p role="alert" className="registration-ticket-error">{ticketError}</p> : null}
                     </section>
 
-                    <section className="registration-delivery" aria-labelledby="ticket-delivery-title">
-                      <h3 id="ticket-delivery-title">Ticket Delivery</h3>
-                      <p>Choose a digital pass to photograph or download, or print a thermal ticket. Each uses the same saved queue number.</p>
-                      {ticket && canIssueTicket ? <QueueTicketActions ticket={ticket} onView={viewCurrentTicket} onTicketUpdate={updateCurrentTicket} /> : <p>{ticketLoading ? "Preparing ticket actions…" : "Ticket delivery is available to authorized Frontdesk staff."}</p>}
+                    {/* Right: deliver the ticket, then move on to the next patient. */}
+                    <section className="registration-actions-panel" aria-labelledby="ticket-delivery-title">
+                      <div className="registration-delivery">
+                        <h3 id="ticket-delivery-title">Deliver the ticket</h3>
+                        <p>Print the thermal ticket. The digital pass and image show the same saved queue number.</p>
+                        {ticket && canIssueTicket ? (
+                          <QueueTicketActions ticket={ticket} primaryAction="print" onView={viewCurrentTicket} onTicketUpdate={updateCurrentTicket} />
+                        ) : <p>{ticketLoading ? "Preparing ticket actions…" : canIssueTicket ? "Ticket actions appear once the saved ticket loads." : "Ticket delivery is available to authorized Frontdesk staff."}</p>}
+                      </div>
+
+                      {waitingCount !== null && canIssueTicket ? (
+                        <div className="registration-snapshot">
+                          <p className="registration-snapshot-title"><i className="bi bi-clock-history" aria-hidden="true" /> Registration snapshot</p>
+                          <p><strong>{waitingCount} waiting {waitingCount === 1 ? "patient" : "patients"} ahead</strong> in {ticket?.doctorName}'s queue when this patient was registered. Priority arrivals and queue activity can change the order.</p>
+                        </div>
+                      ) : null}
+
+                      <div className="registration-next">
+                        <button type="button" onClick={resetForm} disabled={isLoading || ticketLoading} className="registration-button registration-button--next">
+                          <i className="bi bi-person-plus" aria-hidden="true" /> Register Another Patient
+                        </button>
+                        <nav className="registration-links" aria-label="Other Frontdesk pages">
+                          <Link href="/patient-management" className="registration-link">
+                            <i className="bi bi-people" aria-hidden="true" /> Patient Management
+                          </Link>
+                          <Link href="/queue-display" className="registration-link">
+                            <i className="bi bi-display" aria-hidden="true" /> View Live Queue
+                          </Link>
+                        </nav>
+                      </div>
                     </section>
                   </div>
-
-                  <section className="registration-navigation" aria-labelledby="registration-navigation-title">
-                    <h3 id="registration-navigation-title">Continue at Frontdesk</h3>
-                    <div className="registration-navigation-actions">
-                      <button type="button" onClick={resetForm} disabled={isLoading || ticketLoading} className="btn btn-csu-primary">
-                        <i className="bi bi-person-plus me-1" aria-hidden="true" /> Register Another Patient
-                      </button>
-                      <Link href="/patient-management" className="btn btn-outline-secondary">
-                        <i className="bi bi-people me-1" aria-hidden="true" /> Patient Management
-                      </Link>
-                      <Link href="/queue-display" className="btn btn-outline-secondary">
-                        <i className="bi bi-display me-1" aria-hidden="true" /> View Live Queue
-                      </Link>
-                    </div>
-                  </section>
                 </div>
               )}
             </div>

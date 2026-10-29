@@ -14,7 +14,9 @@ any other worktree, stash or commit was modified.
 | `1f8b34a` | Merge of `30490a6` into `35d312c`, with the conflict resolutions in §2 (nothing else) |
 | `97bd97a` | D1-A: shared-queue Call with WPS 10-minute aging (`call_patient_visit_shared_wps_a`), preflight/verify/rollback, PG17 integration suite, `.env.example` |
 | `36dc3db` | Tests: shared-queue aging order in the UI and ticket; simulation input consistency across policies and modes |
-| (this commit) | This report |
+| `bd4a633` | This report (first version) |
+| `09579e8` | I2 Finding 8 (from the E2E-1 session, branch `fix/i2-c1-fail-closed`, fast-forwarded after review): service-mode Call fails closed when C1 cannot be used; opt-in `ALLOW_LEGACY_TWO_STEP_CALL` only for a database that never had C1 |
+| (this commit) | Report updated for `09579e8` (§4, §7, §8, §11) |
 
 ## 2. Merge conflicts and resolutions
 
@@ -22,7 +24,7 @@ Five files conflicted; three more auto-merged and were reviewed by hand. No file
 
 | File | Conflict | Resolution |
 |---|---|---|
-| `backend/src/services/queueService.js` | (a) `GET /queue` header: D1 `dispatch_mode` vs E2E `wps`; (b) Call ranking: D1 shared head vs E2E aged comparator `compareWaitingPriority(rankedAt)`; (c) Call RPC: D1 `rpcName` vs E2E aging switch | (a) both fields. (b) one `rankedAt` per Call drives `getSharedQueueHead(waiting, doctor, rankedAt)` (shared) or the service head; both use `compareWps`. (c) `getCallRpcName(shared, aging)` picks C1 / WPS-A / D1 / D1-A; only C1 keeps the old two-statement fallback; the other three refuse with 503 when their function is missing |
+| `backend/src/services/queueService.js` | (a) `GET /queue` header: D1 `dispatch_mode` vs E2E `wps`; (b) Call ranking: D1 shared head vs E2E aged comparator `compareWaitingPriority(rankedAt)`; (c) Call RPC: D1 `rpcName` vs E2E aging switch | (a) both fields. (b) one `rankedAt` per Call drives `getSharedQueueHead(waiting, doctor, rankedAt)` (shared) or the service head; both use `compareWps`. (c) `getCallRpcName(shared, aging)` picks C1 / WPS-A / D1 / D1-A; only C1 kept the old two-statement fallback (since `09579e8`: only with `ALLOW_LEGACY_TWO_STEP_CALL`); the other three refuse with 503 when their function is missing |
 | `backend/test/helpers/pgBackendHarness.js`, `c1f5w1Fixture.js` | D1 `doctorDispatchMode` vs E2E `envOverrides` | both options; `env = {…, doctorDispatchMode, ...envOverrides}` |
 | `frontend/components/PatientQueueTable.js` | D1 `isUnassigned` vs E2E `wpsRank` | both helpers; the shared head (`sharedHeadFor`) and every list use the aged `compareQueue` |
 | `frontend/lib/queueTicket.js` | D1 shared scope for patients-ahead vs E2E aged rank | shared scope **and** aged rank |
@@ -46,7 +48,7 @@ No migration changes a table, column, trigger, RLS policy, grant on a table or a
 
 | Function / file | Needed for | Status |
 |---|---|---|
-| C1 `20261025-c1-atomic-call.sql`, F5 `20261022-f5-requeue-terminal-recovery.sql`, W1 `20261025-w1-atomic-cancel.sql` | every mode (atomic Call/Requeue/Cancel) | reviewed earlier; confirm presence with their preflights |
+| C1 `20261025-c1-atomic-call.sql`, F5 `20261022-f5-requeue-terminal-recovery.sql`, W1 `20261025-w1-atomic-cancel.sql` | every mode (atomic Call/Requeue/Cancel). Since `09579e8`, service-mode Call **refuses** (503) without C1 | reviewed earlier; confirm presence with their preflights before running this branch |
 | D1 `20261029-d1-shared-call.sql` (+ preflight 21 / verify 15 / rollback) | `DOCTOR_DISPATCH_MODE=shared` | draft, not installed |
 | D1-R `20261029-d1r-records-shared.sql` (+ preflight 7 / verify / rollback) | correct Records doctor filter in shared mode (optional) | draft, not installed |
 | WPS-A `20261029-wps-a-call-aging.sql` (+ rollback) | `WPS_AGING` on with service dispatch | draft, not installed |
@@ -95,19 +97,21 @@ two flags on a **separate** test backend and restart.
 * `service` mode is the default. With D1, D1-R, WPS-A and D1-A all installed, `service` + aging off still calls C1,
   routes by service and refuses another doctor (D1 suite); `service` + aging on calls WPS-A (I1 four-path test and
   the unchanged WPS-A suite); E2E-1 Tests B/C/D pass unchanged.
-* `shared` without D1 → 503; `shared` + aging without D1-A → 503; aging without WPS-A → 503. Nothing changes in
-  any refusal.
+* `shared` without D1 → 503; `shared` + aging without D1-A → 503; aging without WPS-A → 503; since `09579e8` also
+  `service` without C1 → 503 unless `ALLOW_LEGACY_TWO_STEP_CALL=1` (a database that never had C1; never on Supabase).
+  Nothing changes in any refusal. The adviser demonstration (main checkout `a87a4cd`) does not contain this change.
 
 ## 8. Full regression
 
 | Suite | Result |
 |---|---|
-| Backend, all suites incl. PGlite, PostgreSQL 17 and voice launcher (`node --test test/*.test.js`) | **1081 / 1081 pass, 0 skipped** (voice venv installed in the worktree; voice tests use free ports with `--dry-run`, never 8765) |
+| Backend, all suites incl. PGlite, PostgreSQL 17 and voice launcher (`node --test test/*.test.js`) | **1093 / 1093 pass, 0 skipped** after `09579e8` (1081 / 1081 before it); voice venv installed in the worktree; voice tests use free ports with `--dry-run`, never 8765 |
 | Frontend (`node --test test/*.cjs`) | **405 / 405 pass** |
-| Production build (`next build`) | success, 14 routes |
+| Production build (`next build`) | success, 14 routes (`09579e8` changes backend files only) |
 | Security: `admin123` | the shared fallback removed in `b86bfe0` is an ancestor of this branch; no login path matches `admin123` (the only source hit is the development-memory seed `superadmin123`); neither branch changed `loginUser`; `s2-login-backdoor-postgres.test.js` (admin123 refused for every doctor/admin account) passes |
 
-Logs: `output/i1-integration-20261029/` in the main checkout (backend log, frontend log, build log, evidence JSON).
+Logs: `output/i1-integration-20261029/` in the main checkout (backend log, frontend log, build log, evidence JSON);
+the run after `09579e8` is in `output/i1-integration-20261029/after-i2-fix/`.
 
 ## 9. Updated WPS / WPS-A / WRR comparison (simulation, synthetic)
 
@@ -159,7 +163,8 @@ comparator only; it is not wired into the live queue.
 
 1. Written approval of decisions 1, 2, 3 and 4 (or a decision to test them provisionally on development).
 2. Written approval to install, on the **development** project, the functions for the chosen configuration (§4),
-   each with preflight → migration → verify, and rollback scripts at hand.
+   each with preflight → migration → verify, and rollback scripts at hand. C1 must be present even for `service`
+   mode: this branch refuses Calls without it (`09579e8`); do not use `ALLOW_LEGACY_TWO_STEP_CALL` on Supabase.
 3. A separate test backend instance with `DOCTOR_DISPATCH_MODE` / `WPS_AGING` set; the adviser-demonstration backend
    keeps the defaults.
 4. Synthetic test patients only; no Reset Queues; Historical Backlog left to its separate approval.

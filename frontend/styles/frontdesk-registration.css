@@ -3,31 +3,70 @@
   outline: 3px solid var(--brand-primary);
   outline-offset: 3px;
 }
-.registration-complete { text-align: left; }
-.registration-success-summary { display: flex; gap: .85rem; align-items: flex-start; margin-bottom: 1.4rem; }
-.registration-success-summary > i { color: var(--brand-primary); font-size: 1.8rem; }
-.registration-success-summary h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 .3rem; color: var(--brand-forest); }
-.registration-success-summary p { margin: 0; color: var(--brand-muted); }
-.registration-ticket-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(250px, 1fr); gap: 1.5rem; align-items: start; }
-.registration-ticket-preview, .registration-delivery { min-width: 0; }
-.registration-delivery { padding: 1.25rem; border: 1px solid var(--brand-border); border-radius: .85rem; background: var(--brand-background); }
-.registration-delivery h3, .registration-navigation h3, .registration-review h3 { font-size: 1rem; font-weight: 700; color: var(--brand-forest); margin: 0 0 .5rem; }
-.registration-delivery p, .registration-snapshot { font-size: .87rem; color: var(--brand-muted); }
-.registration-snapshot { margin: .9rem 0 0; }
+
+/* Success header: one heading and one instruction, replacing the form header. */
+.frontdesk-card-header.registration-success-header { align-items: flex-start; justify-content: flex-start; text-align: left; }
+.registration-success-title { display: flex; align-items: flex-start; gap: .75rem; min-width: 0; }
+.registration-success-title > i { color: var(--brand-primary); font-size: 1.6rem; line-height: 1; }
+.registration-success-title h2 { margin: 0 0 .2rem; color: var(--brand-forest); font-size: 1.2rem; font-weight: 700; line-height: 1.3; }
+.registration-success-title h2:focus { outline: none; }
+.frontdesk-card-header .registration-success-title p { margin: 0; color: var(--brand-muted); font-size: .9rem; text-align: left; }
+
+/* Ticket preview on the left, actions on the right, both top-aligned. The
+   layout follows the card's own width so the docked sidebar is accounted for. */
+.registration-complete { container-type: inline-size; margin: 0 auto; max-width: 1000px; text-align: left; }
+.registration-ticket-layout { display: grid; grid-template-columns: minmax(280px, 440px) minmax(300px, 1fr); gap: 1.5rem; align-items: start; }
+.registration-ticket-preview, .registration-actions-panel { min-width: 0; }
+.registration-ticket-layout h3 { margin: 0; color: var(--brand-forest); font-size: 1rem; font-weight: 700; }
+
+.registration-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.registration-saved-badge { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .6rem; border: 1px solid var(--brand-border); border-radius: 999px; background: var(--brand-surface); color: #42524a; font-size: .78rem; font-weight: 600; }
+/* The frame shares the ticket's notch colour, so the punched edges read correctly. */
+.registration-pass-frame { padding: .9rem; border: 1px solid var(--brand-border); border-radius: 14px; background: var(--brand-background); }
+.registration-pass-frame .digital-queue-pass { border-radius: 16px; box-shadow: 0 6px 18px rgba(var(--brand-forest-rgb), .08); }
+.registration-ticket-fallback { padding: 1.1rem; border: 1px dashed var(--brand-input-border); border-radius: 12px; background: var(--brand-background); }
+.registration-ticket-fallback p { margin: 0 0 .75rem; color: var(--brand-muted); font-size: .9rem; }
+.registration-ticket-fallback .registration-saved-number { color: var(--brand-forest); font-size: .95rem; }
+.registration-saved-number strong { display: block; font-size: 2rem; letter-spacing: .02em; line-height: 1.2; overflow-wrap: anywhere; }
+.registration-ticket-error { margin: .75rem 0 0; padding: .6rem .8rem; border-radius: 8px; background: #fff0e8; color: #7c2d12; font-size: .9rem; }
+
+/* Action panel: delivery first, then the registration-time note, then the next patient. */
+.registration-actions-panel { display: flex; flex-direction: column; gap: 1rem; padding: 1.25rem; border: 1px solid var(--brand-border); border-radius: 14px; background: var(--brand-surface); }
+.registration-delivery > p { margin: .3rem 0 .85rem; color: var(--brand-muted); font-size: .88rem; line-height: 1.45; }
+.registration-actions-panel .queue-ticket-actions__buttons { gap: .6rem; }
+/* Secondary buttons share a row only when both labels fit on one line. */
+.registration-actions-panel .queue-ticket-button { flex: 1 1 180px; min-height: 44px; padding: 10px 14px; border-radius: 10px; font-size: .9rem; }
+.registration-actions-panel .queue-ticket-button--primary { flex-basis: 100%; font-size: .95rem; }
+.registration-actions-panel .queue-ticket-error, .registration-actions-panel .queue-ticket-notice { font-size: .85rem; }
+
+.registration-snapshot { padding: .75rem .9rem; border-left: 3px solid var(--brand-primary); border-radius: 0 8px 8px 0; background: var(--brand-background); }
+.registration-snapshot p { margin: 0; color: #42524a; font-size: .85rem; line-height: 1.45; }
 .registration-snapshot strong { color: var(--brand-forest); }
-.registration-navigation { margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--brand-border); }
-.registration-navigation-actions { display: flex; gap: .65rem; flex-wrap: wrap; margin-top: .7rem; }
-.registration-navigation-actions .btn { padding: .7rem 1rem !important; font-weight: 600 !important; }
+.registration-snapshot .registration-snapshot-title { display: flex; align-items: center; gap: .4rem; margin-bottom: .25rem; color: var(--brand-forest); font-size: .78rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+
+.registration-next { display: flex; flex-direction: column; gap: .6rem; padding-top: 1rem; border-top: 1px solid var(--brand-border); }
+.registration-button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: 8px 16px; border: 1px solid var(--brand-primary); border-radius: 10px; background: var(--brand-surface); color: var(--brand-forest); font: inherit; font-size: .9rem; font-weight: 600; line-height: 1.3; cursor: pointer; }
+.registration-button:hover { background: var(--brand-subtle); }
+.registration-button:disabled { opacity: .6; cursor: default; }
+.registration-button--next { width: 100%; border-width: 2px; background: var(--brand-subtle); font-size: .95rem; }
+.registration-button--next:hover { background: #dcefe2; }
+.registration-links { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+.registration-link { display: inline-flex; align-items: center; gap: .4rem; min-height: 40px; padding: 0 .25rem; border-radius: 6px; color: var(--brand-muted); font-size: .88rem; font-weight: 600; text-decoration: none; }
+.registration-link:hover { color: var(--brand-forest); text-decoration: underline; text-underline-offset: 3px; }
+
 .registration-review { padding: 1rem; background: var(--brand-subtle); border: 1px solid var(--brand-border); border-radius: .75rem; margin-top: .7rem; }
+.registration-review h3 { font-size: 1rem; font-weight: 700; color: var(--brand-forest); margin: 0 0 .5rem; }
 .registration-review p { font-size: .85rem; margin: 0; color: var(--brand-text); }
 .registration-review .registration-review-note { color: var(--brand-muted); margin-top: .3rem; }
 .frontdesk-fit-card .registration-inputs:disabled { opacity: .75; }
-@media (max-width: 800px) {
+
+/* Narrow cards: stack the preview above the actions. */
+@container (max-width: 679px) {
   .registration-ticket-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .registration-ticket-preview { margin: 0 auto; max-width: 440px; width: 100%; }
 }
 @media (max-width: 540px) {
-  .registration-navigation-actions { flex-direction: column; }
-  .registration-navigation-actions .btn { width: 100%; }
-  .registration-success-summary h2 { font-size: 1.15rem; }
-  .registration-delivery { padding: 1rem; }
+  .registration-success-title h2 { font-size: 1.1rem; }
+  .registration-actions-panel { padding: 1rem; }
+  .registration-pass-frame { padding: .6rem; }
 }

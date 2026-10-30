@@ -189,7 +189,7 @@ test("thermal printing keeps the existing popup and Courier layout while using o
   for (const secret of ["Private", "CONFIDENTIAL-ID", "Priority Score"]) assert.ok(!written[0].includes(secret));
 });
 
-function actionsHarness(ticketApi) {
+function actionsHarness(ticketApi, props = {}) {
   const state = [], jsx = (type, props) => ({ type, props: props || {} });
   let cursor = 0;
   const effects = [];
@@ -208,7 +208,7 @@ function actionsHarness(ticketApi) {
     }
   });
   const ticket = helpers().api.createQueueTicket(patient());
-  return { render() { cursor = 0; return module.exports.default({ ticket }); }, unmount() { effects.forEach(cleanup => cleanup?.()); } };
+  return { render() { cursor = 0; return module.exports.default({ ticket, ...props }); }, unmount() { effects.forEach(cleanup => cleanup?.()); } };
 }
 function nodes(tree, predicate, found = []) {
   if (Array.isArray(tree)) tree.forEach(node => nodes(node, predicate, found));
@@ -239,6 +239,28 @@ test("delivery revalidates status, prevents repeated clicks, and prints the refr
   await pending;
   assert.equal(printed.status, "completed");
   assert.ok(nodes(h.render(), node => node.type === "button").every(node => !node.props.disabled));
+});
+
+test("the emphasized delivery action comes first and defaults keep the dialog's existing buttons", () => {
+  const labels = tree => nodes(tree, node => node.type === "button").map(node => [nodeText(node), node.props.className.includes("--primary")]);
+  const api = { openThermalTicketWindow() {}, fetchExistingQueueTicket() {}, printQueueTicket() {} };
+  assert.deepEqual(labels(actionsHarness(api).render()), [["Download Image", false], ["Print Thermal Ticket", false]]);
+  assert.deepEqual(labels(actionsHarness(api, { onView() {} }).render()),
+    [["View Digital Pass", true], ["Download Image", false], ["Print Thermal Ticket", false]]);
+  assert.deepEqual(labels(actionsHarness(api, { onView() {}, primaryAction: "print" }).render()),
+    [["Print Thermal Ticket", true], ["View Digital Pass", false], ["Download Image", false]]);
+});
+
+test("opening the print window is not reported as a finished printout", async () => {
+  const h = actionsHarness({
+    openThermalTicketWindow: () => ({ closed: false, close() {} }),
+    fetchExistingQueueTicket: async () => helpers().api.createQueueTicket(patient()),
+    printQueueTicket() {}
+  });
+  await nodes(h.render(), node => node.type === "button" && nodeText(node) === "Print Thermal Ticket")[0].props.onClick();
+  const notice = nodeText(h.render());
+  assert.match(notice, /Print window opened\. Check that the ticket printed/);
+  assert.doesNotMatch(notice, /printed successfully|ticket printed\./i);
 });
 
 test("delivery refuses stale tickets after auth or retrieval failure and closes the blank print popup", async () => {

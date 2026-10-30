@@ -140,8 +140,10 @@ test("a failed ticket read preserves committed success and retry only reads the 
   let queueReads = 0;
   const h = harness({ request: route => route === "/queue" ? (++queueReads === 1 ? { error: "Temporary read outage" } : { patients: [savedPatient] }) : undefined });
   h.fill(); await h.submit();
-  assert.match(text(h.render()), /Registration Successful/);
+  assert.match(text(h.render()), /Patient registered successfully\./);
   assert.match(text(h.render()), /Temporary read outage/);
+  assert.match(text(h.render()), /Ticket actions appear once the saved ticket loads\./);
+  assert.match(text(h.render()), /Saved queue number OB-002/);
   assert.equal(nodes(h.render(), node => node.type === "form").length, 0);
   const retry = nodes(h.render(), node => node.type === "button" && text(node) === "Retry Loading Ticket")[0];
   await retry.props.onClick();
@@ -154,7 +156,7 @@ test("missing or ambiguous saved queue numbers do not produce an invented ticket
   for (const patients of [[], [savedPatient, { ...savedPatient, id: 56 }]]) {
     const h = harness({ request: route => route === "/queue" ? { patients } : undefined });
     h.fill(); await h.submit();
-    assert.match(text(h.render()), /Registration Successful/);
+    assert.match(text(h.render()), /Patient registered successfully\./);
     assert.equal(nodes(h.render(), node => node.type === "DigitalQueuePass").length, 0);
     assert.match(text(h.render()), /do not register this patient again/);
   }
@@ -173,7 +175,26 @@ test("the snapshot counts only preceding waiting patients in the existing doctor
   h.fill(); await h.submit();
   assert.match(text(h.render()), /2 waiting patients ahead/);
   assert.match(text(h.render()), /Registration snapshot/);
-  assert.match(text(h.render()), /do not update/);
+  assert.match(text(h.render()), /in Doctor 2's queue when this patient was registered/);
+});
+
+test("the success screen shows one message, prints first, and keeps the next patient apart from delivery", async () => {
+  const h = harness(); h.fill(); await h.submit();
+  const screen = h.render();
+  const all = text(screen);
+  assert.equal(all.split("Patient registered successfully.").length - 1, 1);
+  assert.match(all, /Print the ticket, then register the next patient\./);
+  assert.doesNotMatch(all, /Registration Complete|Registration Successful|queue number has been generated/);
+  // Service and doctor appear on the ticket itself, not in a second summary.
+  assert.doesNotMatch(all, /Prenatal/);
+  assert.equal(all.split("Registration snapshot").length - 1, 1);
+  const panel = nodes(screen, node => node.props.className === "registration-actions-panel")[0];
+  const actions = nodes(panel, node => node.type === "QueueTicketActions")[0];
+  assert.equal(actions.props.primaryAction, "print");
+  const next = nodes(panel, node => node.props.className === "registration-next")[0];
+  assert.ok(nodes(next, node => node.type === "button" && text(node).includes("Register Another Patient")).length);
+  assert.deepEqual(nodes(next, node => node.type === "Link").map(link => link.props.href), ["/patient-management", "/queue-display"]);
+  assert.equal(nodes(actions, node => text(node).includes("Register Another Patient")).length, 0);
 });
 
 test("Register Another Patient clears all fields and ticket state without mutating the saved record", async () => {

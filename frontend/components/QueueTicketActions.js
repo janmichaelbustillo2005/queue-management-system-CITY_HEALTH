@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { downloadQueueTicket, fetchExistingQueueTicket, openThermalTicketWindow, printQueueTicket } from "../lib/queueTicket";
 
-export default function QueueTicketActions({ ticket, onView, onTicketUpdate, onVerificationStart, disabled = false }) {
+// primaryAction picks the emphasized button, which is listed first.
+export default function QueueTicketActions({ ticket, onView, onTicketUpdate, onVerificationStart, disabled = false, primaryAction = onView ? "view" : null }) {
   const lock = useRef(false);
   const aliveRef = useRef(true);
   const popupRef = useRef(null);
@@ -61,7 +62,8 @@ export default function QueueTicketActions({ ticket, onView, onTicketUpdate, onV
       } else {
         printQueueTicket(freshTicket, popup);
         popupRef.current = null;
-        setNotice("Thermal ticket opened for printing.");
+        // Opening the print window does not prove a ticket came out of the printer.
+        setNotice("Print window opened. Check that the ticket printed before handing it to the patient.");
       }
     } catch (failure) {
       if (popup && !popup.closed) popup.close();
@@ -75,12 +77,25 @@ export default function QueueTicketActions({ ticket, onView, onTicketUpdate, onV
     }
   }
 
+  const actions = [
+    onView && { action: "view", icon: "bi-ticket-perforated", label: "View Digital Pass", busyLabel: "Opening pass…" },
+    { action: "download", icon: "bi-download", label: "Download Image", busyLabel: "Preparing image…" },
+    { action: "print", icon: "bi-printer", label: "Print Thermal Ticket", busyLabel: "Preparing ticket…" }
+  ].filter(Boolean);
+  const ordered = [
+    ...actions.filter((item) => item.action === primaryAction),
+    ...actions.filter((item) => item.action !== primaryAction)
+  ];
+
   return (
     <div className="queue-ticket-actions">
       <div className="queue-ticket-actions__buttons" aria-label="Ticket delivery options">
-        {onView && <button type="button" className="queue-ticket-button queue-ticket-button--primary" disabled={!ticket || disabled || !!busy} aria-busy={busy === "view"} onClick={() => deliver("view")}><i className="bi bi-ticket-perforated" aria-hidden="true" />{busy === "view" ? "Opening pass…" : "View Digital Pass"}</button>}
-        <button type="button" className="queue-ticket-button" disabled={!ticket || disabled || !!busy} aria-busy={busy === "download"} onClick={() => deliver("download")}><i className="bi bi-download" aria-hidden="true" />{busy === "download" ? "Preparing image…" : "Download Image"}</button>
-        <button type="button" className="queue-ticket-button" disabled={!ticket || disabled || !!busy} aria-busy={busy === "print"} onClick={() => deliver("print")}><i className="bi bi-printer" aria-hidden="true" />{busy === "print" ? "Preparing ticket…" : "Print Thermal Ticket"}</button>
+        {ordered.map(({ action, icon, label, busyLabel }) => (
+          <button key={action} type="button" className={`queue-ticket-button${action === primaryAction ? " queue-ticket-button--primary" : ""}`}
+            disabled={!ticket || disabled || !!busy} aria-busy={busy === action} onClick={() => deliver(action)}>
+            <i className={`bi ${icon}`} aria-hidden="true" />{busy === action ? busyLabel : label}
+          </button>
+        ))}
       </div>
       {error && <p className="queue-ticket-error" role="alert">{error}</p>}
       {notice && <p className="queue-ticket-notice" role="status">{notice}</p>}

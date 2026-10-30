@@ -9,7 +9,7 @@ const { runAll, DISPATCH_MODES } = require("../simulation/run");
 const { POLICIES } = require("../simulation/policies");
 const { generateWorkload, runSimulation } = require("../simulation/engine");
 const { SCENARIOS } = require("../simulation/scenarios");
-const { writeReport, pairedEffects, sampleTrace, traceDay } = require("../simulation/report");
+const { writeReport, pairedEffects, headToHead, sampleTrace, traceDay } = require("../simulation/report");
 
 const [WPS, WPS_A, WRR] = Object.keys(POLICIES);
 
@@ -48,10 +48,24 @@ test("the written report is reproducible byte for byte", () => {
       fs.writeFileSync(path.join(dir, "results.json"), JSON.stringify({ replications: 2, baseSeed: 20261029, byMode }, null, 1));
       writeReport(dir);
     }
-    const files = ["tables.md", "paired-effects.md", "per-replication.csv", "sample-trace.md", "sample-trace.json", "charts/wait-max.svg", "charts/effects-policy-only.svg"];
+    const files = ["tables.md", "paired-effects.md", "head-to-head.md", "per-replication.csv", "sample-trace.md", "sample-trace.json", "charts/wait-max.svg", "charts/effects-policy-only.svg", "charts/head-to-head-wrr-vs-wpsa.svg"];
     for (const file of files) assert.equal(fs.readFileSync(path.join(dirs[0], file), "utf8"), fs.readFileSync(path.join(dirs[1], file), "utf8"), file);
     assert.equal(fs.readFileSync(path.join(dirs[0], "per-replication.csv"), "utf8").trim().split("\n").length, 1 + 2 * 6 * 3 * 2);
   } finally {
     for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("head to head: WRR − WPS-A per seed, and the priority-lane rule passes WPS and WPS-A on every day", () => {
+  const byMode = Object.fromEntries(DISPATCH_MODES.map((dispatch) => [dispatch, runAll({ replications: 3, baseSeed: 9, dispatch })]));
+  const h2h = headToHead(byMode);
+  const s = "long-waits";
+  const wrr = byMode.shared[s].policies[WRR].replications, wpsa = byMode.shared[s].policies[WPS_A].replications;
+  const expected = wrr.map((day, i) => day.maxWait - wpsa[i].maxWait).reduce((a, b) => a + b, 0) / 3;
+  assert.ok(Math.abs(h2h.rows.shared[s].maxWait.mean - expected) < 1e-9);
+  for (const mode of DISPATCH_MODES) {
+    for (const policy of ["WPS", "WPS-A"]) assert.equal(h2h.compliance[mode][policy].compliantDays, h2h.compliance[mode][policy].days, `${mode} ${policy}`);
+    const days = Object.values(byMode[mode]).flatMap(({ policies }) => policies[WRR].replications);
+    assert.equal(h2h.compliance[mode].WRR.compliantDays, days.filter((d) => d.regularBeforeProtected === 0).length);
   }
 });

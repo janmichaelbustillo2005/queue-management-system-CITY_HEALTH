@@ -16,7 +16,7 @@ tooling on branch `docs/sim-wpsa-wrr-report` · Results: [`simulation-results-20
 |---|---|
 | Simulator entry point | `backend/simulation/run.js` (no npm script; run with `node`) |
 | Report tooling (new) | `backend/simulation/report.js`: tables, paired effects, CSV, SVG charts, sample trace. It only reads `results.json`; for the trace it reruns the unchanged engine on one seed with an observer around each policy. |
-| Tests | `backend/test/simulation.test.js` (7) and `backend/test/simulation-report.test.js` (4, new): 11/11 pass |
+| Tests | `backend/test/simulation.test.js` (7) and `backend/test/simulation-report.test.js` (5, new): 12/12 pass |
 | Policies | WPS (original), WPS-A (10-minute aging, +2 cap), WRR (weights = priority score) |
 | Queue structures | **service** (legacy: consultation/check-up → Doctor 1, prenatal/maternity → Doctor 2, family planning → Doctor 3; three queues) and **shared** (D1 Model A, provisional: three general doctors take the head of one queue) |
 | Scenarios | low-volume, medium-volume, high-volume, priority-surge, unequal-workload, long-waits (all 6 documented) |
@@ -162,7 +162,44 @@ Two counts per simulated day (all decisions are logged; values: mean ± 95% CI):
   scenario and structure**, because a Regular's effective score is at most 3, which never beats a Senior (4) and
   loses ties to PWD/Pregnant (3) on base score. **WRR does it 0.2–6.2 times per day** (shared) and 0.4–5.7 (service).
 
-## 7. Step-by-step sample trace
+## 7. WRR versus WPS-A: head to head
+
+The two candidate policies are compared directly, day by day, on the same synthetic patients
+([`head-to-head.md`](simulation-results-20261030/head-to-head.md), [`.json`](simulation-results-20261030/head-to-head.json)).
+"Effective" is defined first, as a two-part decision rule, so the comparison does not depend on which number is
+picked afterwards:
+
+1. **Priority-lane compliance (must pass).** On no simulated day may a Regular patient be called while a Senior,
+   PWD or pregnant patient is waiting. This mirrors the priority-lane principle the system enforces.
+2. **Then** prefer the compliant policy with the shorter P95 and maximum waits, especially for Regular patients.
+
+| Dispatch | WPS | WPS-A | WRR |
+|---|---|---|---|
+| Service (legacy) | 180 of 180 days compliant | 180 of 180 | **31 of 180** |
+| Shared queue (D1) | 180 of 180 | 180 of 180 | **36 of 180** |
+
+![Head to head](simulation-results-20261030/charts/head-to-head-wrr-vs-wpsa.svg)
+
+WRR − WPS-A, mean ± 95% CI over 30 paired days (days on which WRR was lower / higher):
+
+| Scenario / dispatch | Maximum wait (min) | Longest Regular wait (min) | Longest Senior/PWD/Pregnant wait (min) | Regular before waiting protected (/day) |
+|---|---|---|---|---|
+| priority-surge / service | −38.2 ± 10.8 (28/0) | −37.7 ± 11.0 (28/0) | −6.9 ± 11.7 (14/14) | +5.2 ± 0.8 (0/30) |
+| priority-surge / shared | −4.1 ± 1.8 (21/3) | −4.6 ± 2.1 (21/3) | +1.5 ± 1.8 (8/17) | +2.8 ± 0.6 (0/29) |
+| high-volume / service | −5.8 ± 6.8 (3/1) | −6.3 ± 7.3 (4/1) | +14.6 ± 5.2 (1/27) | +4.7 ± 0.8 (0/29) |
+| long-waits / service | −4.5 ± 5.8 (3/0) | −5.0 ± 6.6 (3/0) | +15.1 ± 8.4 (2/26) | +5.7 ± 0.8 (0/30) |
+| long-waits / shared | −0.5 ± 1.2 (13/17) | −0.6 ± 1.2 (15/15) | +4.0 ± 1.7 (5/24) | +6.2 ± 0.8 (0/30) |
+
+Average wait and throughput do not separate the two (both are work-conserving; average-wait differences are
+at most 0.2 min). **Reading:** WRR shortens the worst waits of Regular patients, clearly only in the surge
+scenario under service dispatch, and it does so by calling Regular patients ahead of waiting protected patients
+on most days, which also lengthens the longest protected waits in most scenarios. WRR therefore fails rule 1 in
+both structures, and **WPS-A is the more suitable of the two under this rule**; WPS-A and the original WPS are
+nearly identical (Section 2), so the remaining question between them is the aging policy itself (Section 10).
+A different rule, for example one that accepts a few protected-lane violations in exchange for shorter worst
+cases, could change this conclusion and would need the Health Office's agreement.
+
+## 8. Step-by-step sample trace
 
 [`sample-trace.md`](simulation-results-20261030/sample-trace.md) (machine-readable:
 [`sample-trace.json`](simulation-results-20261030/sample-trace.json)) follows one synthetic day — scenario
@@ -182,7 +219,7 @@ The key moment, **09:55:04, Doctor 1 becomes free, 15 patients waiting:**
 The same patients reach different doctors at different times afterwards; the lifecycle table at the end of the
 trace shows, for each arrival, doctor, start → completion and wait under every policy.
 
-## 8. Discussion for the defense and Chapter 4
+## 9. Discussion for the defense and Chapter 4
 
 Suggested wording (adapt as needed):
 
@@ -211,7 +248,7 @@ Points to stress when asked:
    classes ahead of waiting protected patients, which conflicts with the priority-lane principle the system is
    designed to enforce.
 
-## 9. Limitations
+## 10. Limitations
 
 **WPS-A's +2 cap**
 
@@ -245,7 +282,7 @@ Points to stress when asked:
   follows the legacy fixed mapping.
 * Throughput is defined relative to the time the last patient finishes, not the 8-hour window.
 
-## 10. Files
+## 11. Files
 
 | File | Content |
 |---|---|
@@ -254,6 +291,7 @@ Points to stress when asked:
 | `per-replication.csv` | One row per simulated day (1,080 rows): seed, waits, group waits, throughput, utilization, ordering counts |
 | `tables.md` | Comparison tables: waiting, group waits, throughput/utilization, protected ordering |
 | `paired-effects.md` / `.json` | Per-seed differences: structure effect and policy effects |
+| `head-to-head.md` / `.json` | WRR − WPS-A per seed and priority-lane compliance per policy |
 | `sample-trace.md` / `.json` | Step-by-step trace of one seeded day |
-| `charts/*.svg` | 10 charts (light and dark mode; hover a bar for its value) |
+| `charts/*.svg` | 11 charts (light and dark mode; hover a bar for its value) |
 | `README.md` | Commands, seeds, environment and SHA-256 hashes |

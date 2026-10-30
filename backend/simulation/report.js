@@ -66,6 +66,58 @@ function pairedMarkdown(effects, { replications }) {
   return lines.join("\n");
 }
 
+// ---------- head to head: WRR versus WPS-A ----------
+// The two candidate policies compared directly on the same seeds, plus a two-part decision rule:
+// (1) priority-lane compliance: no Regular may be called while a Senior/PWD/Pregnant patient waits,
+// on any simulated day; (2) among compliant policies, shorter worst-case waits are better.
+const protectedMax = (day) => Math.max(0, ...PROTECTED_GROUPS.concat("multiple").map((g) => day.byGroup[g]?.maxWait ?? 0));
+const HEAD_TO_HEAD_METRICS = {
+  avgWait: { label: "Average wait (min)", pick: (day) => day.avgWait },
+  p95Wait: { label: "P95 wait (min)", pick: (day) => day.p95Wait },
+  maxWait: { label: "Maximum wait (min)", pick: (day) => day.maxWait },
+  regularMax: { label: "Longest Regular wait (min)", pick: (day) => day.byGroup.regular?.maxWait ?? 0 },
+  protectedMax: { label: "Longest Senior/PWD/Pregnant wait (min)", pick: protectedMax },
+  regularBeforeProtected: { label: "Regular called while Senior/PWD/Pregnant waited (per day)", pick: (day) => day.regularBeforeProtected }
+};
+function headToHead(byMode) {
+  const out = { rows: {}, compliance: {} };
+  for (const mode of Object.keys(MODES)) {
+    out.rows[mode] = Object.fromEntries(Object.entries(byMode[mode]).map(([s, { policies }]) => {
+      const a = policies[WPS_A].replications, w = policies[WRR].replications;
+      return [s, Object.fromEntries(Object.entries(HEAD_TO_HEAD_METRICS).map(([key, { pick }]) => {
+        const diffs = w.map((day, i) => pick(day) - pick(a[i]));
+        return [key, { ...summarize(diffs), wrrLower: diffs.filter((d) => d < -1e-9).length, wrrHigher: diffs.filter((d) => d > 1e-9).length }];
+      }))];
+    }));
+    out.compliance[mode] = Object.fromEntries(Object.keys(POLICIES).map((p) => {
+      const days = Object.values(byMode[mode]).flatMap(({ policies }) => policies[p].replications);
+      return [SHORT[p], { days: days.length, compliantDays: days.filter((d) => d.regularBeforeProtected === 0).length }];
+    }));
+  }
+  return out;
+}
+function headToHeadMarkdown(h2h, { replications }) {
+  const lines = ["# Head to head: WRR versus WPS-A", "",
+    `Per-seed difference WRR − WPS-A on the same ${replications} synthetic days per scenario (mean ± 95% CI). Negative = WRR lower.`,
+    "\"WRR lower / higher\" counts the days on which WRR's value was lower / higher than WPS-A's.", "",
+    "## Decision rule", "",
+    "1. **Priority-lane compliance (must pass):** on no simulated day may a Regular patient be called while a Senior, PWD or",
+    "   pregnant patient is waiting.",
+    "2. **Then** prefer the compliant policy with the shorter P95 and maximum waits, especially for Regular patients.", "",
+    "| Dispatch | Policy | Days with zero violations | Passes rule 1 |", "|---|---|---|---|"];
+  for (const [mode, policies] of Object.entries(h2h.compliance)) for (const [p, c] of Object.entries(policies)) {
+    lines.push(`| ${mode} | ${p} | ${c.compliantDays} of ${c.days} | ${c.compliantDays === c.days ? "yes" : "**no**"} |`);
+  }
+  for (const [mode, rows] of Object.entries(h2h.rows)) {
+    lines.push("", `## ${MODES[mode]}`, "", `| Scenario | ${Object.values(HEAD_TO_HEAD_METRICS).map((m) => m.label).join(" | ")} |`,
+      `|---|${Object.keys(HEAD_TO_HEAD_METRICS).map(() => "---").join("|")}|`);
+    for (const [s, m] of Object.entries(rows)) {
+      lines.push(`| ${s} | ${Object.keys(HEAD_TO_HEAD_METRICS).map((k) => `${f1(m[k])} <small>(${m[k].wrrLower}/${m[k].wrrHigher})</small>`).join(" | ")} |`);
+    }
+  }
+  return lines.join("\n") + "\n";
+}
+
 // ---------- tables ----------
 function tablesMarkdown(byMode, { replications, baseSeed }) {
   const lines = ["# Comparison tables", "",
@@ -328,16 +380,33 @@ function charts(byMode, effects, { replications }) {
   return out;
 }
 
+// Three measures at their own scales; one bar per dispatch mode per scenario.
+function headToHeadChart(h2h, { replications }) {
+  const scenarios = Object.keys(h2h.rows.shared);
+  const cats = scenarios.map((s) => SCENARIO_LABEL[s] || s);
+  const series = (key) => Object.keys(MODES).map((mode) => ({ name: mode === "service" ? "Service dispatch (legacy)" : "Shared queue (D1)", color: mode,
+    values: scenarios.map((s) => ({ v: h2h.rows[mode][s][key].mean, ci: h2h.rows[mode][s][key].ci95 })) }));
+  return barChart({ title: "WRR versus WPS-A on the same days: WRR − WPS-A (below 0 = WRR lower)",
+    subtitle: `Mean of ${replications} paired synthetic days per scenario. Whiskers: 95% CI. Each panel has its own scale.`, unit: "",
+    sharedScale: false, showCi: true, columns: 3, panelWidth: 320,
+    panels: [["maxWait", "Maximum wait (min)"], ["protectedMax", "Longest Senior/PWD/Pregnant wait (min)"], ["regularBeforeProtected", "Regular before waiting protected (/day)"]]
+      .map(([key, title]) => ({ title, categories: cats, series: series(key) })) });
+}
+
 function writeReport(dir, traceScenario = "long-waits", traceSeed) {
   const results = JSON.parse(fs.readFileSync(path.join(dir, "results.json"), "utf8"));
   const { byMode, replications, baseSeed } = results;
   const effects = pairedEffects(byMode);
+  const h2h = headToHead(byMode);
   const trace = sampleTrace(traceScenario, traceSeed ?? baseSeed);
   fs.mkdirSync(path.join(dir, "charts"), { recursive: true });
   const files = {
     "tables.md": tablesMarkdown(byMode, results),
     "paired-effects.md": pairedMarkdown(effects, results),
     "paired-effects.json": JSON.stringify(Object.fromEntries(Object.entries(effects).map(([k, v]) => [k, { title: v.title, rows: v.rows }])), null, 1),
+    "head-to-head.md": headToHeadMarkdown(h2h, results),
+    "head-to-head.json": JSON.stringify(h2h, null, 1),
+    "charts/head-to-head-wrr-vs-wpsa.svg": headToHeadChart(h2h, results),
     "per-replication.csv": perReplicationCsv(byMode, results),
     "sample-trace.md": traceMarkdown(trace),
     "sample-trace.json": JSON.stringify(traceJson(trace), null, 1),
@@ -353,4 +422,4 @@ if (require.main === module) {
   console.log(`Wrote ${written.length} files to ${dir}`);
 }
 
-module.exports = { writeReport, pairedEffects, sampleTrace, traceDay, barChart };
+module.exports = { writeReport, pairedEffects, headToHead, sampleTrace, traceDay, barChart };

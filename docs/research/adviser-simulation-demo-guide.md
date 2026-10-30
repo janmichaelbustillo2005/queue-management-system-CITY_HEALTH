@@ -15,7 +15,7 @@ terminal in `backend/`. Node.js 18+ is enough; no database, internet or `.env` i
 node --test test/simulation.test.js test/simulation-report.test.js
 ```
 
-Expect `tests 11 / pass 11`. Say: *the tests check that every patient is served exactly once, never before
+Expect `tests 12 / pass 12`. Say: *the tests check that every patient is served exactly once, never before
 arriving, that no doctor serves two patients at once, that WPS never serves a lower score first, that the same
 seed always gives the same day, and that the trace and charts reproduce exactly.*
 
@@ -50,6 +50,7 @@ Open the files in `docs/research/simulation-results-20261030/charts/` in a brows
 | 4 | `effects-policy-only.svg` | At its own scale: WRR helps the worst case only in the surge scenario under service dispatch; WPS-A barely moves anything. |
 | 5 | `protected-ordering.svg` | WPS and WPS-A never call a Regular while a Senior/PWD/Pregnant patient waits; WRR does, up to ~6 times a day. |
 | 6 | `wait-by-group-long-waits.svg` | The price of each policy: WRR raises Senior waits; WPS-A raises Indigenous waits. |
+| 7 | `head-to-head-wrr-vs-wpsa.svg` + `head-to-head.md` | Direct comparison on the same days: WRR shortens worst waits mainly in the surge scenario but fails the priority-lane rule on most days (31–36 of 180 compliant); WPS-A passes on all 180. |
 
 ## 4. Show one decision step by step (4 minutes)
 

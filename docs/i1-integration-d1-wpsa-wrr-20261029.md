@@ -16,7 +16,10 @@ any other worktree, stash or commit was modified.
 | `36dc3db` | Tests: shared-queue aging order in the UI and ticket; simulation input consistency across policies and modes |
 | `bd4a633` | This report (first version) |
 | `09579e8` | I2 Finding 8 (from the E2E-1 session, branch `fix/i2-c1-fail-closed`, fast-forwarded after review): service-mode Call fails closed when C1 cannot be used; opt-in `ALLOW_LEGACY_TWO_STEP_CALL` only for a database that never had C1 |
-| (this commit) | Report updated for `09579e8` (§4, §7, §8, §11) |
+| `58d6b0d` | Report updated for `09579e8` (§4, §7, §8, §11) |
+| `afea37e` | Merge of `main` @ `9c9eb76` (PR #7, `fe6a028` print-first registration screen). Conflict in `fill-up_form.js`: main's redesigned layout kept, D1's shared-queue wording carried into the new "Registration snapshot" panel; new shared-mode registration test |
+| `f2543b3` | Test-only: the W1 cancel-termination test listens for the intended connection-termination error (a load-dependent false failure in one full run; 5/5 in isolation) |
+| (this commit) | Report updated for the main merge |
 
 ## 2. Merge conflicts and resolutions
 
@@ -105,13 +108,13 @@ two flags on a **separate** test backend and restart.
 
 | Suite | Result |
 |---|---|
-| Backend, all suites incl. PGlite, PostgreSQL 17 and voice launcher (`node --test test/*.test.js`) | **1093 / 1093 pass, 0 skipped** after `09579e8` (1081 / 1081 before it); voice venv installed in the worktree; voice tests use free ports with `--dry-run`, never 8765 |
-| Frontend (`node --test test/*.cjs`) | **405 / 405 pass** |
-| Production build (`next build`) | success, 14 routes (`09579e8` changes backend files only) |
+| Backend, all suites incl. PGlite, PostgreSQL 17 and voice launcher (`node --test test/*.test.js`) | **1093 / 1093 pass, 0 skipped** after `09579e8` and again after the `main` merge + `f2543b3` (1081 / 1081 before `09579e8`); voice venv installed in the worktree; voice tests use free ports with `--dry-run`, never 8765 |
+| Frontend (`node --test test/*.cjs`) | **409 / 409 pass** after the `main` merge (405 / 405 before) |
+| Production build (`next build`) | success, 14 routes (rebuilt after the `main` merge) |
 | Security: `admin123` | the shared fallback removed in `b86bfe0` is an ancestor of this branch; no login path matches `admin123` (the only source hit is the development-memory seed `superadmin123`); neither branch changed `loginUser`; `s2-login-backdoor-postgres.test.js` (admin123 refused for every doctor/admin account) passes |
 
 Logs: `output/i1-integration-20261029/` in the main checkout (backend log, frontend log, build log, evidence JSON);
-the run after `09579e8` is in `output/i1-integration-20261029/after-i2-fix/`.
+the run after `09579e8` is in `output/i1-integration-20261029/after-i2-fix/`, after the `main` merge in `after-main-merge/`.
 
 ## 9. Updated WPS / WPS-A / WRR comparison (simulation, synthetic)
 

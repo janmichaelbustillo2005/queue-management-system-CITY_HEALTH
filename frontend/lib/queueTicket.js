@@ -19,7 +19,24 @@ const STATUS_LABELS = {
   "no-show": "No-show"
 };
 export const QUEUE_PASS_WIDTH = 760;
-export const QUEUE_PASS_HEIGHT = 820;
+export const QUEUE_PASS_HEIGHT = 910;
+
+// Three-level priority legend (docs/ticket-priority-legend-spec-20261030.md). The level comes from the stored
+// priority score only, never from the vulnerability flags. Level 2 effectively identifies an Indigenous
+// Person, so marking the patient's own level is a privacy decision pending approval; false prints the
+// legend alone.
+export const SHOW_PATIENT_PRIORITY_LEVEL = true;
+export const PRIORITY_LEVELS = [
+  { level: 1, marks: "***", legend: "Senior citizen, PWD, pregnant" },
+  { level: 2, marks: "**", legend: "Indigenous Person" },
+  { level: 3, marks: "*", legend: "Regular, solo parent" }
+];
+
+export function priorityLevelForScore(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value) || value < 2) return 3;
+  return value >= 3 ? 1 : 2;
+}
 
 // Mirror the existing backend service mapping; this is display information only.
 function doctorForService(service) {
@@ -55,8 +72,19 @@ export function createQueueTicket(patient) {
     }) : "Unavailable",
     status: knownStatus ? patient.status : "unknown",
     statusLabel: knownStatus ? STATUS_LABELS[patient.status] : "Status unavailable",
-    isActive: patient.status === "waiting" || patient.status === "serving"
+    isActive: patient.status === "waiting" || patient.status === "serving",
+    priorityLevel: priorityLevelForScore(patient.priority_score)
   };
+}
+
+// The patient's own level, or null when only the legend is printed.
+function shownPriorityLevel(ticket) {
+  return SHOW_PATIENT_PRIORITY_LEVEL ? PRIORITY_LEVELS.find(entry => entry.level === ticket.priorityLevel) || null : null;
+}
+
+export function priorityLevelLabel(ticket) {
+  const shown = shownPriorityLevel(ticket);
+  return shown ? `Priority level ${shown.level} of 3.` : "";
 }
 
 /** Waiting-only snapshot of the backend's WPS order, scoped to its service doctor. */
@@ -102,7 +130,7 @@ export function queuePassSvgContents(ticket, logoHref = SYSTEM_BRANDING.logoSrc)
   const statusBackground = active ? "#eaf4ed" : "#fff0e8";
   const serviceSize = ticket.serviceLabel.length > 23 ? 32 : 38;
   return `
-    <rect x="1" y="1" width="758" height="818" rx="28" fill="#ffffff" stroke="#a6c4b0" stroke-width="2"/>
+    <rect x="1" y="1" width="758" height="908" rx="28" fill="#ffffff" stroke="#a6c4b0" stroke-width="2"/>
     <path d="M29 1 H731 Q759 1 759 29 V140 H1 V29 Q1 1 29 1" fill="#0b3d2e"/>
     <circle cx="83" cy="70" r="47" fill="#ffffff"/>
     <image href="${esc(logoHref)}" x="40" y="27" width="86" height="86" preserveAspectRatio="xMidYMid meet"/>
@@ -123,9 +151,31 @@ export function queuePassSvgContents(ticket, logoHref = SYSTEM_BRANDING.logoSrc)
       <rect x="400" y="575" width="312" height="118" rx="16" fill="${statusBackground}"/>
       <text x="556" y="614" text-anchor="middle" fill="${statusColor}" font-size="22" font-weight="700">TICKET STATUS</text>
       <text x="556" y="655" text-anchor="middle" fill="${statusColor}" font-size="${ticket.statusLabel.length > 16 ? 25 : 31}" font-weight="700">${esc(ticket.statusLabel)}</text>
-      <text x="380" y="744" text-anchor="middle" fill="${statusColor}" font-size="24" font-weight="700">${active ? "Watch the live queue for your number." : "INACTIVE TICKET · No new queue position"}</text>
-      <text x="380" y="785" text-anchor="middle" fill="#355347" font-size="20">Saved ticket snapshot · Photos and downloads do not update</text>
+      ${priorityBandSvg(ticket)}
+      <text x="380" y="836" text-anchor="middle" fill="${statusColor}" font-size="24" font-weight="700">${active ? "Watch the live queue for your number." : "INACTIVE TICKET · No new queue position"}</text>
+      <text x="380" y="876" text-anchor="middle" fill="#355347" font-size="20">Saved ticket snapshot · Photos and downloads do not update</text>
     </g>`;
+}
+
+// Filled dots for the level's rank (Level 1 = three), hollow for the rest.
+function priorityDotsSvg(level, x, y, radius, gap) {
+  return [0, 1, 2].map(index => index < 4 - level
+    ? `<circle cx="${x + index * gap}" cy="${y}" r="${radius}" fill="#167d3f"/>`
+    : `<circle cx="${x + index * gap}" cy="${y}" r="${radius - 1}" fill="none" stroke="#7fa08c" stroke-width="2"/>`).join("");
+}
+
+function priorityBandSvg(ticket) {
+  const shown = shownPriorityLevel(ticket);
+  const own = shown
+    ? `${priorityDotsSvg(shown.level, 84, 778, 10, 28)}<text x="160" y="787" fill="#0b3d2e" font-size="28" font-weight="700">Level ${shown.level}</text>`
+    : `<text x="72" y="784" fill="#355347" font-size="19">Called in priority order</text>`;
+  const legend = PRIORITY_LEVELS.map((entry, index) => {
+    const y = 744 + index * 26;
+    return `${priorityDotsSvg(entry.level, 352, y - 6, 6, 17)}<text x="400" y="${y}" fill="#355347" font-size="17">${escapeTicketText(entry.legend)}</text>`;
+  }).join("");
+  return `<rect x="48" y="712" width="664" height="94" rx="16" fill="#f1f7f3"/>
+      <text x="72" y="746" fill="#355347" font-size="20" font-weight="700">${shown ? "PRIORITY LEVEL" : "PRIORITY LEVELS"}</text>
+      ${own}${legend}`;
 }
 
 export function createQueuePassSvg(ticket, logoHref = SYSTEM_BRANDING.logoSrc) {
@@ -193,11 +243,12 @@ export function openThermalTicketWindow() {
 export function thermalTicketHtml(ticket) {
   const esc = escapeTicketText;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Queue Ticket ${esc(ticket.queueNumber)}</title>
-    <style>body{font-family:'Courier New',Courier,monospace;width:280px;margin:0 auto;text-align:center;padding:20px}.header{font-weight:bold;font-size:16px;margin-bottom:5px}.subheader{font-size:12px;margin-bottom:20px;border-bottom:1px dashed #000;padding-bottom:10px}.queue-num{font-size:48px;font-weight:bold;margin:20px 0;overflow-wrap:anywhere}.info{font-size:14px;margin-bottom:10px;text-align:left}.footer{font-size:10px;margin-top:30px;border-top:1px dashed #000;padding-top:10px}.inactive{font-weight:bold;border:1px solid #000;padding:8px}</style></head>
+    <style>body{font-family:'Courier New',Courier,monospace;width:280px;margin:0 auto;text-align:center;padding:20px}.header{font-weight:bold;font-size:16px;margin-bottom:5px}.subheader{font-size:12px;margin-bottom:20px;border-bottom:1px dashed #000;padding-bottom:10px}.queue-num{font-size:48px;font-weight:bold;margin:20px 0;overflow-wrap:anywhere}.info{font-size:14px;margin-bottom:10px;text-align:left}.footer{font-size:10px;margin-top:30px;border-top:1px dashed #000;padding-top:10px}.inactive{font-weight:bold;border:1px solid #000;padding:8px}.legend{font-size:11px;text-align:left;margin-top:14px;border-top:1px dashed #000;padding-top:8px;line-height:1.5}</style></head>
     <body><div class="header">CHO &amp; Family Planning Center</div><div class="subheader">Cabadbaran City</div>
     <div class="info">Service: ${esc(ticket.serviceLabel)}</div><div class="queue-num">${esc(ticket.queueNumber)}</div>
     <div class="info">Assigned: ${esc(ticket.doctorName)}</div><div class="info">Registered: ${esc(ticket.registeredDate)}</div><div class="info">Time: ${esc(ticket.registeredTime)} PHT</div>
-    <div class="info">Status: ${esc(ticket.statusLabel)}</div>${ticket.isActive ? "" : '<div class="inactive">INACTIVE TICKET<br>No new queue position</div>'}
+    <div class="info">Status: ${esc(ticket.statusLabel)}</div>${shownPriorityLevel(ticket) ? `<div class="info">Priority: Level ${shownPriorityLevel(ticket).level} (${shownPriorityLevel(ticket).marks})</div>` : ""}${ticket.isActive ? "" : '<div class="inactive">INACTIVE TICKET<br>No new queue position</div>'}
+    <div class="legend"><strong>Priority levels</strong><br>${PRIORITY_LEVELS.map(entry => `${entry.marks} Level ${entry.level}: ${esc(entry.legend)}`).join("<br>")}</div>
     <div class="footer">${ticket.isActive ? "Please watch the live queue for your number.<br>Thank you for your patience." : "Copy of the original ticket. This is not a new waiting ticket."}<br>Saved ticket snapshot; status may change.</div>
     <script>window.onload=function(){window.print();window.close();};</script></body></html>`;
 }

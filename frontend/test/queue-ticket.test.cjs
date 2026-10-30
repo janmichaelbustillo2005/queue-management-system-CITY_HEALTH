@@ -49,7 +49,8 @@ function helpers(options = {}) {
 test("ticket whitelists saved queue information and uses the saved Philippine registration time", () => {
   const { api } = helpers();
   const ticket = api.createQueueTicket(patient());
-  assert.deepEqual(Object.keys(ticket).sort(), ["doctorName", "isActive", "patientId", "queueNumber", "registeredDate", "registeredTime", "serviceLabel", "status", "statusLabel"].sort());
+  assert.deepEqual(Object.keys(ticket).sort(), ["doctorName", "isActive", "patientId", "priorityLevel", "queueNumber", "registeredDate", "registeredTime", "serviceLabel", "status", "statusLabel"].sort());
+  assert.equal(ticket.priorityLevel, 1);
   assert.equal(ticket.queueNumber, "OB-002");
   assert.equal(ticket.doctorName, "Doctor 2");
   assert.equal(ticket.registeredDate, "Oct 13, 2026");
@@ -161,7 +162,7 @@ test("PNG generation captures only the ticket, embeds the official logo, and exp
   const { api } = helpers({ globals });
   await api.downloadQueueTicket(api.createQueueTicket(patient()));
   assert.equal(canvas.width, 2280);
-  assert.equal(canvas.height, 2460);
+  assert.equal(canvas.height, 2730);
   assert.equal(downloaded, "Queue-Ticket-OB-002.png");
   assert.equal(draws.length, 1);
   assert.equal(fetches[0][0], "http://localhost:3000/cho_logo-transparent.png");
@@ -298,4 +299,75 @@ test("cancelled PNG exports stop before fetching or downloading a ticket", async
   const result = await api.downloadQueueTicket(api.createQueueTicket(patient()), { isCancelled: () => true });
   assert.equal(result, false);
   assert.equal(fetched, false);
+});
+
+// Three-level priority legend (docs/ticket-priority-legend-spec-20261030.md).
+function legendHelpers(showOwnLevel) {
+  const compiled = showOwnLevel ? helperCode : helperCode.replace(/SHOW_PATIENT_PRIORITY_LEVEL = true/, "SHOW_PATIENT_PRIORITY_LEVEL = false");
+  assert.equal(compiled.includes("SHOW_PATIENT_PRIORITY_LEVEL = true"), showOwnLevel, "the option constant is present");
+  const module = { exports: {} };
+  vm.runInNewContext(compiled, { module, exports: module.exports, console, URL, Blob, Date, require(name) {
+    if (name === "./api") return { request: async () => ({ patients: [] }) };
+    if (name === "./branding") return { SYSTEM_BRANDING: { logoSrc: "/cho_logo-transparent.png" } };
+    throw new Error(`Unexpected import ${name}`);
+  } });
+  return module.exports;
+}
+const LEGEND = ["Senior citizen, PWD, pregnant", "Indigenous Person", "Regular, solo parent"];
+
+test("priority level follows the stored score only: 3+ is Level 1, 2 is Level 2, anything else Level 3", () => {
+  const { api } = helpers();
+  const cases = [[4, 1], [3, 1], [7, 1], [2, 2], [1, 3], [0, 3], [null, 3], [undefined, 3], ["Private", 3]];
+  for (const [score, level] of cases) assert.equal(api.createQueueTicket(patient({ priority_score: score })).priorityLevel, level, String(score));
+  // Flags are never read: a "pregnant" flag with a stored score of 1 is Level 3.
+  assert.equal(api.createQueueTicket(patient({ priority_score: 1, vulnerability_flags: ["pregnant"] })).priorityLevel, 3);
+});
+
+test("thermal ticket prints the patient's level once and the same three-line legend on every ticket", () => {
+  const api = legendHelpers(true);
+  for (const [score, level, marks] of [[4, 1, "***"], [2, 2, "**"], [1, 3, "*"]]) {
+    const html = api.thermalTicketHtml(api.createQueueTicket(patient({ priority_score: score })));
+    assert.equal(html.match(/Priority: Level \d/g).length, 1);
+    assert.ok(html.includes(`Priority: Level ${level} (${marks})`), `level ${level}`);
+    assert.match(html, /Priority levels/);
+    for (const [index, text] of LEGEND.entries()) assert.ok(html.includes(`Level ${index + 1}: ${text}`), text);
+    for (const secret of ["Private", "CONFIDENTIAL-ID", "09123456789", "1960-01-01", "Priority Score", "priority_score"]) assert.ok(!html.includes(secret), secret);
+  }
+  const reprint = api.thermalTicketHtml(api.createQueueTicket(patient({ status: "completed" })));
+  assert.match(reprint, /INACTIVE TICKET/);
+  assert.match(reprint, /Priority levels/);
+});
+
+test("digital pass and PNG show the level band with legend, and the label names the level", () => {
+  const api = legendHelpers(true);
+  const ticket = api.createQueueTicket(patient({ priority_score: 2 }));
+  const svg = api.createQueuePassSvg(ticket);
+  assert.match(svg, /height="910"/);
+  assert.match(svg, /PRIORITY LEVEL</);
+  assert.match(svg, />Level 2</);
+  for (const text of LEGEND) assert.ok(svg.includes(text), text);
+  assert.equal(api.priorityLevelLabel(ticket), "Priority level 2 of 3.");
+  for (const secret of ["Private", "CONFIDENTIAL-ID", "priority_score", "Priority Score"]) assert.ok(!svg.includes(secret), secret);
+  const component = { exports: {} };
+  vm.runInNewContext(componentCode, { module: component, exports: component.exports, require(name) {
+    if (name === "../lib/queueTicket") return api;
+    if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }) };
+    throw new Error(`Unexpected import ${name}`);
+  } });
+  assert.match(component.exports.default({ ticket }).props["aria-label"], /Priority level 2 of 3\./);
+});
+
+test("legend-only option (A): every output shows the legend but nothing about the patient's own level", () => {
+  const api = legendHelpers(false);
+  for (const score of [4, 2, 1]) {
+    const ticket = api.createQueueTicket(patient({ priority_score: score }));
+    const html = api.thermalTicketHtml(ticket);
+    const svg = api.createQueuePassSvg(ticket);
+    assert.doesNotMatch(html, /Priority: Level/);
+    assert.match(html, /Priority levels/);
+    assert.match(svg, /PRIORITY LEVELS</);
+    assert.doesNotMatch(svg, />Level \d</);
+    for (const text of LEGEND) assert.ok(html.includes(text) && svg.includes(text), text);
+    assert.equal(api.priorityLevelLabel(ticket), "");
+  }
 });

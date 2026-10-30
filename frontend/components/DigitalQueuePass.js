@@ -1,4 +1,4 @@
-import { QUEUE_PASS_HEIGHT, QUEUE_PASS_WIDTH, queuePassSvgContents } from "../lib/queueTicket";
+import { QUEUE_PASS_HEIGHT, QUEUE_PASS_WIDTH, priorityLevelLabel, queuePassSvgContents } from "../lib/queueTicket";
 
 export default function DigitalQueuePass({ ticket, svgRef }) {
   if (!ticket) return null;
@@ -11,7 +11,7 @@ export default function DigitalQueuePass({ ticket, svgRef }) {
       width={QUEUE_PASS_WIDTH}
       height={QUEUE_PASS_HEIGHT}
       role="img"
-      aria-label={`Queue ${ticket.queueNumber}. ${ticket.serviceLabel}. ${ticket.doctorName}. Registered ${ticket.registeredDate}, ${ticket.registeredTime} Philippine time. ${ticket.statusLabel}.${ticket.isActive ? "" : " Inactive ticket; no new queue position."} Saved snapshot; photos do not update.`}
+      aria-label={`Queue ${ticket.queueNumber}. ${ticket.serviceLabel}. ${ticket.doctorName}. Registered ${ticket.registeredDate}, ${ticket.registeredTime} Philippine time. ${ticket.statusLabel}.${ticket.isActive ? "" : " Inactive ticket; no new queue position."} ${priorityLevelLabel(ticket)} Saved snapshot; photos do not update.`}
       dangerouslySetInnerHTML={{ __html: queuePassSvgContents(ticket) }}
     />
   );

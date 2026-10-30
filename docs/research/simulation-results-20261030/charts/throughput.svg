@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 968 408" width="968" height="408" role="img" aria-label="Throughput (patients served per hour of the working day), WPS">
+<style>svg{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--service:#6250d6;--shared:#008300;}@media (prefers-color-scheme: dark){svg{--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--service:#9085e9;--shared:#008300;}}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--ink2);font-size:12px}
+.t{fill:var(--ink);font-size:15px;font-weight:600}.st{font-size:12px}.pt{fill:var(--ink);font-size:13px;font-weight:600}
+.ax{fill:var(--muted);font-size:11px}.grid{stroke:var(--grid);stroke-width:1}.base{stroke:var(--axis);stroke-width:1}
+.ci{stroke:var(--ink2);stroke-width:1}</style>
+<rect width="100%" height="100%" fill="var(--surface)"/>
+<text class="t" x="52" y="26">Throughput (patients served per hour of the working day), WPS</text>
+<text class="st" x="52" y="46">Mean of 30 paired synthetic days per scenario; identical patients for every policy and dispatch mode. Policy changes throughput by &lt; 0.05/h.</text>
+<rect x="52" y="64" width="12" height="12" rx="3" fill="var(--service)"/><text x="70" y="74">Service dispatch (legacy)</text>
+<rect x="247" y="64" width="12" height="12" rx="3" fill="var(--shared)"/><text x="265" y="74">Shared queue (D1)</text>
+<text class="pt" x="52" y="108">Service dispatch versus shared queue</text>
+<line class="grid" x1="52" x2="952" y1="348" y2="348"/>
+<text class="ax" x="46" y="352" text-anchor="end">0</text>
+<line class="grid" x1="52" x2="952" y1="290.5" y2="290.5"/>
+<text class="ax" x="46" y="294.5" text-anchor="end">5</text>
+<line class="grid" x1="52" x2="952" y1="233" y2="233"/>
+<text class="ax" x="46" y="237" text-anchor="end">10</text>
+<line class="grid" x1="52" x2="952" y1="175.5" y2="175.5"/>
+<text class="ax" x="46" y="179.5" text-anchor="end">15</text>
+<line class="grid" x1="52" x2="952" y1="118" y2="118"/>
+<text class="ax" x="46" y="122" text-anchor="end">20</text>
+<line class="base" x1="52" x2="952" y1="348" y2="348"/>
+<path d="M102,348V261.32718231832354Q102,257.32718231832354 106,257.32718231832354H122Q126,257.32718231832354 126,261.32718231832354V348Z" fill="var(--service)"><title>Service dispatch (legacy), Low: 7.88 patients/h</title></path>
+<path d="M128,348V260.04074021967597Q128,256.04074021967597 132,256.04074021967597H148Q152,256.04074021967597 152,260.04074021967597V348Z" fill="var(--shared)"><title>Shared queue (D1), Low: 8.00 patients/h</title></path>
+<text x="127" y="366" text-anchor="middle">Low</text>
+<path d="M252,348V213.4674377410705Q252,209.4674377410705 256,209.4674377410705H272Q276,209.4674377410705 276,213.4674377410705V348Z" fill="var(--service)"><title>Service dispatch (legacy), Medium: 12.05 patients/h</title></path>
+<path d="M278,348V197.33131629410812Q278,193.33131629410812 282,193.33131629410812H298Q302,193.33131629410812 302,197.33131629410812V348Z" fill="var(--shared)"><title>Shared queue (D1), Medium: 13.45 patients/h</title></path>
+<text x="277" y="366" text-anchor="middle">Medium</text>
+<path d="M402,348V204.3209007145942Q402,200.3209007145942 406,200.3209007145942H422Q426,200.3209007145942 426,204.3209007145942V348Z" fill="var(--service)"><title>Service dispatch (legacy), High: 12.84 patients/h</title></path>
+<path d="M428,348V155.56808168004912Q428,151.56808168004912 432,151.56808168004912H448Q452,151.56808168004912 452,155.56808168004912V348Z" fill="var(--shared)"><title>Shared queue (D1), High: 17.08 patients/h</title></path>
+<text x="427" y="366" text-anchor="middle">High</text>
+<path d="M552,348V218.00446574761148Q552,214.00446574761148 556,214.00446574761148H572Q576,214.00446574761148 576,218.00446574761148V348Z" fill="var(--service)"><title>Service dispatch (legacy), Surge: 11.65 patients/h</title></path>
+<path d="M578,348V207.11641428480783Q578,203.11641428480783 582,203.11641428480783H598Q602,203.11641428480783 602,207.11641428480783V348Z" fill="var(--shared)"><title>Shared queue (D1), Surge: 12.60 patients/h</title></path>
+<text x="577" y="366" text-anchor="middle">Surge</text>
+<path d="M702,348V243.19067354321658Q702,239.19067354321658 706,239.19067354321658H722Q726,239.19067354321658 726,243.19067354321658V348Z" fill="var(--service)"><title>Service dispatch (legacy), Unequal: 9.46 patients/h</title></path>
+<path d="M728,348V187.94448198582714Q728,183.94448198582714 732,183.94448198582714H748Q752,183.94448198582714 752,187.94448198582714V348Z" fill="var(--shared)"><title>Shared queue (D1), Unequal: 14.27 patients/h</title></path>
+<text x="727" y="366" text-anchor="middle">Unequal</text>
+<path d="M852,348V203.4569972297629Q852,199.4569972297629 856,199.4569972297629H872Q876,199.4569972297629 876,203.4569972297629V348Z" fill="var(--service)"><title>Service dispatch (legacy), Long waits: 12.92 patients/h</title></path>
+<path d="M878,348V146.64267260873774Q878,142.64267260873774 882,142.64267260873774H898Q902,142.64267260873774 902,146.64267260873774V348Z" fill="var(--shared)"><title>Shared queue (D1), Long waits: 17.86 patients/h</title></path>
+<text x="877" y="366" text-anchor="middle">Long waits</text>
+<text class="ax" x="52" y="400">Synthetic simulation (backend/simulation). Hover a bar for its value; numbers are in tables.md.</text>
+</svg>

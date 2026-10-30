@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1008 708" width="1008" height="708" role="img" aria-label="Protected-priority ordering: decisions per day that deviate from strict priority">
+<style>svg{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--service:#6250d6;--shared:#008300;}@media (prefers-color-scheme: dark){svg{--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--service:#9085e9;--shared:#008300;}}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--ink2);font-size:12px}
+.t{fill:var(--ink);font-size:15px;font-weight:600}.st{font-size:12px}.pt{fill:var(--ink);font-size:13px;font-weight:600}
+.ax{fill:var(--muted);font-size:11px}.grid{stroke:var(--grid);stroke-width:1}.base{stroke:var(--axis);stroke-width:1}
+.ci{stroke:var(--ink2);stroke-width:1}</style>
+<rect width="100%" height="100%" fill="var(--surface)"/>
+<text class="t" x="52" y="26">Protected-priority ordering: decisions per day that deviate from strict priority</text>
+<text class="st" x="52" y="46">Mean of 30 paired synthetic days per scenario; identical patients for every policy and dispatch mode.</text>
+<rect x="52" y="64" width="12" height="12" rx="3" fill="var(--s1)"/><text x="70" y="74">WPS</text>
+<rect x="101.8" y="64" width="12" height="12" rx="3" fill="var(--s2)"/><text x="119.8" y="74">WPS-A</text>
+<rect x="164.8" y="64" width="12" height="12" rx="3" fill="var(--s3)"/><text x="182.8" y="74">WRR</text>
+<text class="pt" x="52" y="108">Lower score served while a higher score waited — service</text>
+<line class="grid" x1="52" x2="492" y1="348" y2="348"/>
+<text class="ax" x="46" y="352" text-anchor="end">0</text>
+<line class="grid" x1="52" x2="492" y1="290.5" y2="290.5"/>
+<text class="ax" x="46" y="294.5" text-anchor="end">5</text>
+<line class="grid" x1="52" x2="492" y1="233" y2="233"/>
+<text class="ax" x="46" y="237" text-anchor="end">10</text>
+<line class="grid" x1="52" x2="492" y1="175.5" y2="175.5"/>
+<text class="ax" x="46" y="179.5" text-anchor="end">15</text>
+<line class="grid" x1="52" x2="492" y1="118" y2="118"/>
+<text class="ax" x="46" y="122" text-anchor="end">20</text>
+<line class="base" x1="52" x2="492" y1="348" y2="348"/>
+<path d="" fill="var(--s1)"><title>WPS, Low: 0.00 decisions/day</title></path>
+<path d="M79.8,348V348Q79.8,346.85 80.94999999999997,346.85H96.38333333333335Q97.53333333333333,346.85 97.53333333333333,348V348Z" fill="var(--s2)"><title>WPS-A, Low: 0.10 decisions/day</title></path>
+<path d="M99.53333333333333,348V340.8833333333333Q99.53333333333333,336.8833333333333 103.53333333333333,336.8833333333333H113.26666666666667Q117.26666666666667,336.8833333333333 117.26666666666667,340.8833333333333V348Z" fill="var(--s3)"><title>WRR, Low: 0.97 decisions/day</title></path>
+<text x="88.66666666666666" y="366" text-anchor="middle">Low</text>
+<path d="" fill="var(--s1)"><title>WPS, Medium: 0.00 decisions/day</title></path>
+<path d="M153.13333333333333,348V342.03333333333336Q153.13333333333333,338.03333333333336 157.13333333333333,338.03333333333336H166.86666666666665Q170.86666666666665,338.03333333333336 170.86666666666665,342.03333333333336V348Z" fill="var(--s2)"><title>WPS-A, Medium: 0.87 decisions/day</title></path>
+<path d="M172.86666666666667,348V318.65Q172.86666666666667,314.65 176.86666666666667,314.65H186.6Q190.6,314.65 190.6,318.65V348Z" fill="var(--s3)"><title>WRR, Medium: 2.90 decisions/day</title></path>
+<text x="162" y="366" text-anchor="middle">Medium</text>
+<path d="" fill="var(--s1)"><title>WPS, High: 0.00 decisions/day</title></path>
+<path d="M226.46666666666664,348V319.8Q226.46666666666664,315.8 230.46666666666664,315.8H240.19999999999996Q244.19999999999996,315.8 244.19999999999996,319.8V348Z" fill="var(--s2)"><title>WPS-A, High: 2.80 decisions/day</title></path>
+<path d="M246.2,348V257.31666666666666Q246.2,253.31666666666666 250.2,253.31666666666666H259.93333333333334Q263.93333333333334,253.31666666666666 263.93333333333334,257.31666666666666V348Z" fill="var(--s3)"><title>WRR, High: 8.23 decisions/day</title></path>
+<text x="235.33333333333331" y="366" text-anchor="middle">High</text>
+<path d="" fill="var(--s1)"><title>WPS, Surge: 0.00 decisions/day</title></path>
+<path d="M299.8,348V338.5833333333333Q299.8,334.5833333333333 303.8,334.5833333333333H313.53333333333336Q317.53333333333336,334.5833333333333 317.53333333333336,338.5833333333333V348Z" fill="var(--s2)"><title>WPS-A, Surge: 1.17 decisions/day</title></path>
+<path d="M319.5333333333333,348V231.63333333333333Q319.5333333333333,227.63333333333333 323.5333333333333,227.63333333333333H333.26666666666665Q337.26666666666665,227.63333333333333 337.26666666666665,231.63333333333333V348Z" fill="var(--s3)"><title>WRR, Surge: 10.47 decisions/day</title></path>
+<text x="308.6666666666667" y="366" text-anchor="middle">Surge</text>
+<path d="" fill="var(--s1)"><title>WPS, Unequal: 0.00 decisions/day</title></path>
+<path d="M373.1333333333333,348V329.3833333333333Q373.1333333333333,325.3833333333333 377.1333333333333,325.3833333333333H386.8666666666667Q390.8666666666667,325.3833333333333 390.8666666666667,329.3833333333333V348Z" fill="var(--s2)"><title>WPS-A, Unequal: 1.97 decisions/day</title></path>
+<path d="M392.8666666666666,348V276.8666666666667Q392.8666666666666,272.8666666666667 396.8666666666666,272.8666666666667H406.59999999999997Q410.59999999999997,272.8666666666667 410.59999999999997,276.8666666666667V348Z" fill="var(--s3)"><title>WRR, Unequal: 6.53 decisions/day</title></path>
+<text x="382" y="366" text-anchor="middle">Unequal</text>
+<path d="" fill="var(--s1)"><title>WPS, Long waits: 0.00 decisions/day</title></path>
+<path d="M446.46666666666664,348V301.78333333333336Q446.46666666666664,297.78333333333336 450.46666666666664,297.78333333333336H460.2Q464.2,297.78333333333336 464.2,301.78333333333336V348Z" fill="var(--s2)"><title>WPS-A, Long waits: 4.37 decisions/day</title></path>
+<path d="M466.19999999999993,348V232.01666666666665Q466.19999999999993,228.01666666666665 470.19999999999993,228.01666666666665H479.9333333333333Q483.9333333333333,228.01666666666665 483.9333333333333,232.01666666666665V348Z" fill="var(--s3)"><title>WRR, Long waits: 10.43 decisions/day</title></path>
+<text x="455.3333333333333" y="366" text-anchor="middle">Long waits</text>
+<text class="pt" x="552" y="108">Lower score served while a higher score waited — shared</text>
+<line class="grid" x1="552" x2="992" y1="348" y2="348"/>
+<text class="ax" x="546" y="352" text-anchor="end">0</text>
+<line class="grid" x1="552" x2="992" y1="290.5" y2="290.5"/>
+<text class="ax" x="546" y="294.5" text-anchor="end">5</text>
+<line class="grid" x1="552" x2="992" y1="233" y2="233"/>
+<text class="ax" x="546" y="237" text-anchor="end">10</text>
+<line class="grid" x1="552" x2="992" y1="175.5" y2="175.5"/>
+<text class="ax" x="546" y="179.5" text-anchor="end">15</text>
+<line class="grid" x1="552" x2="992" y1="118" y2="118"/>
+<text class="ax" x="546" y="122" text-anchor="end">20</text>
+<line class="base" x1="552" x2="992" y1="348" y2="348"/>
+<path d="" fill="var(--s1)"><title>WPS, Low: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Low: 0.00 decisions/day</title></path>
+<path d="M599.5333333333334,348V347.78333333333336Q599.5333333333334,343.78333333333336 603.5333333333334,343.78333333333336H613.2666666666668Q617.2666666666668,343.78333333333336 617.2666666666668,347.78333333333336V348Z" fill="var(--s3)"><title>WRR, Low: 0.37 decisions/day</title></path>
+<text x="588.6666666666666" y="366" text-anchor="middle">Low</text>
+<path d="" fill="var(--s1)"><title>WPS, Medium: 0.00 decisions/day</title></path>
+<path d="M653.1333333333334,348V348Q653.1333333333334,345.31666666666666 655.8166666666668,345.31666666666666H668.1833333333334Q670.8666666666668,345.31666666666666 670.8666666666668,348V348Z" fill="var(--s2)"><title>WPS-A, Medium: 0.23 decisions/day</title></path>
+<path d="M672.8666666666668,348V319.4166666666667Q672.8666666666668,315.4166666666667 676.8666666666668,315.4166666666667H686.6000000000001Q690.6000000000001,315.4166666666667 690.6000000000001,319.4166666666667V348Z" fill="var(--s3)"><title>WRR, Medium: 2.83 decisions/day</title></path>
+<text x="662" y="366" text-anchor="middle">Medium</text>
+<path d="" fill="var(--s1)"><title>WPS, High: 0.00 decisions/day</title></path>
+<path d="M726.4666666666667,348V294.1166666666667Q726.4666666666667,290.1166666666667 730.4666666666667,290.1166666666667H740.2Q744.2,290.1166666666667 744.2,294.1166666666667V348Z" fill="var(--s2)"><title>WPS-A, High: 5.03 decisions/day</title></path>
+<path d="M746.2,348V251.56666666666666Q746.2,247.56666666666666 750.2,247.56666666666666H759.9333333333334Q763.9333333333334,247.56666666666666 763.9333333333334,251.56666666666666V348Z" fill="var(--s3)"><title>WRR, High: 8.73 decisions/day</title></path>
+<text x="735.3333333333333" y="366" text-anchor="middle">High</text>
+<path d="" fill="var(--s1)"><title>WPS, Surge: 0.00 decisions/day</title></path>
+<path d="M799.8000000000001,348V348Q799.8000000000001,346.0833333333333 801.7166666666667,346.0833333333333H815.6166666666668Q817.5333333333334,346.0833333333333 817.5333333333334,348V348Z" fill="var(--s2)"><title>WPS-A, Surge: 0.17 decisions/day</title></path>
+<path d="M819.5333333333334,348V284.5333333333333Q819.5333333333334,280.5333333333333 823.5333333333334,280.5333333333333H833.2666666666668Q837.2666666666668,280.5333333333333 837.2666666666668,284.5333333333333V348Z" fill="var(--s3)"><title>WRR, Surge: 5.87 decisions/day</title></path>
+<text x="808.6666666666666" y="366" text-anchor="middle">Surge</text>
+<path d="" fill="var(--s1)"><title>WPS, Unequal: 0.00 decisions/day</title></path>
+<path d="M873.1333333333333,348V347.4Q873.1333333333333,343.4 877.1333333333333,343.4H886.8666666666667Q890.8666666666667,343.4 890.8666666666667,347.4V348Z" fill="var(--s2)"><title>WPS-A, Unequal: 0.40 decisions/day</title></path>
+<path d="M892.8666666666667,348V321.3333333333333Q892.8666666666667,317.3333333333333 896.8666666666667,317.3333333333333H906.6Q910.6,317.3333333333333 910.6,321.3333333333333V348Z" fill="var(--s3)"><title>WRR, Unequal: 2.67 decisions/day</title></path>
+<text x="881.9999999999999" y="366" text-anchor="middle">Unequal</text>
+<path d="" fill="var(--s1)"><title>WPS, Long waits: 0.00 decisions/day</title></path>
+<path d="M946.4666666666667,348V263.8333333333333Q946.4666666666667,259.8333333333333 950.4666666666667,259.8333333333333H960.2Q964.2,259.8333333333333 964.2,263.8333333333333V348Z" fill="var(--s2)"><title>WPS-A, Long waits: 7.67 decisions/day</title></path>
+<path d="M966.2,348V221.28333333333333Q966.2,217.28333333333333 970.2,217.28333333333333H979.9333333333334Q983.9333333333334,217.28333333333333 983.9333333333334,221.28333333333333V348Z" fill="var(--s3)"><title>WRR, Long waits: 11.37 decisions/day</title></path>
+<text x="955.3333333333333" y="366" text-anchor="middle">Long waits</text>
+<text class="pt" x="52" y="408">Regular served while Senior/PWD/Pregnant waited — service</text>
+<line class="grid" x1="52" x2="492" y1="648" y2="648"/>
+<text class="ax" x="46" y="652" text-anchor="end">0</text>
+<line class="grid" x1="52" x2="492" y1="590.5" y2="590.5"/>
+<text class="ax" x="46" y="594.5" text-anchor="end">5</text>
+<line class="grid" x1="52" x2="492" y1="533" y2="533"/>
+<text class="ax" x="46" y="537" text-anchor="end">10</text>
+<line class="grid" x1="52" x2="492" y1="475.5" y2="475.5"/>
+<text class="ax" x="46" y="479.5" text-anchor="end">15</text>
+<line class="grid" x1="52" x2="492" y1="418" y2="418"/>
+<text class="ax" x="46" y="422" text-anchor="end">20</text>
+<line class="base" x1="52" x2="492" y1="648" y2="648"/>
+<path d="" fill="var(--s1)"><title>WPS, Low: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Low: 0.00 decisions/day</title></path>
+<path d="M99.53333333333333,648V647.4Q99.53333333333333,643.4 103.53333333333333,643.4H113.26666666666667Q117.26666666666667,643.4 117.26666666666667,647.4V648Z" fill="var(--s3)"><title>WRR, Low: 0.40 decisions/day</title></path>
+<text x="88.66666666666666" y="666" text-anchor="middle">Low</text>
+<path d="" fill="var(--s1)"><title>WPS, Medium: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Medium: 0.00 decisions/day</title></path>
+<path d="M172.86666666666667,648V633.2166666666667Q172.86666666666667,629.2166666666667 176.86666666666667,629.2166666666667H186.6Q190.6,629.2166666666667 190.6,633.2166666666667V648Z" fill="var(--s3)"><title>WRR, Medium: 1.63 decisions/day</title></path>
+<text x="162" y="666" text-anchor="middle">Medium</text>
+<path d="" fill="var(--s1)"><title>WPS, High: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, High: 0.00 decisions/day</title></path>
+<path d="M246.2,648V598.3333333333334Q246.2,594.3333333333334 250.2,594.3333333333334H259.93333333333334Q263.93333333333334,594.3333333333334 263.93333333333334,598.3333333333334V648Z" fill="var(--s3)"><title>WRR, High: 4.67 decisions/day</title></path>
+<text x="235.33333333333331" y="666" text-anchor="middle">High</text>
+<path d="" fill="var(--s1)"><title>WPS, Surge: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Surge: 0.00 decisions/day</title></path>
+<path d="M319.5333333333333,648V591.8166666666667Q319.5333333333333,587.8166666666667 323.5333333333333,587.8166666666667H333.26666666666665Q337.26666666666665,587.8166666666667 337.26666666666665,591.8166666666667V648Z" fill="var(--s3)"><title>WRR, Surge: 5.23 decisions/day</title></path>
+<text x="308.6666666666667" y="666" text-anchor="middle">Surge</text>
+<path d="" fill="var(--s1)"><title>WPS, Unequal: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Unequal: 0.00 decisions/day</title></path>
+<path d="M392.8666666666666,648V616.7333333333333Q392.8666666666666,612.7333333333333 396.8666666666666,612.7333333333333H406.59999999999997Q410.59999999999997,612.7333333333333 410.59999999999997,616.7333333333333V648Z" fill="var(--s3)"><title>WRR, Unequal: 3.07 decisions/day</title></path>
+<text x="382" y="666" text-anchor="middle">Unequal</text>
+<path d="" fill="var(--s1)"><title>WPS, Long waits: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Long waits: 0.00 decisions/day</title></path>
+<path d="M466.19999999999993,648V586.8333333333334Q466.19999999999993,582.8333333333334 470.19999999999993,582.8333333333334H479.9333333333333Q483.9333333333333,582.8333333333334 483.9333333333333,586.8333333333334V648Z" fill="var(--s3)"><title>WRR, Long waits: 5.67 decisions/day</title></path>
+<text x="455.3333333333333" y="666" text-anchor="middle">Long waits</text>
+<text class="pt" x="552" y="408">Regular served while Senior/PWD/Pregnant waited — shared</text>
+<line class="grid" x1="552" x2="992" y1="648" y2="648"/>
+<text class="ax" x="546" y="652" text-anchor="end">0</text>
+<line class="grid" x1="552" x2="992" y1="590.5" y2="590.5"/>
+<text class="ax" x="546" y="594.5" text-anchor="end">5</text>
+<line class="grid" x1="552" x2="992" y1="533" y2="533"/>
+<text class="ax" x="546" y="537" text-anchor="end">10</text>
+<line class="grid" x1="552" x2="992" y1="475.5" y2="475.5"/>
+<text class="ax" x="546" y="479.5" text-anchor="end">15</text>
+<line class="grid" x1="552" x2="992" y1="418" y2="418"/>
+<text class="ax" x="546" y="422" text-anchor="end">20</text>
+<line class="base" x1="552" x2="992" y1="648" y2="648"/>
+<path d="" fill="var(--s1)"><title>WPS, Low: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Low: 0.00 decisions/day</title></path>
+<path d="M599.5333333333334,648V648Q599.5333333333334,645.3166666666667 602.2166666666667,645.3166666666667H614.5833333333335Q617.2666666666668,645.3166666666667 617.2666666666668,648V648Z" fill="var(--s3)"><title>WRR, Low: 0.23 decisions/day</title></path>
+<text x="588.6666666666666" y="666" text-anchor="middle">Low</text>
+<path d="" fill="var(--s1)"><title>WPS, Medium: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Medium: 0.00 decisions/day</title></path>
+<path d="M672.8666666666668,648V630.5333333333333Q672.8666666666668,626.5333333333333 676.8666666666668,626.5333333333333H686.6000000000001Q690.6000000000001,626.5333333333333 690.6000000000001,630.5333333333333V648Z" fill="var(--s3)"><title>WRR, Medium: 1.87 decisions/day</title></path>
+<text x="662" y="666" text-anchor="middle">Medium</text>
+<path d="" fill="var(--s1)"><title>WPS, High: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, High: 0.00 decisions/day</title></path>
+<path d="M746.2,648V590.2833333333333Q746.2,586.2833333333333 750.2,586.2833333333333H759.9333333333334Q763.9333333333334,586.2833333333333 763.9333333333334,590.2833333333333V648Z" fill="var(--s3)"><title>WRR, High: 5.37 decisions/day</title></path>
+<text x="735.3333333333333" y="666" text-anchor="middle">High</text>
+<path d="" fill="var(--s1)"><title>WPS, Surge: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Surge: 0.00 decisions/day</title></path>
+<path d="M819.5333333333334,648V619.8Q819.5333333333334,615.8 823.5333333333334,615.8H833.2666666666668Q837.2666666666668,615.8 837.2666666666668,619.8V648Z" fill="var(--s3)"><title>WRR, Surge: 2.80 decisions/day</title></path>
+<text x="808.6666666666666" y="666" text-anchor="middle">Surge</text>
+<path d="" fill="var(--s1)"><title>WPS, Unequal: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Unequal: 0.00 decisions/day</title></path>
+<path d="M892.8666666666667,648V632.8333333333334Q892.8666666666667,628.8333333333334 896.8666666666667,628.8333333333334H906.6Q910.6,628.8333333333334 910.6,632.8333333333334V648Z" fill="var(--s3)"><title>WRR, Unequal: 1.67 decisions/day</title></path>
+<text x="881.9999999999999" y="666" text-anchor="middle">Unequal</text>
+<path d="" fill="var(--s1)"><title>WPS, Long waits: 0.00 decisions/day</title></path>
+<path d="" fill="var(--s2)"><title>WPS-A, Long waits: 0.00 decisions/day</title></path>
+<path d="M966.2,648V580.7Q966.2,576.7 970.2,576.7H979.9333333333334Q983.9333333333334,576.7 983.9333333333334,580.7V648Z" fill="var(--s3)"><title>WRR, Long waits: 6.20 decisions/day</title></path>
+<text x="955.3333333333333" y="666" text-anchor="middle">Long waits</text>
+<text class="ax" x="52" y="700">Synthetic simulation (backend/simulation). Hover a bar for its value; numbers are in tables.md.</text>
+</svg>

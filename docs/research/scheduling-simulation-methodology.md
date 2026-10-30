@@ -6,6 +6,16 @@ Code: `backend/simulation/` · Tests: `backend/test/simulation.test.js` · Repro
 node simulation/run.js ../output/simulation 30 20261029
 ```
 
+```bash
+node simulation/report.js ../output/simulation
+```
+
+`report.js` adds comparison tables, paired structure-versus-policy effects, a per-replication CSV, SVG charts and
+a step-by-step trace of one seeded day; it reads `results.json` and never changes a result. The committed run,
+with seeds and hashes, is `docs/research/simulation-results-20261030/`, written up in
+`docs/research/wps-a-vs-wrr-simulation-report-20261030.md` (adviser walkthrough:
+`docs/research/adviser-simulation-demo-guide.md`).
+
 The simulation is a research tool. It is never used by the live queue, and WRR is never offered as a live
 scheduler.
 

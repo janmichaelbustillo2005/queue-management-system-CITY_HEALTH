@@ -1,0 +1,328 @@
+// Algorithm Simulation page (Superadmin, Simulation Mode): controls, synthetic-only labelling,
+// explanations and isolation from the API. Components run in a small hook renderer (no DOM) with
+// fake timers; fetch throws, so any network use would fail the test.
+const { before, test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const swc = require("next/dist/build/swc");
+
+const ROOT = path.join(__dirname, "..");
+const SOURCES = {
+  lib: "lib/algorithmSimulation.js", component: "components/AlgorithmSimulation.js",
+  page: "pages/algorithm-simulation.js", navigation: "lib/navigation.js"
+};
+const compiled = {};
+before(async () => {
+  await swc.loadBindings();
+  for (const [name, relative] of Object.entries(SOURCES)) {
+    const filename = path.join(ROOT, relative);
+    compiled[name] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
+      filename,
+      jsc: { parser: { syntax: "ecmascript", jsx: true }, transform: { react: { runtime: "automatic" } } },
+      module: { type: "commonjs" }
+    })).code;
+  }
+});
+
+const Fragment = Symbol("Fragment");
+const jsxRuntime = { jsx: (type, props, key) => ({ type, key, props: props || {} }), jsxs: (type, props, key) => ({ type, key, props: props || {} }), Fragment };
+const css = new Proxy({}, { get: (_target, key) => (typeof key === "string" ? key : undefined) });
+
+function nodes(tree, predicate, found = []) {
+  if (Array.isArray(tree)) tree.forEach((child) => nodes(child, predicate, found));
+  else if (tree && typeof tree === "object" && tree.props) {
+    if (predicate(tree)) found.push(tree);
+    nodes(tree.props.children, predicate, found);
+  }
+  return found;
+}
+function text(tree) {
+  if (tree == null || typeof tree === "boolean") return "";
+  if (typeof tree === "string" || typeof tree === "number") return String(tree);
+  if (Array.isArray(tree)) return tree.map(text).join("");
+  return text(tree.props?.children);
+}
+const button = (tree, label) => {
+  const found = nodes(tree, (n) => n.type === "button" && text(n).trim() === label);
+  assert.equal(found.length, 1, `one "${label}" button`);
+  return found[0];
+};
+const byClass = (tree, name) => nodes(tree, (n) => String(n.props.className || "").split(/\s+/).includes(name));
+
+// Runs function components with per-instance hooks and effects after each render.
+function createHarness() {
+  const instances = new Map();
+  let active, pending = [];
+  const slot = () => ({ instance: active, index: active.cursor++ });
+  const changed = (a, b) => !a || !b || a.length !== b.length || a.some((v, i) => v !== b[i]);
+  const react = {
+    useState(initial) {
+      const { instance, index } = slot();
+      if (!(index in instance.hooks)) instance.hooks[index] = { value: typeof initial === "function" ? initial() : initial };
+      const s = instance.hooks[index];
+      return [s.value, (next) => { s.value = typeof next === "function" ? next(s.value) : next; }];
+    },
+    useRef(initial) {
+      const { instance, index } = slot();
+      if (!(index in instance.hooks)) instance.hooks[index] = { current: initial };
+      return instance.hooks[index];
+    },
+    useMemo(callback, deps) {
+      const { instance, index } = slot();
+      const s = instance.hooks[index];
+      if (!s || changed(s.deps, deps)) instance.hooks[index] = { deps, value: callback() };
+      return instance.hooks[index].value;
+    },
+    useEffect(callback, deps) {
+      const { instance, index } = slot();
+      const s = instance.hooks[index];
+      if (!s || changed(s.deps, deps)) {
+        const next = { deps, cleanup: s?.cleanup };
+        instance.hooks[index] = next;
+        pending.push(() => { next.cleanup?.(); next.cleanup = callback() || undefined; });
+      }
+    }
+  };
+  function expand(node, at) {
+    if (Array.isArray(node)) return node.map((child, i) => expand(child, `${at}[${child?.key ?? i}]`));
+    if (!node || typeof node !== "object" || !node.props) return node;
+    if (node.type === Fragment) return expand(node.props.children, at);
+    if (typeof node.type === "function") {
+      const id = `${at}/${node.type.name}`;
+      if (!instances.has(id)) instances.set(id, { hooks: [] });
+      const previous = active;
+      active = instances.get(id);
+      active.cursor = 0;
+      const output = node.type(node.props);
+      active = previous;
+      return expand(output, id);
+    }
+    return { ...node, props: { ...node.props, children: expand(node.props.children, `${at}>${String(node.type)}`) } };
+  }
+  // Fake browser: timers run only when the test fires them; fetch is forbidden.
+  const timers = new Map();
+  let nextTimer = 1, now = 0;
+  const listeners = {};
+  const globals = {
+    window: { addEventListener: (name, fn) => { (listeners[name] ||= new Set()).add(fn); }, removeEventListener: (name, fn) => listeners[name]?.delete(fn) },
+    performance: { now: () => now },
+    setInterval: (fn) => { timers.set(nextTimer, fn); return nextTimer++; },
+    clearInterval: (id) => { timers.delete(id); },
+    fetch: () => { throw new Error("the simulation must not use the network"); }
+  };
+  return {
+    react, globals, listeners, timers,
+    elapse(ms) { now += ms; for (const fn of [...timers.values()]) fn(); },
+    render(element) {
+      const tree = expand(element, "root");
+      const effects = pending.splice(0);
+      effects.forEach((effect) => effect());
+      return tree;
+    }
+  };
+}
+
+function load(name, requireMap, globals = {}) {
+  const module = { exports: {} };
+  const filename = path.join(ROOT, SOURCES[name]);
+  const localRequire = (spec) => {
+    if (spec in requireMap) return requireMap[spec];
+    if (spec.startsWith(".")) return require(path.resolve(path.dirname(filename), spec));
+    throw new Error(`unexpected import ${spec} in ${SOURCES[name]}`);
+  };
+  vm.runInNewContext(compiled[name], { module, exports: module.exports, console, Math, Number, String, Object, Array, Set, Map, JSON, Symbol, ...globals, require: localRequire });
+  return module.exports;
+}
+const loadLib = () => load("lib", {});
+
+function mount() {
+  const harness = createHarness();
+  const lib = loadLib();
+  const component = load("component", {
+    react: harness.react, "react/jsx-runtime": jsxRuntime, "./AlgorithmSimulation.module.css": { __esModule: true, default: css },
+    "../lib/algorithmSimulation": lib
+  }, harness.globals);
+  const Simulation = component.default;
+  let tree;
+  const view = {
+    harness, lib,
+    render() { tree = harness.render(jsxRuntime.jsx(Simulation, {})); tree = harness.render(jsxRuntime.jsx(Simulation, {})); return tree; },
+    get tree() { return tree; },
+    clock() { return text(byClass(tree, "clock")[0]); },
+    click(label) { button(tree, label).props.onClick(); return view.render(); }
+  };
+  view.render();
+  return view;
+}
+
+test("the page is labelled Simulation Mode — Synthetic Data Only and opens in side-by-side comparison", () => {
+  const view = mount();
+  const all = text(view.tree);
+  assert.match(all, /Simulation Mode — Synthetic Data Only/);
+  assert.equal(text(byClass(view.tree, "cornerBadge")).trim(), "Simulation Mode · Synthetic Data Only", "a fixed badge keeps the label in view while scrolling");
+  assert.match(all, /Nothing here reads or changes patient records, the live queue, Call Now or the database/);
+  assert.match(all, /identical for WPS-A and WRR/);
+  assert.equal(view.clock(), "08:00:00");
+  const pressed = nodes(view.tree, (n) => n.type === "button" && n.props["aria-pressed"] === true).map((n) => text(n));
+  assert.deepEqual(pressed, ["Side-by-side comparison"]);
+  assert.deepEqual(nodes(view.tree, (n) => n.type === "h3" && /^(WPS-A|WRR) —/.test(text(n))).map(text),
+    ["WPS-A — Weighted Priority Scheduling with Aging", "WRR — Weighted Round Robin (research baseline)"]);
+  for (const label of ["Start", "Pause", "Next Step", "Reset"]) button(view.tree, label);
+  assert.equal(button(view.tree, "Pause").props.disabled, true);
+  assert.equal(byClass(view.tree, "doctor").length, 6, "three virtual doctors per algorithm");
+});
+
+test("Next Step moves to the next arrival, call or completion; Reset returns to opening", () => {
+  const view = mount();
+  const { buildRun, nextEventTime, clock } = view.lib;
+  const run = buildRun("long-waits", 20261029);
+  const first = nextEventTime([run.timelines["WPS-A"], run.timelines.WRR], 0);
+  view.click("Next Step");
+  assert.equal(view.clock(), clock(first));
+  view.click("Next Step");
+  assert.equal(view.clock(), clock(nextEventTime([run.timelines["WPS-A"], run.timelines.WRR], first)));
+  assert.match(text(view.tree), /Serving/);
+  view.click("Reset");
+  assert.equal(view.clock(), "08:00:00");
+});
+
+test("Start and Pause run the simulated clock at the chosen speed", () => {
+  const view = mount();
+  view.click("Start");
+  assert.equal(view.harness.timers.size, 1);
+  assert.equal(button(view.tree, "Start").props.disabled, true);
+  view.harness.elapse(1000);
+  view.render();
+  assert.equal(view.clock(), "08:02:00", "default speed is 2 simulated minutes per second");
+  view.click("Pause");
+  assert.equal(view.harness.timers.size, 0);
+  view.harness.elapse(5000);
+  assert.equal(view.render() && view.clock(), "08:02:00", "paused time stands still");
+  nodes(view.tree, (n) => n.type === "select" && nodes(n, (o) => o.type === "option" && o.props.value === 20).length)[0].props.onChange({ target: { value: "20" } });
+  view.render();
+  view.click("Start");
+  view.harness.elapse(1500);
+  view.render();
+  assert.equal(view.clock(), "08:32:00");
+});
+
+test("the Aging jump shows WPS-A calling an aged Regular and explains why", () => {
+  const view = mount();
+  view.click("Next Aging overtake");
+  assert.equal(view.clock(), "09:55:04");
+  const panel = nodes(view.tree, (n) => n.type === "section" && n.props["aria-labelledby"] === "sim-WPS-A")[0];
+  const explanation = text(byClass(panel, "explanation")[0]);
+  assert.match(explanation, /Doctor 1 called P032 Regular/);
+  assert.match(explanation, /base score 1 \+ Aging bonus 2 .*= effective score 3/);
+  assert.match(explanation, /Aging changed this call: without the bonus \(original WPS\) P053 Indigenous/);
+  assert.match(text(panel), /10-minute Aging rule/);
+  const headers = nodes(panel, (n) => n.type === "th").map(text);
+  for (const h of ["Registered", "Category", "Base score", "Aging bonus", "Effective score", "Waiting"]) assert.ok(headers.includes(h), h);
+});
+
+test("WRR mode shows its weighted rotation and explains each class turn", () => {
+  const view = mount();
+  view.click("WRR");
+  assert.equal(nodes(view.tree, (n) => n.type === "section" && /^sim-/.test(n.props["aria-labelledby"] || "")).length, 1);
+  view.click("Next WRR lower-class turn");
+  const all = text(view.tree);
+  assert.match(all, /Weighted rotation/);
+  assert.match(all, /turn: \d of \d left/);
+  assert.match(all, /Class w\d had \d+ waiting and \d of \d calls? left/);
+  assert.match(all, /Recent events/);
+  assert.doesNotMatch(all, /Next Aging overtake/, "single WRR mode offers only the WRR jump");
+});
+
+test("a seed must be a whole number; a new seed reloads the same day for both algorithms", () => {
+  const view = mount();
+  const seedInput = () => nodes(view.tree, (n) => n.type === "input" && n.props.inputMode === "numeric")[0];
+  seedInput().props.onChange({ target: { value: "12x" } });
+  view.render();
+  view.click("Load seed");
+  assert.match(text(nodes(view.tree, (n) => n.props.role === "alert")), /whole number/);
+  seedInput().props.onChange({ target: { value: "7" } });
+  view.render();
+  view.click("Load seed");
+  assert.equal(nodes(view.tree, (n) => n.props.role === "alert").length, 0);
+  assert.match(text(view.tree), /Seed 7: \d+ synthetic patients, identical for WPS-A and WRR/);
+});
+
+test("keyboard: Space starts and pauses, Right arrow steps, R resets", () => {
+  const view = mount();
+  const press = (key) => { for (const fn of view.harness.listeners.keydown) fn({ key, target: { closest: () => null }, preventDefault() {} }); return view.render(); };
+  press(" ");
+  assert.equal(view.harness.timers.size, 1);
+  press(" ");
+  assert.equal(view.harness.timers.size, 0);
+  press("ArrowRight");
+  assert.notEqual(view.clock(), "08:00:00");
+  press("r");
+  assert.equal(view.clock(), "08:00:00");
+});
+
+test("helpers: playback clamps at the end, seeds are validated, the comparison marks the better value", () => {
+  const lib = loadLib();
+  assert.equal(lib.advance(10, 2, 1000, 600), 12);
+  assert.equal(lib.advance(599, 20, 1000, 600), 600);
+  assert.equal(lib.parseSeed(" 42 "), 42);
+  for (const bad of ["", "-1", "1.5", "abc", "1234567890"]) assert.equal(lib.parseSeed(bad), null, bad);
+  assert.equal(lib.formatDuration(75.5), "1:15:30");
+  assert.equal(lib.formatDuration(9.25), "9:15");
+  const run = lib.buildRun("priority-surge", 20261029);
+  const end = Object.fromEntries(lib.ALGORITHM_IDS.map((a) => [a, lib.snapshotAt(run.timelines[a], run.end)]));
+  const rows = lib.comparisonRows(end);
+  const violations = rows.find((r) => r.label.startsWith("Priority-lane violations"));
+  assert.equal(violations.values[0], "0");
+  assert.equal(violations.better, "WPS-A");
+  const completed = rows.find((r) => r.label === "Completed consultations");
+  assert.equal(completed.values[0], completed.values[1], "both algorithms finish the same patients");
+  assert.equal(completed.values[0], String(run.timelines["WPS-A"].patients.length));
+  for (const label of ["Average wait (called patients)", "95th-percentile wait", "Maximum wait"]) {
+    for (const value of rows.find((r) => r.label === label).values) assert.match(value, /^\d+\.\d min$/, `${label} uses one decimal for both algorithms`);
+  }
+  assert.equal(lib.sliderTime(run.end - 0.1, run.end), run.end, "the slider's last step reaches the exact end of the day");
+  assert.equal(lib.sliderTime(120, run.end), 120);
+});
+
+test("dragging the time slider to its end completes every synthetic patient", () => {
+  const view = mount();
+  const slider = nodes(view.tree, (n) => n.type === "input" && n.props.type === "range")[0];
+  const snapped = Math.floor(slider.props.max / 0.25) * 0.25;   // what a browser reports at the far right
+  slider.props.onChange({ target: { value: String(snapped) } });
+  const tree = view.render();
+  const table = nodes(tree, (n) => n.type === "tr" && text(n).startsWith("Completed consultations"))[0];
+  const total = view.lib.buildRun("long-waits", 20261029).timelines["WPS-A"].patients.length;
+  assert.deepEqual(nodes(table, (n) => n.type === "td").map(text), [String(total), String(total)]);
+  assert.match(text(tree), /Day complete/);
+});
+
+test("the page is Superadmin-only and the simulation never touches the API or database", () => {
+  const route = (user) => {
+    const harness = createHarness();
+    const router = { replaced: [], replace(url) { this.replaced.push(url); } };
+    const page = load("page", {
+      react: harness.react, "react/jsx-runtime": jsxRuntime, "next/router": { useRouter: () => router },
+      "../context/AuthContext": { useAuth: () => ({ user, loading: false }) },
+      "../components/SiteFrame": { __esModule: true, default: function SiteFrame(props) { return { type: "site-frame", props }; } },
+      "../components/AlgorithmSimulation": { __esModule: true, default: function AlgorithmSimulation() { return { type: "simulation", props: {} }; } }
+    });
+    const tree = harness.render(jsxRuntime.jsx(page.default, {}));
+    return { tree, router };
+  };
+  for (const user of [null, { id_num: "frontdesk", role: "admin" }, { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" }]) {
+    const { tree, router } = route(user);
+    assert.deepEqual(router.replaced, ["/login"]);
+    assert.equal(nodes(tree, (n) => n.type === "simulation").length, 0);
+  }
+  const { tree, router } = route({ id_num: "superadmin", role: "superadmin" });
+  assert.deepEqual(router.replaced, []);
+  assert.match(tree.props.title, /Synthetic Data Only/);
+  for (const name of ["lib", "component", "page"]) {
+    const source = fs.readFileSync(path.join(ROOT, SOURCES[name]), "utf8");
+    assert.doesNotMatch(source, /lib\/api|request\(|fetch\(|supabase|localStorage/i, SOURCES[name]);
+  }
+  const lib = fs.readFileSync(path.join(ROOT, SOURCES.lib), "utf8");
+  assert.match(lib, /from "\.\.\/\.\.\/backend\/simulation\/visual"/, "the page reuses the research simulator, not a copy");
+});

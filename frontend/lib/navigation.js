@@ -86,6 +86,10 @@ const SUPERADMIN_GROUPS = [
   { id: "reports", label: "Reports & Analytics", items: [
     link("analytics", "Analytics", "fas fa-chart-bar", "/analytics", (at) => at.path === "/analytics")
   ] },
+  // Synthetic research simulation only: no patient records, queue or database behind it.
+  { id: "simulation", label: "Simulation Mode", items: [
+    link("algorithm-simulation", "Algorithm Simulation", "fas fa-project-diagram", "/algorithm-simulation", (at) => at.path === "/algorithm-simulation")
+  ] },
   { id: "administration", label: "System Administration", items: [
     link("staff-management", "Staff Management", "fas fa-user-cog", "/?section=staff", (at) => onDashboard(at, "staff")),
     // Pages that own the Settings dialog open it in place; elsewhere this link opens it on the dashboard.

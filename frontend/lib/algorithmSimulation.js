@@ -1,13 +1,19 @@
 // Algorithm Simulation page (Superadmin, Simulation Mode). Every number comes from the research
 // simulator in backend/simulation: visual.js reruns the unchanged engine, WPS-A ranking
-// (src/lib/wpsPriority.js) and WRR policy on one seeded synthetic workload. Nothing here calls the
-// API, reads patient records or touches the live queue.
+// (src/lib/wpsPriority.js) and WRR policy on one seeded synthetic workload, and experiments.js
+// computes the results from those simulated events. Nothing here calls the API, reads patient
+// records or touches the live queue.
 import {
-  DEFAULT_SCENARIO, DEFAULT_SEED, SCENARIO_OPTIONS, AGING_STEP_MINUTES, AGING_MAX_BONUS,
+  DEFAULT_SCENARIO, DEFAULT_SEED, DEFAULT_COUNT, SCENARIO_OPTIONS, AGING_STEP_MINUTES, AGING_MAX_BONUS,
   buildTimeline, snapshotAt, nextEventTime, highlightTimes, queueLengthSeries, clock
 } from "../../backend/simulation/visual";
+import { CRITERIA, GROUP_LABELS, STARVATION_WINDOW, STARVATION_MIN_CALLS, CAP_MINUTES, analyzeExperiment, formatValue } from "../../backend/simulation/experiments";
+import { MIN_COUNT, MAX_COUNT } from "../../backend/simulation/experiment-scenarios";
 
-export { DEFAULT_SCENARIO, DEFAULT_SEED, SCENARIO_OPTIONS, AGING_STEP_MINUTES, AGING_MAX_BONUS, snapshotAt, nextEventTime, clock };
+export {
+  DEFAULT_SCENARIO, DEFAULT_SEED, DEFAULT_COUNT, SCENARIO_OPTIONS, AGING_STEP_MINUTES, AGING_MAX_BONUS, MIN_COUNT, MAX_COUNT,
+  CRITERIA, GROUP_LABELS, STARVATION_WINDOW, STARVATION_MIN_CALLS, CAP_MINUTES, formatValue, snapshotAt, nextEventTime, clock
+};
 
 export const ALGORITHM_IDS = ["WPS-A", "WRR"];
 export const MODES = [
@@ -28,16 +34,16 @@ export const ALGORITHM_INFO = {
 // Simulated minutes per real second.
 export const SPEEDS = [0.5, 1, 2, 5, 10, 20];
 export const DEFAULT_SPEED = 2;
-export const SCENARIO_LABELS = {
-  "low-volume": "Low volume", "medium-volume": "Medium volume", "high-volume": "High volume",
-  "priority-surge": "Priority surge", "unequal-workload": "Unequal workload", "long-waits": "Long waits (morning overload)"
-};
+export const SCENARIO_LABELS = Object.fromEntries(SCENARIO_OPTIONS.map((s) => [s.value, s.label]));
+export const scenarioOption = (scenario) => SCENARIO_OPTIONS.find((s) => s.value === scenario);
 
-// Both algorithms on the same seeded day: identical patients, consultation lengths and doctors.
-export function buildRun(scenario, seed) {
-  const timelines = Object.fromEntries(ALGORITHM_IDS.map((algorithm) => [algorithm, buildTimeline({ scenario, seed, algorithm })]));
+// Both algorithms on the same seeded workload: identical patients, consultation lengths and
+// doctors. `analysis` holds the results computed from both finished timelines.
+export function buildRun(scenario, seed, count = DEFAULT_COUNT) {
+  const timelines = Object.fromEntries(ALGORITHM_IDS.map((algorithm) => [algorithm, buildTimeline({ scenario, seed, count, algorithm })]));
   return {
-    scenario, seed, timelines,
+    scenario, seed, count: timelines[ALGORITHM_IDS[0]].count, timelines, analysis: analyzeExperiment(timelines),
+    cutoff: timelines[ALGORITHM_IDS[0]].cutoff,
     series: Object.fromEntries(ALGORITHM_IDS.map((algorithm) => [algorithm, queueLengthSeries(timelines[algorithm])])),
     highlights: Object.fromEntries(ALGORITHM_IDS.map((algorithm) => [algorithm, highlightTimes(timelines[algorithm])])),
     end: Math.max(...ALGORITHM_IDS.map((algorithm) => timelines[algorithm].end))
@@ -67,7 +73,15 @@ export function parseSeed(value) {
   return Number(text);
 }
 
-export const formatMinutes = (value, digits = 1) => (value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(digits)} min`);
+// A patient count is a whole number in the experiments' range; anything else keeps the current count.
+export function parseCount(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{1,4}$/.test(text)) return null;
+  const count = Number(text);
+  return count >= MIN_COUNT && count <= MAX_COUNT ? count : null;
+}
+
+export const formatMinutes =(value, digits = 1) => (value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(digits)} min`);
 export const formatPercent = (value) => (value == null || !Number.isFinite(value) ? "—" : `${Math.round(value * 100)}%`);
 // Waiting duration as m:ss (or h:mm:ss past an hour).
 export function formatDuration(minutes) {
@@ -114,11 +128,15 @@ export function comparisonRows(snapshots) {
     row("Completed consultations", "completed", count, null),
     row("Waiting now", "waiting", count, null),
     row("Average wait (called patients)", "avgWait", formatMinutes, true),
+    row("Average wait — Regular (called)", "regularAvgWait", formatMinutes, true),
+    row("Average wait — Vulnerable (called)", "vulnerableAvgWait", formatMinutes, true),
     row("95th-percentile wait", "p95Wait", formatMinutes, true),
     row("Maximum wait", "maxWait", formatMinutes, true),
     row("Longest wait still in the queue", "longestWaitingNow", formatMinutes, true),
     row("Jain fairness index (1 = equal waits)", "jainFairness", fairness, false),
     ...["Doctor 1", "Doctor 2", "Doctor 3"].map((d) => row(`${d} utilization`, (m) => m.utilization[d], formatPercent, null)),
+    row("Regular patients waiting now", "regularWaiting", count, null),
+    row("Regular bypasses so far (a later registration called while a Regular waited)", "regularBypasses", count, true),
     row("Priority-lane violations (Regular called while Senior/PWD/Pregnant waited)", "regularBeforeProtected", count, true),
     row("Calls of a lower base score while a higher one waited", "lowerScoreFirst", count, null),
     row("Calls changed by the Aging bonus", "agingOvertakes", count, null)

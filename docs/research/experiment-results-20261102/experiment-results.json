@@ -1,0 +1,7792 @@
+{
+ "replications": 30,
+ "baseSeed": 20261029,
+ "algorithms": [
+  "WPS-A",
+  "WRR"
+ ],
+ "replicated": [
+  {
+   "scenario": "regular-majority",
+   "count": 100,
+   "baseSeed": 20261029,
+   "replications": 30,
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 100,
+       "ci95": 0,
+       "min": 100,
+       "max": 100,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 100,
+       "ci95": 0,
+       "min": 100,
+       "max": 100,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 4.490564222151661,
+       "ci95": 0.9429865930193164,
+       "min": 1.4237155802908914,
+       "max": 11.959719042640499,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 4.489905113588113,
+       "ci95": 0.9421851543109938,
+       "min": 1.4237155802908914,
+       "max": 11.939853959988154,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 1,
+      "tie": 28
+     }
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 17.893367657006483,
+       "ci95": 2.9304113577946285,
+       "min": 7.586956239830149,
+       "max": 36.93722959588472,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 17.915823113753195,
+       "ci95": 2.9671813906457336,
+       "min": 7.586956239830149,
+       "max": 36.93722959588472,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 6,
+      "WRR": 1,
+      "tie": 23
+     }
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 23.916438959293966,
+       "ci95": 3.3752033511274746,
+       "min": 10.221043739711966,
+       "max": 44.30989801683833,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 24.03405902070648,
+       "ci95": 3.3768538686143774,
+       "min": 10.221043739711966,
+       "max": 44.30989801683833,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 6,
+      "WRR": 3,
+      "tie": 21
+     }
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 5.158296680945479,
+       "ci95": 1.1286108844085438,
+       "min": 1.5655273967846421,
+       "max": 14.322797300982177,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 5.1517162983868285,
+       "ci95": 1.137527761204222,
+       "min": 1.5655273967846421,
+       "max": 14.39215322628375,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 4,
+      "WRR": 3,
+      "tie": 23
+     }
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 18.4728500505596,
+       "ci95": 3.023723892521741,
+       "min": 7.586956239830149,
+       "max": 38.776491288447474,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 18.45098221569817,
+       "ci95": 3.0556775222623416,
+       "min": 7.586956239830149,
+       "max": 38.776491288447474,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 5,
+      "WRR": 4,
+      "tie": 21
+     }
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 23.916438959293966,
+       "ci95": 3.3752033511274746,
+       "min": 10.221043739711966,
+       "max": 44.30989801683833,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 24.03405902070648,
+       "ci95": 3.3768538686143774,
+       "min": 10.221043739711966,
+       "max": 44.30989801683833,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 6,
+      "WRR": 3,
+      "tie": 21
+     }
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 1.8196343869763885,
+       "ci95": 0.3131843026765231,
+       "min": 0.5376625469048932,
+       "max": 3.9159558730059514,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1.8426603743932455,
+       "ci95": 0.2897486639665466,
+       "min": 0.5376625469048932,
+       "max": 3.6783416156793747,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 5,
+      "WRR": 4,
+      "tie": 21
+     }
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 6.745113465465031,
+       "ci95": 1.2151962749627179,
+       "min": 2.5552611330125936,
+       "max": 17.200923293649705,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 6.60089877494392,
+       "ci95": 1.0162532621374107,
+       "min": 2.5059743592470918,
+       "max": 12.992832590710465,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 3,
+      "WRR": 4,
+      "tie": 23
+     }
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 11.09705400994912,
+       "ci95": 2.5667023500836597,
+       "min": 3.6996609892561523,
+       "max": 30.115674850727814,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 11.375505087816226,
+       "ci95": 2.5298379794069334,
+       "min": 3.6996609892561523,
+       "max": 30.115674850727814,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 4,
+      "WRR": 0,
+      "tie": 26
+     }
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 18.9,
+       "ci95": 5.125160599670394,
+       "min": 1,
+       "max": 57,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 18.766666666666666,
+       "ci95": 5.3282002942343425,
+       "min": 1,
+       "max": 60,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 3,
+      "WRR": 5,
+      "tie": 22
+     }
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 2.2666666666666666,
+       "ci95": 0.41956708211973376,
+       "min": 1,
+       "max": 5,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 2.1666666666666665,
+       "ci95": 0.4416149394996415,
+       "min": 1,
+       "max": 5,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 2,
+      "tie": 27
+     }
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 2.5,
+       "ci95": 1.514569549258214,
+       "min": 0,
+       "max": 16,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 2.533333333333333,
+       "ci95": 1.4367187818907179,
+       "min": 0,
+       "max": 14,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 3,
+      "WRR": 2,
+      "tie": 25
+     }
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.4,
+       "ci95": 0.24142565072416441,
+       "min": 0,
+       "max": 2,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 9,
+      "WRR": 0,
+      "tie": 21
+     }
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.26666666666666666,
+       "ci95": 0.26469107273324194,
+       "min": 0,
+       "max": 3,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.43333333333333335,
+       "ci95": 0.27692022725062243,
+       "min": 0,
+       "max": 3,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 12.513688323536599,
+       "ci95": 0.10013701623203036,
+       "min": 12.120938301368119,
+       "max": 13.51029250054663,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 12.513688323536599,
+       "ci95": 0.10013701623203036,
+       "min": 12.120938301368119,
+       "max": 13.51029250054663,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.6192082192124123,
+       "ci95": 0.01078914960846259,
+       "min": 0.5755942795740224,
+       "max": 0.69059277605378,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.6192082192124123,
+       "ci95": 0.010789149608462592,
+       "min": 0.5755942795740224,
+       "max": 0.69059277605378,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 479.6977030468176,
+       "ci95": 3.689642447357306,
+       "min": 444.10585483306437,
+       "max": 495.0111823704907,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 479.6977030468176,
+       "ci95": 3.689642447357306,
+       "min": 444.10585483306437,
+       "max": 495.0111823704907,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    }
+   ],
+   "byGroup": {
+    "regular": {
+     "WPS-A": {
+      "avg": {
+       "mean": 5.158296680945479,
+       "ci95": 1.1286108844085438,
+       "min": 1.5655273967846421,
+       "max": 14.322797300982177,
+       "n": 30
+      },
+      "max": {
+       "mean": 23.916438959293966,
+       "ci95": 3.3752033511274746,
+       "min": 10.221043739711966,
+       "max": 44.30989801683833,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 5.1517162983868285,
+       "ci95": 1.137527761204222,
+       "min": 1.5655273967846421,
+       "max": 14.39215322628375,
+       "n": 30
+      },
+      "max": {
+       "mean": 24.03405902070648,
+       "ci95": 3.3768538686143774,
+       "min": 10.221043739711966,
+       "max": 44.30989801683833,
+       "n": 30
+      }
+     }
+    },
+    "senior": {
+     "WPS-A": {
+      "avg": {
+       "mean": 1.2986399049775792,
+       "ci95": 0.2748537206136549,
+       "min": 0.005606292698940608,
+       "max": 3.0987792336122153,
+       "n": 30
+      },
+      "max": {
+       "mean": 4.874392016917295,
+       "ci95": 1.050490294297388,
+       "min": 0.03924404889258426,
+       "max": 13.719596421495254,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 1.377625611843919,
+       "ci95": 0.2833185674668618,
+       "min": 0.005606292698940608,
+       "max": 3.19627279252799,
+       "n": 30
+      },
+      "max": {
+       "mean": 5.106234465022927,
+       "ci95": 1.1019073921418188,
+       "min": 0.03924404889258426,
+       "max": 13.719596421495254,
+       "n": 30
+      }
+     }
+    },
+    "pwd": {
+     "WPS-A": {
+      "avg": {
+       "mean": 1.8720910351390845,
+       "ci95": 0.5977021258441544,
+       "min": 0,
+       "max": 5.874248990566038,
+       "n": 30
+      },
+      "max": {
+       "mean": 4.363204741717679,
+       "ci95": 1.3396189697711023,
+       "min": 0,
+       "max": 14.712868585639555,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 1.901620296413609,
+       "ci95": 0.602335400965164,
+       "min": 0,
+       "max": 5.874248990566038,
+       "n": 30
+      },
+      "max": {
+       "mean": 4.446159802565244,
+       "ci95": 1.370570003958067,
+       "min": 0,
+       "max": 14.712868585639555,
+       "n": 30
+      }
+     }
+    },
+    "pregnant": {
+     "WPS-A": {
+      "avg": {
+       "mean": 1.8995375946355475,
+       "ci95": 0.5698222995839018,
+       "min": 0,
+       "max": 5.438057922294114,
+       "n": 30
+      },
+      "max": {
+       "mean": 3.8975032559233846,
+       "ci95": 1.1115241088034788,
+       "min": 0,
+       "max": 10.42623348365288,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 1.9278550026154688,
+       "ci95": 0.585638889172118,
+       "min": 0,
+       "max": 5.438057922294114,
+       "n": 30
+      },
+      "max": {
+       "mean": 4.015773837667136,
+       "ci95": 1.1672995065033531,
+       "min": 0,
+       "max": 12.322827336521243,
+       "n": 30
+      }
+     }
+    },
+    "indigenous": {
+     "WPS-A": {
+      "avg": {
+       "mean": 1.9331225645329806,
+       "ci95": 0.8200132262390166,
+       "min": 0,
+       "max": 8.876716651256366,
+       "n": 30
+      },
+      "max": {
+       "mean": 3.4638147364184784,
+       "ci95": 1.5172145551015386,
+       "min": 0,
+       "max": 16.75239649750992,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 1.3320371967570663,
+       "ci95": 0.5554170900445272,
+       "min": 0,
+       "max": 6.786971050114431,
+       "n": 30
+      },
+      "max": {
+       "mean": 2.2720002409025026,
+       "ci95": 0.9783502220832272,
+       "min": 0,
+       "max": 12.247153866752228,
+       "n": 30
+      }
+     }
+    },
+    "solo_parent": {
+     "WPS-A": {
+      "avg": {
+       "mean": 4.037431771691705,
+       "ci95": 1.8246147401019468,
+       "min": 0,
+       "max": 20.28211356908991,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.335000052471543,
+       "ci95": 3.265155185858009,
+       "min": 0,
+       "max": 30.115674850727814,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 4.047386514481388,
+       "ci95": 1.8283697323608357,
+       "min": 0,
+       "max": 20.28211356908991,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.358769065839124,
+       "ci95": 3.275332646757644,
+       "min": 0,
+       "max": 30.115674850727814,
+       "n": 30
+      }
+     }
+    },
+    "multiple": {
+     "WPS-A": {
+      "avg": {
+       "mean": 1.3487379476371497,
+       "ci95": 0.4380056586611053,
+       "min": 0,
+       "max": 4.674623220897677,
+       "n": 30
+      },
+      "max": {
+       "mean": 3.0087464598424125,
+       "ci95": 0.9544384665353958,
+       "min": 0,
+       "max": 10.96286206959023,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 1.6541849617977804,
+       "ci95": 0.5536137241576177,
+       "min": 0,
+       "max": 5.744940691837374,
+       "n": 30
+      },
+      "max": {
+       "mean": 3.4670592072379964,
+       "ci95": 1.0733640683573114,
+       "min": 0,
+       "max": 10.96286206959023,
+       "n": 30
+      }
+     }
+    }
+   },
+   "sameOrderRuns": 18,
+   "overloadedRuns": 23,
+   "offeredLoad": {
+    "mean": 0.6313330702065834,
+    "ci95": 0.012187272308214692,
+    "min": 0.5818032893673434,
+    "max": 0.7006851946538319,
+    "n": 30
+   },
+   "laterRegularAheadOfVulnerable": {
+    "WPS-A": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    },
+    "WRR": {
+     "mean": 0.03333333333333333,
+     "ci95": 0.06533333333333331,
+     "min": 0,
+     "max": 1,
+     "n": 30
+    }
+   }
+  },
+  {
+   "scenario": "vulnerable-majority",
+   "count": 100,
+   "baseSeed": 20261029,
+   "replications": 30,
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 100,
+       "ci95": 0,
+       "min": 100,
+       "max": 100,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 100,
+       "ci95": 0,
+       "min": 100,
+       "max": 100,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 6.411223473223342,
+       "ci95": 1.3513192622793309,
+       "min": 1.7917031264017833,
+       "max": 16.28553194579009,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 6.3822593959817855,
+       "ci95": 1.371153629069403,
+       "min": 1.9590298301906914,
+       "max": 16.670929356155728,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 11,
+      "WRR": 13,
+      "tie": 6
+     }
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 33.69879952902626,
+       "ci95": 7.214036703113708,
+       "min": 8.253825680004685,
+       "max": 81.90323354006968,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 28.453679232548357,
+       "ci95": 5.801637487054915,
+       "min": 9.706559591849894,
+       "max": 64.75535555134557,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 6,
+      "WRR": 24,
+      "tie": 0
+     }
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 55.61147861715257,
+       "ci95": 9.79769131334896,
+       "min": 22.144931617216628,
+       "max": 128.8968955021565,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 46.12671747271417,
+       "ci95": 8.854257507317643,
+       "min": 17.35828203989098,
+       "max": 107.04182431224558,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 4,
+      "WRR": 26,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 14.07063220489544,
+       "ci95": 3.2521778886851695,
+       "min": 1.9783281043938081,
+       "max": 35.73163716199065,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 11.475513938898189,
+       "ci95": 2.756896352645262,
+       "min": 1.1647599815056897,
+       "max": 28.74805358613462,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 29,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 45.011254253015785,
+       "ci95": 9.34410240518084,
+       "min": 6.039808345045595,
+       "max": 107.9501938115443,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 39.37866452159701,
+       "ci95": 8.551035263240692,
+       "min": 5.295810645106452,
+       "max": 89.02589485464688,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 3,
+      "WRR": 27,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 52.862193010274474,
+       "ci95": 9.89129493278087,
+       "min": 18.034572621059993,
+       "max": 126.58922561656644,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 43.192596107947715,
+       "ci95": 9.01601756387749,
+       "min": 10.52887301369718,
+       "max": 107.04182431224558,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 2,
+      "WRR": 28,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 4.496371290305316,
+       "ci95": 0.9444773012738881,
+       "min": 1.3452084619593323,
+       "max": 11.880017210222128,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 5.108945760252685,
+       "ci95": 1.0771869134344443,
+       "min": 1.9108246217902292,
+       "max": 14.49433296184406,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 26,
+      "WRR": 2,
+      "tie": 2
+     }
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 20.25386966136898,
+       "ci95": 4.777485084449951,
+       "min": 6.611858732101624,
+       "max": 54.73827567365188,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 20.84694082422263,
+       "ci95": 4.10097727633311,
+       "min": 9.812276101583372,
+       "max": 48.20258547643755,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 22,
+      "WRR": 6,
+      "tie": 2
+     }
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 45.1841994397982,
+       "ci95": 10.470050617291454,
+       "min": 11.68092147364311,
+       "max": 128.8968955021565,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 39.944894535409155,
+       "ci95": 9.107553999551277,
+       "min": 13.835719618932657,
+       "max": 102.69221385836542,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 11,
+      "WRR": 19,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 50.63333333333333,
+       "ci95": 13.60899384605327,
+       "min": 6,
+       "max": 153,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 35.6,
+       "ci95": 10.067855775091635,
+       "min": 1,
+       "max": 102,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 29,
+      "tie": 1
+     }
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 11.933333333333334,
+       "ci95": 2.897920575660286,
+       "min": 3,
+       "max": 39,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 8.4,
+       "ci95": 2.193058725778369,
+       "min": 1,
+       "max": 24,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 2,
+      "WRR": 24,
+      "tie": 4
+     }
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 28.933333333333334,
+       "ci95": 11.343710343291141,
+       "min": 0,
+       "max": 128,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 19.933333333333334,
+       "ci95": 8.297998525241145,
+       "min": 0,
+       "max": 80,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 3,
+      "WRR": 20,
+      "tie": 7
+     }
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 3.6333333333333333,
+       "ci95": 0.5597880825080217,
+       "min": 1,
+       "max": 8,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 30,
+      "WRR": 0,
+      "tie": 0
+     }
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 2.433333333333333,
+       "ci95": 1.045122105095566,
+       "min": 0,
+       "max": 10,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 12.966666666666667,
+       "ci95": 2.368991624722988,
+       "min": 3,
+       "max": 30,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 12.499890227779863,
+       "ci95": 0.09951432050612036,
+       "min": 12.120938301368119,
+       "max": 13.51029250054663,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 12.499890227779863,
+       "ci95": 0.09951432050612036,
+       "min": 12.120938301368119,
+       "max": 13.51029250054663,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.6562358885499022,
+       "ci95": 0.011675235971868918,
+       "min": 0.6067508024397344,
+       "max": 0.748645729629884,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.6562358885499023,
+       "ci95": 0.011675235971868913,
+       "min": 0.6067508024397344,
+       "max": 0.748645729629884,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 480.2241824444209,
+       "ci95": 3.6620370119601398,
+       "min": 444.10585483306437,
+       "max": 495.0111823704907,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 480.2241824444209,
+       "ci95": 3.6620370119601398,
+       "min": 444.10585483306437,
+       "max": 495.0111823704907,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    }
+   ],
+   "byGroup": {
+    "regular": {
+     "WPS-A": {
+      "avg": {
+       "mean": 14.07063220489544,
+       "ci95": 3.2521778886851695,
+       "min": 1.9783281043938081,
+       "max": 35.73163716199065,
+       "n": 30
+      },
+      "max": {
+       "mean": 52.862193010274474,
+       "ci95": 9.89129493278087,
+       "min": 18.034572621059993,
+       "max": 126.58922561656644,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 11.475513938898189,
+       "ci95": 2.756896352645262,
+       "min": 1.1647599815056897,
+       "max": 28.74805358613462,
+       "n": 30
+      },
+      "max": {
+       "mean": 43.192596107947715,
+       "ci95": 9.01601756387749,
+       "min": 10.52887301369718,
+       "max": 107.04182431224558,
+       "n": 30
+      }
+     }
+    },
+    "senior": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.182432095938451,
+       "ci95": 0.3421961620593464,
+       "min": 0.7118695102015756,
+       "max": 4.465426343104396,
+       "n": 30
+      },
+      "max": {
+       "mean": 10.541631691854478,
+       "ci95": 1.7250720311438243,
+       "min": 3.2827318043106146,
+       "max": 23.062590555774264,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 4.0983704285786136,
+       "ci95": 0.9006137856892868,
+       "min": 1.1527404612676064,
+       "max": 10.642094156125562,
+       "n": 30
+      },
+      "max": {
+       "mean": 20.173281397823462,
+       "ci95": 4.042950223302331,
+       "min": 7.867003174931995,
+       "max": 51.37185795095277,
+       "n": 30
+      }
+     }
+    },
+    "pwd": {
+     "WPS-A": {
+      "avg": {
+       "mean": 4.802198905666613,
+       "ci95": 0.943710623185479,
+       "min": 1.0708774566207082,
+       "max": 12.042883830672993,
+       "n": 30
+      },
+      "max": {
+       "mean": 17.132469568041945,
+       "ci95": 2.6361253486038625,
+       "min": 6.269299185633315,
+       "max": 35.72760327338548,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 5.083757689270796,
+       "ci95": 1.3058282792056544,
+       "min": 1.6548982825011649,
+       "max": 20.941825542652314,
+       "n": 30
+      },
+      "max": {
+       "mean": 19.10963998320222,
+       "ci95": 3.344814958269002,
+       "min": 6.70169956124883,
+       "max": 45.946603587916655,
+       "n": 30
+      }
+     }
+    },
+    "pregnant": {
+     "WPS-A": {
+      "avg": {
+       "mean": 4.601055769347361,
+       "ci95": 1.0576419658490495,
+       "min": 1.0095852919110042,
+       "max": 12.937005344507726,
+       "n": 30
+      },
+      "max": {
+       "mean": 18.279240299461474,
+       "ci95": 2.7403923410493842,
+       "min": 7.279854028158496,
+       "max": 38.60116337088132,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 4.538818305570484,
+       "ci95": 1.090371502535825,
+       "min": 1.4807978877840493,
+       "max": 12.679574725727264,
+       "n": 30
+      },
+      "max": {
+       "mean": 19.454203185600765,
+       "ci95": 3.6877600420440406,
+       "min": 7.744194924991717,
+       "max": 43.92639571572906,
+       "n": 30
+      }
+     }
+    },
+    "indigenous": {
+     "WPS-A": {
+      "avg": {
+       "mean": 8.998233399110132,
+       "ci95": 3.5893625266585465,
+       "min": 0.8480443267992582,
+       "max": 44.48340322962339,
+       "n": 30
+      },
+      "max": {
+       "mean": 26.187094082815634,
+       "ci95": 7.093875557852602,
+       "min": 2.944983209152788,
+       "max": 88.80038985370263,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 4.800287635482941,
+       "ci95": 1.3311882360181422,
+       "min": 0.7893483875423216,
+       "max": 15.00269864330392,
+       "n": 30
+      },
+      "max": {
+       "mean": 14.274176152622601,
+       "ci95": 2.581267475104299,
+       "min": 4.262804535097587,
+       "max": 31.791993824195004,
+       "n": 30
+      }
+     }
+    },
+    "solo_parent": {
+     "WPS-A": {
+      "avg": {
+       "mean": 16.03240355382239,
+       "ci95": 5.178791230811084,
+       "min": 0.6274469133546674,
+       "max": 51.61737179507404,
+       "n": 30
+      },
+      "max": {
+       "mean": 41.91678050954303,
+       "ci95": 11.068619413177693,
+       "min": 1.9200842522603665,
+       "max": 128.8968955021565,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 13.402646578639775,
+       "ci95": 4.946701287744551,
+       "min": 0.6274469133546674,
+       "max": 56.68673547204605,
+       "n": 30
+      },
+      "max": {
+       "mean": 35.93129157067179,
+       "ci95": 10.20028387175082,
+       "min": 1.9200842522603665,
+       "max": 102.69221385836542,
+       "n": 30
+      }
+     }
+    },
+    "multiple": {
+     "WPS-A": {
+      "avg": {
+       "mean": 1.8102542845958374,
+       "ci95": 0.25458894783462205,
+       "min": 0.7973040409761931,
+       "max": 3.739522857851675,
+       "n": 30
+      },
+      "max": {
+       "mean": 8.226386132510516,
+       "ci95": 1.313675314262178,
+       "min": 4.785777486381932,
+       "max": 19.803122027921546,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 4.319737110873629,
+       "ci95": 0.9482692618512844,
+       "min": 1.0600571471596938,
+       "max": 11.569773057459347,
+       "n": 30
+      },
+      "max": {
+       "mean": 17.803954317305358,
+       "ci95": 3.5548728803549245,
+       "min": 4.950034562779681,
+       "max": 50.36820783863189,
+       "n": 30
+      }
+     }
+    }
+   },
+   "sameOrderRuns": 0,
+   "overloadedRuns": 26,
+   "offeredLoad": {
+    "mean": 0.6698264329431581,
+    "ci95": 0.013193540411831435,
+    "min": 0.6171027795161175,
+    "max": 0.7608542200977254,
+    "n": 30
+   },
+   "laterRegularAheadOfVulnerable": {
+    "WPS-A": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    },
+    "WRR": {
+     "mean": 1.0666666666666667,
+     "ci95": 0.48770420028248695,
+     "min": 0,
+     "max": 4,
+     "n": 30
+    }
+   }
+  },
+  {
+   "scenario": "regular-majority",
+   "count": 150,
+   "baseSeed": 20261029,
+   "replications": 30,
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 150,
+       "ci95": 0,
+       "min": 150,
+       "max": 150,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 150,
+       "ci95": 0,
+       "min": 150,
+       "max": 150,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 37.16822402298279,
+       "ci95": 6.00282199314402,
+       "min": 12.09504157642898,
+       "max": 91.44867840621785,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 37.15287386200575,
+       "ci95": 6.00141379209787,
+       "min": 12.119155915295371,
+       "max": 91.42345073451615,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 5,
+      "WRR": 8,
+      "tie": 17
+     }
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 83.40278503768701,
+       "ci95": 9.967213679070992,
+       "min": 35.432547720355245,
+       "max": 169.09365164014667,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 83.4301286782353,
+       "ci95": 9.967664709871846,
+       "min": 35.432547720355245,
+       "max": 169.1075341129544,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 9,
+      "WRR": 12,
+      "tie": 9
+     }
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 89.82860427392059,
+       "ci95": 9.785564194652602,
+       "min": 39.88151106659765,
+       "max": 176.48645953980878,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 90.10062145661291,
+       "ci95": 9.808599291756282,
+       "min": 39.88151106659765,
+       "max": 176.12991888196177,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 10,
+      "WRR": 10,
+      "tie": 10
+     }
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 44.967907399893335,
+       "ci95": 7.311234944857279,
+       "min": 14.395117755168648,
+       "max": 110.77825752779434,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 45.00704618632132,
+       "ci95": 7.319452082871849,
+       "min": 14.370521034244371,
+       "max": 110.82570133325711,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 12,
+      "WRR": 4,
+      "tie": 14
+     }
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 84.29209488898485,
+       "ci95": 9.836304871822506,
+       "min": 36.21628358992023,
+       "max": 169.49430951748522,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 84.2922531295175,
+       "ci95": 9.86329313562375,
+       "min": 36.21628358992023,
+       "max": 169.67686024344243,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 12,
+      "WRR": 7,
+      "tie": 11
+     }
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 89.77450543337301,
+       "ci95": 9.72247175505923,
+       "min": 39.88151106659765,
+       "max": 174.8634943233813,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 90.0617332517563,
+       "ci95": 9.763609641555606,
+       "min": 39.88151106659765,
+       "max": 174.96327273626338,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 11,
+      "WRR": 9,
+      "tie": 10
+     }
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 5.969490515340582,
+       "ci95": 0.8772746687393138,
+       "min": 2.129171116550225,
+       "max": 14.130361919911904,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 5.736184564743388,
+       "ci95": 0.8507662537202704,
+       "min": 2.2718402271349496,
+       "max": 13.814448339552202,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 8,
+      "WRR": 18,
+      "tie": 4
+     }
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 24.51362994368181,
+       "ci95": 6.325413245613462,
+       "min": 5.918658004913371,
+       "max": 79.59156535315256,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 23.298396035174754,
+       "ci95": 6.340835450036385,
+       "min": 6.348795015292296,
+       "max": 79.5283378104561,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 5,
+      "WRR": 18,
+      "tie": 7
+     }
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 67.79536383033259,
+       "ci95": 11.851920885666447,
+       "min": 12.60272309263329,
+       "max": 176.48645953980878,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 67.9632421583061,
+       "ci95": 11.868430364212871,
+       "min": 12.60272309263329,
+       "max": 176.12991888196177,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 7,
+      "WRR": 11,
+      "tie": 12
+     }
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 323.2,
+       "ci95": 48.908213066716215,
+       "min": 92,
+       "max": 715,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 325.03333333333336,
+       "ci95": 49.25019469179871,
+       "min": 90,
+       "max": 717,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 18,
+      "WRR": 9,
+      "tie": 3
+     }
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 7.7,
+       "ci95": 0.9590496253625493,
+       "min": 4,
+       "max": 15,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 7.7,
+       "ci95": 0.9451361757993383,
+       "min": 4,
+       "max": 15,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 2,
+      "WRR": 2,
+      "tie": 26
+     }
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 216.26666666666668,
+       "ci95": 44.61398252785968,
+       "min": 20,
+       "max": 578,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 215.7,
+       "ci95": 44.77129351839575,
+       "min": 20,
+       "max": 580,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 7,
+      "WRR": 14,
+      "tie": 9
+     }
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1.2,
+       "ci95": 0.27236486684162325,
+       "min": 0,
+       "max": 3,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 25,
+      "WRR": 0,
+      "tie": 5
+     }
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 2.8666666666666667,
+       "ci95": 0.9384942370362171,
+       "min": 0,
+       "max": 8,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1.3666666666666667,
+       "ci95": 0.332029542146836,
+       "min": 0,
+       "max": 4,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.5,
+       "ci95": 0.4768700635091957,
+       "min": 0,
+       "max": 6,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.5333333333333333,
+       "ci95": 0.4767157116477292,
+       "min": 0,
+       "max": 6,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 0,
+      "tie": 29
+     }
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 18.521494553312145,
+       "ci95": 0.11293122555735947,
+       "min": 17.669373943271395,
+       "max": 19.07121203934339,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 18.5214388811355,
+       "ci95": 0.1126132447619628,
+       "min": 17.669373943271395,
+       "max": 19.07121203934339,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.919065830319528,
+       "ci95": 0.013188991403013828,
+       "min": 0.8518700060121893,
+       "max": 0.9874898400880273,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.9190636177311554,
+       "ci95": 0.01318691106025211,
+       "min": 0.8518700060121893,
+       "max": 0.9873069708790564,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 486.0596858169842,
+       "ci95": 2.99426288200848,
+       "min": 471.9154703661858,
+       "max": 509.35590750951616,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 486.0603284299932,
+       "ci95": 2.984874879460369,
+       "min": 471.9154703661858,
+       "max": 509.35590750951616,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    }
+   ],
+   "byGroup": {
+    "regular": {
+     "WPS-A": {
+      "avg": {
+       "mean": 44.967907399893335,
+       "ci95": 7.311234944857279,
+       "min": 14.395117755168648,
+       "max": 110.77825752779434,
+       "n": 30
+      },
+      "max": {
+       "mean": 89.77450543337301,
+       "ci95": 9.72247175505923,
+       "min": 39.88151106659765,
+       "max": 174.8634943233813,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 45.00704618632132,
+       "ci95": 7.319452082871849,
+       "min": 14.370521034244371,
+       "max": 110.82570133325711,
+       "n": 30
+      },
+      "max": {
+       "mean": 90.0617332517563,
+       "ci95": 9.763609641555606,
+       "min": 39.88151106659765,
+       "max": 174.96327273626338,
+       "n": 30
+      }
+     }
+    },
+    "senior": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.534151191491132,
+       "ci95": 0.23189346887471957,
+       "min": 1.3805796569085742,
+       "max": 4.116942940806064,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.260390663471682,
+       "ci95": 0.9522203255866907,
+       "min": 4.296482749894551,
+       "max": 15.355971722811233,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 2.701218659112173,
+       "ci95": 0.23808562790813767,
+       "min": 1.773101600257219,
+       "max": 4.519572769919637,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.5109828512820975,
+       "ci95": 0.9231239953759482,
+       "min": 4.343753417868243,
+       "max": 14.900694171476403,
+       "n": 30
+      }
+     }
+    },
+    "pwd": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.2523050895752164,
+       "ci95": 0.4131894461740566,
+       "min": 1.012915055096066,
+       "max": 5.970880072593761,
+       "n": 30
+      },
+      "max": {
+       "mean": 4.676422181479216,
+       "ci95": 0.9413337307686768,
+       "min": 2.2075153071371005,
+       "max": 12.746195985546308,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 2.2294335065032933,
+       "ci95": 0.4576999226206782,
+       "min": 0.6975788076477514,
+       "max": 5.727353550857163,
+       "n": 30
+      },
+      "max": {
+       "mean": 4.61918085343535,
+       "ci95": 0.9907318979012174,
+       "min": 1.803895245445517,
+       "max": 13.72832066255119,
+       "n": 30
+      }
+     }
+    },
+    "pregnant": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.9777622924481646,
+       "ci95": 0.5140490075687647,
+       "min": 1.2111248796654421,
+       "max": 5.82711695838677,
+       "n": 30
+      },
+      "max": {
+       "mean": 6.133111456532794,
+       "ci95": 1.1101051052206652,
+       "min": 1.604946280342375,
+       "max": 13.711377133868616,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 2.859160897744168,
+       "ci95": 0.5391072014753203,
+       "min": 1.2111248796654421,
+       "max": 5.777201412804585,
+       "n": 30
+      },
+      "max": {
+       "mean": 5.92131650554316,
+       "ci95": 1.0439189442105306,
+       "min": 1.537665624316162,
+       "max": 13.262637363315065,
+       "n": 30
+      }
+     }
+    },
+    "indigenous": {
+     "WPS-A": {
+      "avg": {
+       "mean": 7.46008099265026,
+       "ci95": 1.4349114523121047,
+       "min": 0,
+       "max": 15.540164182956296,
+       "n": 30
+      },
+      "max": {
+       "mean": 10.326951766146571,
+       "ci95": 1.615031285527311,
+       "min": 0,
+       "max": 16.78302875050298,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 2.7033614027032487,
+       "ci95": 0.7943008078824889,
+       "min": 0,
+       "max": 7.331736270272337,
+       "n": 30
+      },
+      "max": {
+       "mean": 4.1830208411561545,
+       "ci95": 1.3120436956563115,
+       "min": 0,
+       "max": 13.711902383299858,
+       "n": 30
+      }
+     }
+    },
+    "solo_parent": {
+     "WPS-A": {
+      "avg": {
+       "mean": 50.08593987745049,
+       "ci95": 11.062119723483999,
+       "min": 6.301361546316645,
+       "max": 155.17480079514885,
+       "n": 30
+      },
+      "max": {
+       "mean": 67.79536383033259,
+       "ci95": 11.851920885666447,
+       "min": 12.60272309263329,
+       "max": 176.48645953980878,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 50.26339890138994,
+       "ci95": 11.106034919179924,
+       "min": 6.301361546316645,
+       "max": 154.93905088195584,
+       "n": 30
+      },
+      "max": {
+       "mean": 67.9632421583061,
+       "ci95": 11.868430364212871,
+       "min": 12.60272309263329,
+       "max": 176.12991888196177,
+       "n": 30
+      }
+     }
+    },
+    "multiple": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.107589997794707,
+       "ci95": 0.35481391384173155,
+       "min": 0.645780395628701,
+       "max": 4.624032331970999,
+       "n": 30
+      },
+      "max": {
+       "mean": 5.103750025451718,
+       "ci95": 0.9076988938983865,
+       "min": 1.8830502847994612,
+       "max": 11.96708910610451,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 2.2751844611799306,
+       "ci95": 0.3439036367600266,
+       "min": 0.8002829474866928,
+       "max": 4.774039412467569,
+       "n": 30
+      },
+      "max": {
+       "mean": 5.720769072947616,
+       "ci95": 0.8568324329223765,
+       "min": 2.382418312863919,
+       "max": 12.467565657380732,
+       "n": 30
+      }
+     }
+    }
+   },
+   "sameOrderRuns": 2,
+   "overloadedRuns": 30,
+   "offeredLoad": {
+    "mean": 0.941970718776994,
+    "ci95": 0.0149862355526682,
+    "min": 0.8634180787908963,
+    "max": 1.0329027400790514,
+    "n": 30
+   },
+   "laterRegularAheadOfVulnerable": {
+    "WPS-A": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    },
+    "WRR": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    }
+   }
+  },
+  {
+   "scenario": "vulnerable-majority",
+   "count": 150,
+   "baseSeed": 20261029,
+   "replications": 30,
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 150,
+       "ci95": 0,
+       "min": 150,
+       "max": 150,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 150,
+       "ci95": 0,
+       "min": 150,
+       "max": 150,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 49.15509558922244,
+       "ci95": 6.299624501947551,
+       "min": 18.755807637376485,
+       "max": 106.93666924336172,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 48.75468412394425,
+       "ci95": 6.383236149639135,
+       "min": 17.191048271988212,
+       "max": 106.51038720288774,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 8,
+      "WRR": 20,
+      "tie": 2
+     }
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 210.58603669707276,
+       "ci95": 20.241570332472513,
+       "min": 101.69086450239608,
+       "max": 373.05577346584244,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 192.5477726398031,
+       "ci95": 18.689010402302983,
+       "min": 87.68688369793628,
+       "max": 326.092638207928,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 29,
+      "tie": 0
+     }
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 236.25552179071414,
+       "ci95": 19.927306539952394,
+       "min": 119.81389253840831,
+       "max": 381.12694988209404,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 218.52254557475916,
+       "ci95": 19.421616782470345,
+       "min": 116.62263520853799,
+       "max": 383.3905586051595,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 2,
+      "WRR": 27,
+      "tie": 1
+     }
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 146.49006315793582,
+       "ci95": 15.984538050105058,
+       "min": 68.21400859671867,
+       "max": 241.4747235199962,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 125.66261762172252,
+       "ci95": 13.27645937834741,
+       "min": 57.57433587765076,
+       "max": 207.29633748979683,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 226.4478748566515,
+       "ci95": 20.099568132688802,
+       "min": 117.8721866781118,
+       "max": 378.8711514649105,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 210.57736041545405,
+       "ci95": 19.693628203650775,
+       "min": 108.0886557574243,
+       "max": 372.52774466507753,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 5,
+      "WRR": 25,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 234.6724926738849,
+       "ci95": 19.974053228683935,
+       "min": 119.81389253840831,
+       "max": 381.12694988209404,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 217.316351977078,
+       "ci95": 19.405353451251106,
+       "min": 116.62263520853799,
+       "max": 379.79282263778066,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 29,
+      "tie": 1
+     }
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 24.821353697044096,
+       "ci95": 4.301137666317585,
+       "min": 6.391257397540935,
+       "max": 73.30215567420306,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 29.527700749499715,
+       "ci95": 5.07774367752377,
+       "min": 7.095226370572585,
+       "max": 81.31389963116051,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 29,
+      "WRR": 1,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 141.1151239429119,
+       "ci95": 23.744905130465366,
+       "min": 26.172746964913518,
+       "max": 307.00111413080816,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 94.35522899344377,
+       "ci95": 14.906405088001724,
+       "min": 21.489551949249375,
+       "max": 191.57438526746998,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 4,
+      "WRR": 26,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 224.16239477859622,
+       "ci95": 21.312509960901377,
+       "min": 81.73700266423754,
+       "max": 381.01811211440577,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 208.24474874438934,
+       "ci95": 21.097658873310753,
+       "min": 78.38513769629077,
+       "max": 383.3905586051595,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 3,
+      "WRR": 27,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 926.3666666666667,
+       "ci95": 87.77782659258547,
+       "min": 505,
+       "max": 1380,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 731.6666666666666,
+       "ci95": 68.39722060181715,
+       "min": 407,
+       "max": 1172,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 64.16666666666667,
+       "ci95": 5.161846620774243,
+       "min": 30,
+       "max": 99,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 50.43333333333333,
+       "ci95": 4.505583226904081,
+       "min": 27,
+       "max": 84,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 28,
+      "tie": 1
+     }
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 856.8666666666667,
+       "ci95": 91.24734717193542,
+       "min": 396,
+       "max": 1322,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 690,
+       "ci95": 72.366581428075,
+       "min": 316,
+       "max": 1155,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 10.033333333333333,
+       "ci95": 0.647563023752747,
+       "min": 5,
+       "max": 13,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 30,
+      "WRR": 0,
+      "tie": 0
+     }
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 16.733333333333334,
+       "ci95": 2.179594338157264,
+       "min": 3,
+       "max": 27,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 48.63333333333333,
+       "ci95": 2.2777665877680464,
+       "min": 34,
+       "max": 62,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 1.7333333333333334,
+       "ci95": 1.2214315073728308,
+       "min": 0,
+       "max": 15,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1.7666666666666666,
+       "ci95": 1.2313329786108063,
+       "min": 0,
+       "max": 15,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 2,
+      "WRR": 1,
+      "tie": 27
+     }
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 18.2623835334158,
+       "ci95": 0.20312403461546757,
+       "min": 16.629057081206593,
+       "max": 19.07121203934339,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 18.260767467012794,
+       "ci95": 0.20514240670645464,
+       "min": 16.61748336493304,
+       "max": 19.07121203934339,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.9565768173867486,
+       "ci95": 0.009525380643715161,
+       "min": 0.8890950659584961,
+       "max": 0.9894648879497483,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.9564793999143688,
+       "ci95": 0.009479465820161419,
+       "min": 0.8890950659584961,
+       "max": 0.9889798491841262,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 493.29093733350595,
+       "ci95": 5.657961234185641,
+       "min": 471.9154703661858,
+       "max": 541.2213065388652,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 493.3445270901871,
+       "ci95": 5.719517024444354,
+       "min": 471.9154703661858,
+       "max": 541.5982554248982,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    }
+   ],
+   "byGroup": {
+    "regular": {
+     "WPS-A": {
+      "avg": {
+       "mean": 146.49006315793582,
+       "ci95": 15.984538050105058,
+       "min": 68.21400859671867,
+       "max": 241.4747235199962,
+       "n": 30
+      },
+      "max": {
+       "mean": 234.6724926738849,
+       "ci95": 19.974053228683935,
+       "min": 119.81389253840831,
+       "max": 381.12694988209404,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 125.66261762172252,
+       "ci95": 13.27645937834741,
+       "min": 57.57433587765076,
+       "max": 207.29633748979683,
+       "n": 30
+      },
+      "max": {
+       "mean": 217.316351977078,
+       "ci95": 19.405353451251106,
+       "min": 116.62263520853799,
+       "max": 379.79282263778066,
+       "n": 30
+      }
+     }
+    },
+    "senior": {
+     "WPS-A": {
+      "avg": {
+       "mean": 6.759562344371809,
+       "ci95": 1.1668418936154858,
+       "min": 2.9035484278737353,
+       "max": 19.41838434397296,
+       "n": 30
+      },
+      "max": {
+       "mean": 20.545616690764295,
+       "ci95": 2.6628375460075446,
+       "min": 8.57124350402978,
+       "max": 45.435958357964864,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 24.158944937013533,
+       "ci95": 6.6701879489243225,
+       "min": 4.991140900167,
+       "max": 104.95605405767246,
+       "n": 30
+      },
+      "max": {
+       "mean": 60.77448714225337,
+       "ci95": 10.314776660770999,
+       "min": 24.348044218107418,
+       "max": 163.53844646196592,
+       "n": 30
+      }
+     }
+    },
+    "pwd": {
+     "WPS-A": {
+      "avg": {
+       "mean": 19.15039499726544,
+       "ci95": 4.933559085737392,
+       "min": 5.80167462265373,
+       "max": 78.29542039814838,
+       "n": 30
+      },
+      "max": {
+       "mean": 46.35602781234003,
+       "ci95": 10.469766925852587,
+       "min": 19.309227903015312,
+       "max": 168.1347554480401,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 26.04309428852342,
+       "ci95": 5.956553126598664,
+       "min": 4.346936320607834,
+       "max": 78.14014072796098,
+       "n": 30
+      },
+      "max": {
+       "mean": 64.66454152042287,
+       "ci95": 10.313297915620643,
+       "min": 14.74317419789594,
+       "max": 118.08625753816659,
+       "n": 30
+      }
+     }
+    },
+    "pregnant": {
+     "WPS-A": {
+      "avg": {
+       "mean": 19.461940481251315,
+       "ci95": 6.026772087839496,
+       "min": 3.4785334218524695,
+       "max": 98.35696334052803,
+       "n": 30
+      },
+      "max": {
+       "mean": 45.10083333973593,
+       "ci95": 10.640231172978883,
+       "min": 10.453694989883559,
+       "max": 178.41908728770875,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 25.514296798764196,
+       "ci95": 5.725868427404921,
+       "min": 2.9580404237110307,
+       "max": 58.854415061843106,
+       "n": 30
+      },
+      "max": {
+       "mean": 62.6712375439474,
+       "ci95": 10.529550142966192,
+       "min": 9.760723770481661,
+       "max": 114.91352302416738,
+       "n": 30
+      }
+     }
+    },
+    "indigenous": {
+     "WPS-A": {
+      "avg": {
+       "mean": 59.14415938202896,
+       "ci95": 13.699209910515297,
+       "min": 7.345537340758095,
+       "max": 196.11632541710782,
+       "n": 30
+      },
+      "max": {
+       "mean": 133.7775493522895,
+       "ci95": 23.181464388542025,
+       "min": 18.719613595685246,
+       "max": 306.4567649880971,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 14.757823543861297,
+       "ci95": 3.1167907844080673,
+       "min": 2.957267913131157,
+       "max": 41.91660446406826,
+       "n": 30
+      },
+      "max": {
+       "mean": 35.91873655815936,
+       "ci95": 6.226916900134175,
+       "min": 8.850894619152143,
+       "max": 78.48400245157856,
+       "n": 30
+      }
+     }
+    },
+    "solo_parent": {
+     "WPS-A": {
+      "avg": {
+       "mean": 147.2978753526871,
+       "ci95": 19.60573259224647,
+       "min": 39.264132899285535,
+       "max": 293.512481038058,
+       "n": 30
+      },
+      "max": {
+       "mean": 223.95192233538626,
+       "ci95": 21.386159548472463,
+       "min": 81.73700266423754,
+       "max": 381.01811211440577,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 122.43474205058267,
+       "ci95": 16.0397776883792,
+       "min": 27.80562179046224,
+       "max": 216.51100709209348,
+       "n": 30
+      },
+      "max": {
+       "mean": 208.24474874438934,
+       "ci95": 21.097658873310753,
+       "min": 78.38513769629077,
+       "max": 383.3905586051595,
+       "n": 30
+      }
+     }
+    },
+    "multiple": {
+     "WPS-A": {
+      "avg": {
+       "mean": 3.706847143095202,
+       "ci95": 0.42744344095778425,
+       "min": 2.0667420006520345,
+       "max": 8.230203710388276,
+       "n": 30
+      },
+      "max": {
+       "mean": 14.273380910566944,
+       "ci95": 2.08078741119773,
+       "min": 5.971280853519573,
+       "max": 32.384644355987945,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 15.658841314463992,
+       "ci95": 3.1581655707389507,
+       "min": 5.961697894794824,
+       "max": 54.85704520877285,
+       "n": 30
+      },
+      "max": {
+       "mean": 52.69353076985192,
+       "ci95": 10.789827991585376,
+       "min": 16.018861851058958,
+       "max": 170.35363623839504,
+       "n": 30
+      }
+     }
+    }
+   },
+   "sameOrderRuns": 0,
+   "overloadedRuns": 30,
+   "offeredLoad": {
+    "mean": 0.9950578689861105,
+    "ci95": 0.015872545991114005,
+    "min": 0.9065952002458185,
+    "max": 1.092278847938899,
+    "n": 30
+   },
+   "laterRegularAheadOfVulnerable": {
+    "WPS-A": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    },
+    "WRR": {
+     "mean": 0.5,
+     "ci95": 0.34846791108719216,
+     "min": 0,
+     "max": 4,
+     "n": 30
+    }
+   }
+  },
+  {
+   "scenario": "regular-majority",
+   "count": 200,
+   "baseSeed": 20261029,
+   "replications": 30,
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 200,
+       "ci95": 0,
+       "min": 200,
+       "max": 200,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 200,
+       "ci95": 0,
+       "min": 200,
+       "max": 200,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 106.61275635113468,
+       "ci95": 4.372173857559471,
+       "min": 82.72940504504346,
+       "max": 131.75209515732035,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 106.60376173966863,
+       "ci95": 4.378723405309452,
+       "min": 82.31041475339909,
+       "max": 131.7618352459455,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 11,
+      "WRR": 10,
+      "tie": 9
+     }
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 189.31771796045405,
+       "ci95": 6.507788127537435,
+       "min": 148.862861842326,
+       "max": 222.23122872246404,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 189.48916272076184,
+       "ci95": 6.520791527004008,
+       "min": 149.41271421300533,
+       "max": 222.0654892354313,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 19,
+      "WRR": 7,
+      "tie": 4
+     }
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 198.00154304938368,
+       "ci95": 6.347879743875327,
+       "min": 158.32466392491034,
+       "max": 232.49806765704744,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 197.79860021929616,
+       "ci95": 6.399674404075644,
+       "min": 159.5603298784073,
+       "max": 232.37158945384186,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 11,
+      "WRR": 15,
+      "tie": 4
+     }
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 129.9567233847361,
+       "ci95": 5.3304015897595916,
+       "min": 101.47099035128332,
+       "max": 160.93539295844704,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 130.0064352823395,
+       "ci95": 5.322170514761958,
+       "min": 101.19437342197557,
+       "max": 160.89670479198105,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 17,
+      "WRR": 6,
+      "tie": 7
+     }
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 190.34035598834134,
+       "ci95": 6.513487357184145,
+       "min": 149.61901417674406,
+       "max": 223.69831063265033,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 190.40964742609222,
+       "ci95": 6.513614336502848,
+       "min": 151.55037565750348,
+       "max": 223.78237889460766,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 13,
+      "WRR": 13,
+      "tie": 4
+     }
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 197.85300835882472,
+       "ci95": 6.271387568193042,
+       "min": 158.32466392491034,
+       "max": 232.49806765704744,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 197.62133401479343,
+       "ci95": 6.318703383716141,
+       "min": 159.5603298784073,
+       "max": 232.37158945384186,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 10,
+      "WRR": 16,
+      "tie": 4
+     }
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 13.236888216728975,
+       "ci95": 0.9806441856840511,
+       "min": 7.4424932060817,
+       "max": 17.35144761598739,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 12.993067568985168,
+       "ci95": 1.0289892350753995,
+       "min": 6.774580079093153,
+       "max": 17.233957160455514,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 7,
+      "WRR": 22,
+      "tie": 1
+     }
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 94.2553489529773,
+       "ci95": 16.148873819669387,
+       "min": 18.523731380325007,
+       "max": 168.34815748516286,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 93.99855717087736,
+       "ci95": 16.287686649219737,
+       "min": 13.430071088174563,
+       "max": 168.56748061019428,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 8,
+      "WRR": 14,
+      "tie": 8
+     }
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 170.12102603187253,
+       "ci95": 10.864872443790436,
+       "min": 90.84507394523615,
+       "max": 224.68425507892124,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 170.09557931200723,
+       "ci95": 11.128564971665961,
+       "min": 83.75125314022739,
+       "max": 224.64084661771437,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 11,
+      "WRR": 15,
+      "tie": 4
+     }
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 1265.6333333333334,
+       "ci95": 54.63408562539145,
+       "min": 956,
+       "max": 1557,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1269.7333333333333,
+       "ci95": 54.09627208549489,
+       "min": 959,
+       "max": 1552,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 24,
+      "WRR": 5,
+      "tie": 1
+     }
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 16.6,
+       "ci95": 0.8116725459439172,
+       "min": 12,
+       "max": 20,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 16.633333333333333,
+       "ci95": 0.8272096474088558,
+       "min": 12,
+       "max": 21,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 2,
+      "WRR": 1,
+      "tie": 27
+     }
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 1055.5666666666666,
+       "ci95": 51.17078684133834,
+       "min": 785,
+       "max": 1325,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1058.1666666666667,
+       "ci95": 51.126102565371674,
+       "min": 785,
+       "max": 1323,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 16,
+      "WRR": 12,
+      "tie": 2
+     }
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 2.7666666666666666,
+       "ci95": 0.5919915604658863,
+       "min": 0,
+       "max": 7,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 29,
+      "WRR": 0,
+      "tie": 1
+     }
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 7.233333333333333,
+       "ci95": 0.7320591228766793,
+       "min": 4,
+       "max": 13,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 3.933333333333333,
+       "ci95": 1.007475384980197,
+       "min": 0,
+       "max": 11,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 38.7,
+       "ci95": 2.2674039233723087,
+       "min": 26,
+       "max": 50,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 38.766666666666666,
+       "ci95": 2.314688079248381,
+       "min": 26,
+       "max": 50,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 3,
+      "WRR": 1,
+      "tie": 26
+     }
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 20.02605847779853,
+       "ci95": 0.3058659486266631,
+       "min": 18.02651189477755,
+       "max": 21.40142820172296,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 20.027613460807103,
+       "ci95": 0.3065238802499283,
+       "min": 18.031362062748837,
+       "max": 21.414947401066673,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.9877316516616724,
+       "ci95": 0.0014078611988731882,
+       "min": 0.9784357611194441,
+       "max": 0.9945455121332522,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.9878051801403783,
+       "ci95": 0.0014491126211854703,
+       "min": 0.9783325168667621,
+       "max": 0.9951737626830838,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 600.2847559354216,
+       "ci95": 9.253555000994961,
+       "min": 560.7102426479144,
+       "max": 665.6861887671411,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 600.2425433462164,
+       "ci95": 9.271701231762327,
+       "min": 560.356267762875,
+       "max": 665.5071290920898,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    }
+   ],
+   "byGroup": {
+    "regular": {
+     "WPS-A": {
+      "avg": {
+       "mean": 129.9567233847361,
+       "ci95": 5.3304015897595916,
+       "min": 101.47099035128332,
+       "max": 160.93539295844704,
+       "n": 30
+      },
+      "max": {
+       "mean": 197.85300835882472,
+       "ci95": 6.271387568193042,
+       "min": 158.32466392491034,
+       "max": 232.49806765704744,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 130.0064352823395,
+       "ci95": 5.322170514761958,
+       "min": 101.19437342197557,
+       "max": 160.89670479198105,
+       "n": 30
+      },
+      "max": {
+       "mean": 197.62133401479343,
+       "ci95": 6.318703383716141,
+       "min": 159.5603298784073,
+       "max": 232.37158945384186,
+       "n": 30
+      }
+     }
+    },
+    "senior": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.4793121640444076,
+       "ci95": 0.2206342903049807,
+       "min": 1.5906158381608613,
+       "max": 3.9461053884954276,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.969311039753311,
+       "ci95": 1.0681894499917273,
+       "min": 4.043364820410261,
+       "max": 17.126006795630957,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 3.2042956830166944,
+       "ci95": 0.28955644548872794,
+       "min": 1.668121498291202,
+       "max": 5.656589761474855,
+       "n": 30
+      },
+      "max": {
+       "mean": 9.835314317240265,
+       "ci95": 1.4954386897786667,
+       "min": 3.879235955244887,
+       "max": 22.73480704121934,
+       "n": 30
+      }
+     }
+    },
+    "pwd": {
+     "WPS-A": {
+      "avg": {
+       "mean": 4.06813059632105,
+       "ci95": 0.7619227649517143,
+       "min": 1.4260653742993175,
+       "max": 9.199088686887615,
+       "n": 30
+      },
+      "max": {
+       "mean": 9.294651045795145,
+       "ci95": 1.8199851612036368,
+       "min": 3.517790929188756,
+       "max": 20.217354970057883,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 3.8195930502922577,
+       "ci95": 0.6930652082676305,
+       "min": 1.564177465775856,
+       "max": 8.248925967682867,
+       "n": 30
+      },
+      "max": {
+       "mean": 8.841019320563726,
+       "ci95": 1.5575119911241908,
+       "min": 3.517790929188756,
+       "max": 20.217354970057883,
+       "n": 30
+      }
+     }
+    },
+    "pregnant": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.8168050708753665,
+       "ci95": 0.3523775874734954,
+       "min": 0.7931207943570797,
+       "max": 4.424729024154062,
+       "n": 30
+      },
+      "max": {
+       "mean": 6.534845307127284,
+       "ci95": 1.111935689124962,
+       "min": 1.9856636017113374,
+       "max": 16.02227368277569,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 3.036911293178173,
+       "ci95": 0.4422807222690652,
+       "min": 0.7014055459506618,
+       "max": 4.986729424224271,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.417637895454471,
+       "ci95": 1.2913369560591619,
+       "min": 1.7675864816377214,
+       "max": 18.012283307379008,
+       "n": 30
+      }
+     }
+    },
+    "indigenous": {
+     "WPS-A": {
+      "avg": {
+       "mean": 13.86504046087264,
+       "ci95": 1.036834706335455,
+       "min": 7.6607713759690705,
+       "max": 20.774174386218974,
+       "n": 30
+      },
+      "max": {
+       "mean": 18.214270896006898,
+       "ci95": 2.3100877162414672,
+       "min": 10.698742948024105,
+       "max": 36.03495892270867,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 3.9521843009502513,
+       "ci95": 1.0764111294983376,
+       "min": 1.2834048488958416,
+       "max": 12.813678807040304,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.342485373118698,
+       "ci95": 2.492496205705447,
+       "min": 1.686670334149369,
+       "max": 29.584046440918314,
+       "n": 30
+      }
+     }
+    },
+    "solo_parent": {
+     "WPS-A": {
+      "avg": {
+       "mean": 130.37634204500839,
+       "ci95": 13.075758044025939,
+       "min": 47.05043235146483,
+       "max": 196.598147305172,
+       "n": 30
+      },
+      "max": {
+       "mean": 170.12102603187253,
+       "ci95": 10.864872443790436,
+       "min": 90.84507394523615,
+       "max": 224.68425507892124,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 130.4663424440739,
+       "ci95": 13.13457963950557,
+       "min": 47.22772667686339,
+       "max": 196.51841220277333,
+       "n": 30
+      },
+      "max": {
+       "mean": 170.09557931200723,
+       "ci95": 11.128564971665961,
+       "min": 83.75125314022739,
+       "max": 224.64084661771437,
+       "n": 30
+      }
+     }
+    },
+    "multiple": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.5914246064644444,
+       "ci95": 0.276279354384536,
+       "min": 1.3274750205039894,
+       "max": 4.197280872293197,
+       "n": 30
+      },
+      "max": {
+       "mean": 6.120225745087993,
+       "ci95": 0.7244686091204768,
+       "min": 2.3253040576938133,
+       "max": 11.107773735543006,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 3.808494612659741,
+       "ci95": 0.5297136672805545,
+       "min": 1.5356580475685035,
+       "max": 8.149953346447102,
+       "n": 30
+      },
+      "max": {
+       "mean": 9.632634675011921,
+       "ci95": 1.4811194724729342,
+       "min": 4.012595244643052,
+       "max": 21.660404246487303,
+       "n": 30
+      }
+     }
+    }
+   },
+   "sameOrderRuns": 0,
+   "overloadedRuns": 30,
+   "offeredLoad": {
+    "mean": 1.2472636787808402,
+    "ci95": 0.0184910617127549,
+    "min": 1.1619806613550279,
+    "max": 1.3724625115783005,
+    "n": 30
+   },
+   "laterRegularAheadOfVulnerable": {
+    "WPS-A": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    },
+    "WRR": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    }
+   }
+  },
+  {
+   "scenario": "vulnerable-majority",
+   "count": 200,
+   "baseSeed": 20261029,
+   "replications": 30,
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 200,
+       "ci95": 0,
+       "min": 200,
+       "max": 200,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 200,
+       "ci95": 0,
+       "min": 200,
+       "max": 200,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 129.54613233207576,
+       "ci95": 4.609339141082934,
+       "min": 104.28778894332228,
+       "max": 151.91686866532248,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 126.96541616785821,
+       "ci95": 4.728665739046959,
+       "min": 99.41701970444339,
+       "max": 149.80830724953384,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 7,
+      "WRR": 22,
+      "tie": 1
+     }
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 431.86609233376623,
+       "ci95": 11.576600790874721,
+       "min": 358.6605277276959,
+       "max": 489.2643421228272,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 380.2381961186341,
+       "ci95": 10.10465074036276,
+       "min": 325.5086709171459,
+       "max": 460.9676161329058,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 460.98607359515205,
+       "ci95": 11.002227108915863,
+       "min": 382.43518354908275,
+       "max": 517.1340081311255,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 411.9023287082524,
+       "ci95": 10.417486201925865,
+       "min": 356.20962291206934,
+       "max": 489.12599869357564,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 346.4459650751129,
+       "ci95": 11.363179551969901,
+       "min": 288.1764175435498,
+       "max": 416.29689626519405,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 283.71744354664486,
+       "ci95": 8.68828573304425,
+       "min": 243.86058737149756,
+       "max": 340.09828831979166,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 450.6249405287241,
+       "ci95": 11.98552568864579,
+       "min": 373.0925055245115,
+       "max": 509.3044029084479,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 401.42102288392016,
+       "ci95": 9.690617972735499,
+       "min": 337.160386008228,
+       "max": 466.4164469428294,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 458.2826388883014,
+       "ci95": 11.276054312247624,
+       "min": 382.43518354908275,
+       "max": 517.1340081311255,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 411.59218492227126,
+       "ci95": 10.265252898998808,
+       "min": 356.20962291206934,
+       "max": 484.4663012557122,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 75.32117414631648,
+       "ci95": 3.862614051048118,
+       "min": 52.738953914708915,
+       "max": 95.35397681950954,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 87.77740932316152,
+       "ci95": 4.811293969103901,
+       "min": 59.10083700234568,
+       "max": 110.83811694512922,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 30,
+      "WRR": 0,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 361.19738679063283,
+       "ci95": 12.700352318027239,
+       "min": 296.6308434806458,
+       "max": 460.59225003692933,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 269.21456233057836,
+       "ci95": 21.347048876080365,
+       "min": 162.27725797147804,
+       "max": 393.79359974209086,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 450.7823044572658,
+       "ci95": 11.506747816400292,
+       "min": 373.19161477653995,
+       "max": 503.4506142473598,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 397.1164832986417,
+       "ci95": 11.926743663364812,
+       "min": 308.86873731852097,
+       "max": 489.12599869357564,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 29,
+      "tie": 1
+     }
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 2760.866666666667,
+       "ci95": 107.54425080123282,
+       "min": 2387,
+       "max": 3537,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1986.4666666666667,
+       "ci95": 90.40311642951576,
+       "min": 1635,
+       "max": 2467,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 136.13333333333333,
+       "ci95": 2.70695297732634,
+       "min": 120,
+       "max": 144,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 96.5,
+       "ci95": 3.176779400009047,
+       "min": 81,
+       "max": 119,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 2691.8,
+       "ci95": 107.28546093226365,
+       "min": 2317,
+       "max": 3444,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 1960.2333333333333,
+       "ci95": 89.07749393237346,
+       "min": 1605,
+       "max": 2435,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 12.466666666666667,
+       "ci95": 0.553840454501245,
+       "min": 9,
+       "max": 16,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 30,
+      "WRR": 0,
+      "tie": 0
+     }
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 34.46666666666667,
+       "ci95": 2.136213630311702,
+       "min": 24,
+       "max": 49,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 83.5,
+       "ci95": 1.4940221112706185,
+       "min": 75,
+       "max": 91,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 36.666666666666664,
+       "ci95": 1.1406750706744833,
+       "min": 28,
+       "max": 40,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 28.066666666666666,
+       "ci95": 0.5633265183563835,
+       "min": 24,
+       "max": 30,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 29,
+      "tie": 1
+     }
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 4.333333333333333,
+       "ci95": 2.860191350134983,
+       "min": 0,
+       "max": 35,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 13,
+      "tie": 17
+     }
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 18.854986223060088,
+       "ci95": 0.27755934840349183,
+       "min": 16.935585393893792,
+       "max": 20.12409267974169,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 18.85240275596801,
+       "ci95": 0.2794873370513739,
+       "min": 16.934824026226945,
+       "max": 20.132937827180236,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.9878089423917019,
+       "ci95": 0.0018858745964156598,
+       "min": 0.9768474646252416,
+       "max": 0.9974146901235504,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.9876620010858577,
+       "ci95": 0.0018664144792235613,
+       "min": 0.9762189407839331,
+       "max": 0.9958954227217597,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 637.489826465429,
+       "ci95": 9.49268887070665,
+       "min": 596.3001756635733,
+       "max": 708.5671809329166,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 637.591695906928,
+       "ci95": 9.556983432558168,
+       "min": 596.0381988464466,
+       "max": 708.5990371919787,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    }
+   ],
+   "byGroup": {
+    "regular": {
+     "WPS-A": {
+      "avg": {
+       "mean": 346.4459650751129,
+       "ci95": 11.363179551969901,
+       "min": 288.1764175435498,
+       "max": 416.29689626519405,
+       "n": 30
+      },
+      "max": {
+       "mean": 458.2826388883014,
+       "ci95": 11.276054312247624,
+       "min": 382.43518354908275,
+       "max": 517.1340081311255,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 283.71744354664486,
+       "ci95": 8.68828573304425,
+       "min": 243.86058737149756,
+       "max": 340.09828831979166,
+       "n": 30
+      },
+      "max": {
+       "mean": 411.59218492227126,
+       "ci95": 10.265252898998808,
+       "min": 356.20962291206934,
+       "max": 484.4663012557122,
+       "n": 30
+      }
+     }
+    },
+    "senior": {
+     "WPS-A": {
+      "avg": {
+       "mean": 14.305760486008475,
+       "ci95": 0.8065431078945754,
+       "min": 9.519036316140882,
+       "max": 20.605712038761002,
+       "n": 30
+      },
+      "max": {
+       "mean": 32.46264476355672,
+       "ci95": 2.6138344108690275,
+       "min": 20.479946468619232,
+       "max": 51.83061895384378,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 88.36694760075011,
+       "ci95": 7.386130119454505,
+       "min": 38.29044630604058,
+       "max": 132.97909849711928,
+       "n": 30
+      },
+      "max": {
+       "mean": 150.57979185079355,
+       "ci95": 10.507610662814796,
+       "min": 89.74030057412949,
+       "max": 217.16026910681882,
+       "n": 30
+      }
+     }
+    },
+    "pwd": {
+     "WPS-A": {
+      "avg": {
+       "mean": 74.35399231765824,
+       "ci95": 8.696236808031866,
+       "min": 35.27157120577678,
+       "max": 121.50992750621027,
+       "n": 30
+      },
+      "max": {
+       "mean": 137.67825785745626,
+       "ci95": 12.430874998593834,
+       "min": 73.63048430606409,
+       "max": 207.6706457151061,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 85.49121707266626,
+       "ci95": 7.355757824237769,
+       "min": 49.6368348424902,
+       "max": 135.6561959472921,
+       "n": 30
+      },
+      "max": {
+       "mean": 145.98738392692377,
+       "ci95": 10.537056660793182,
+       "min": 97.87780601983985,
+       "max": 208.2380858394967,
+       "n": 30
+      }
+     }
+    },
+    "pregnant": {
+     "WPS-A": {
+      "avg": {
+       "mean": 74.94085535715499,
+       "ci95": 8.1414260163311,
+       "min": 39.211553818376665,
+       "max": 126.18649963323529,
+       "n": 30
+      },
+      "max": {
+       "mean": 141.01691554051075,
+       "ci95": 12.391104591200763,
+       "min": 90.70321862421685,
+       "max": 208.76456925790177,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 81.4744832653576,
+       "ci95": 6.324434365024648,
+       "min": 54.05709454723429,
+       "max": 126.54567781626439,
+       "n": 30
+      },
+      "max": {
+       "mean": 145.32274243629493,
+       "ci95": 9.823802185611559,
+       "min": 93.46743745941927,
+       "max": 203.5394640604839,
+       "n": 30
+      }
+     }
+    },
+    "indigenous": {
+     "WPS-A": {
+      "avg": {
+       "mean": 236.2427901602317,
+       "ci95": 19.02355112086805,
+       "min": 147.86214367944427,
+       "max": 355.44961734438766,
+       "n": 30
+      },
+      "max": {
+       "mean": 374.85078794588,
+       "ci95": 17.55637969511626,
+       "min": 260.71028497687126,
+       "max": 453.49313220938234,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 23.76364009585984,
+       "ci95": 3.7280335714660264,
+       "min": 9.268604986753099,
+       "max": 50.30099287735183,
+       "n": 30
+      },
+      "max": {
+       "mean": 51.736398800171095,
+       "ci95": 6.99636478045571,
+       "min": 26.848902448509392,
+       "max": 87.48774236179773,
+       "n": 30
+      }
+     }
+    },
+    "solo_parent": {
+     "WPS-A": {
+      "avg": {
+       "mean": 338.0967109939413,
+       "ci95": 12.917471364871146,
+       "min": 254.69579754425084,
+       "max": 426.9228146982727,
+       "n": 30
+      },
+      "max": {
+       "mean": 450.7823044572658,
+       "ci95": 11.506747816400292,
+       "min": 373.19161477653995,
+       "max": 503.4506142473598,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 281.64524817465207,
+       "ci95": 14.162787959550155,
+       "min": 200.33551559799702,
+       "max": 368.8381902626349,
+       "n": 30
+      },
+      "max": {
+       "mean": 397.1164832986417,
+       "ci95": 11.926743663364812,
+       "min": 308.86873731852097,
+       "max": 489.12599869357564,
+       "n": 30
+      }
+     }
+    },
+    "multiple": {
+     "WPS-A": {
+      "avg": {
+       "mean": 7.131662871481702,
+       "ci95": 0.598115385134718,
+       "min": 4.382890460836882,
+       "max": 11.248014499814548,
+       "n": 30
+      },
+      "max": {
+       "mean": 27.65700940361439,
+       "ci95": 2.7948664343524805,
+       "min": 16.087938740547344,
+       "max": 45.73317392562029,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 40.72223228908533,
+       "ci95": 3.0754986236985435,
+       "min": 24.35108321283768,
+       "max": 61.82141745245209,
+       "n": 30
+      },
+      "max": {
+       "mean": 138.75464964373404,
+       "ci95": 10.44066678566981,
+       "min": 71.15942717450042,
+       "max": 191.09348735401153,
+       "n": 30
+      }
+     }
+    }
+   },
+   "sameOrderRuns": 0,
+   "overloadedRuns": 30,
+   "offeredLoad": {
+    "mean": 1.3246989701787482,
+    "ci95": 0.01923742921055624,
+    "min": 1.2405142741935968,
+    "max": 1.4624939899522744,
+    "n": 30
+   },
+   "laterRegularAheadOfVulnerable": {
+    "WPS-A": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    },
+    "WRR": {
+     "mean": 0.7666666666666667,
+     "ci95": 0.7198944579946013,
+     "min": 0,
+     "max": 10,
+     "n": 30
+    }
+   }
+  },
+  {
+   "scenario": "sustained-arrivals",
+   "count": 100,
+   "baseSeed": 20261029,
+   "replications": 30,
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 100,
+       "ci95": 0,
+       "min": 100,
+       "max": 100,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 100,
+       "ci95": 0,
+       "min": 100,
+       "max": 100,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 46.382878589907165,
+       "ci95": 3.1652679048677235,
+       "min": 30.061013164382622,
+       "max": 59.26074943206258,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 45.67474377712724,
+       "ci95": 3.0417325349529314,
+       "min": 31.070557148860093,
+       "max": 58.7141436790333,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 12,
+      "WRR": 17,
+      "tie": 1
+     }
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 194.73873444286664,
+       "ci95": 9.747083013056715,
+       "min": 153.70734250985194,
+       "max": 251.06629954486084,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 113.60970367394337,
+       "ci95": 8.247061668922028,
+       "min": 79.38088703718176,
+       "max": 161.2360591847111,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 254.66340014051386,
+       "ci95": 7.295125475868686,
+       "min": 196.26711965104198,
+       "max": 292.7125739670494,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 145.30247599192927,
+       "ci95": 9.715923747121092,
+       "min": 107.16707989707277,
+       "max": 209.98705079492726,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 169.30743872576633,
+       "ci95": 8.65084039807009,
+       "min": 121.02267571361658,
+       "max": 209.71437146995555,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 91.08157294745631,
+       "ci95": 6.37776459567793,
+       "min": 61.38105346809616,
+       "max": 130.86408832104465,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 246.60493569960508,
+       "ci95": 7.138598680269801,
+       "min": 193.15377441366326,
+       "max": 279.68119927632694,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 141.2781232101145,
+       "ci95": 9.622080227385208,
+       "min": 99.2542841675691,
+       "max": 207.96354212695417,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 254.66340014051386,
+       "ci95": 7.295125475868686,
+       "min": 196.26711965104198,
+       "max": 292.7125739670494,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 145.30247599192927,
+       "ci95": 9.715923747121092,
+       "min": 107.16707989707277,
+       "max": 209.98705079492726,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 24.690309154167323,
+       "ci95": 2.6587891557258985,
+       "min": 10.000442817351122,
+       "max": 36.30095107531104,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 37.66177392353976,
+       "ci95": 2.8393306007452424,
+       "min": 21.906975605086668,
+       "max": 49.51403422013194,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 30,
+      "WRR": 0,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 66.37093098832837,
+       "ci95": 7.5566341425755486,
+       "min": 25.811951403999316,
+       "max": 107.30742758426207,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 79.67706110484214,
+       "ci95": 5.902214179600943,
+       "min": 42.58476457718845,
+       "max": 111.4096318078601,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 26,
+      "WRR": 4,
+      "tie": 0
+     }
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 76.98820778055837,
+       "ci95": 7.578172478083953,
+       "min": 36.09357080574918,
+       "max": 120.72667889606328,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 88.54069281088512,
+       "ci95": 5.739091066974696,
+       "min": 56.78623011159742,
+       "max": 117.53267796676306,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 25,
+      "WRR": 5,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 588.1,
+       "ci95": 33.234194181543685,
+       "min": 389,
+       "max": 743,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 218.76666666666668,
+       "ci95": 26.85554077949999,
+       "min": 98,
+       "max": 377,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 79.13333333333334,
+       "ci95": 2.4247199972644466,
+       "min": 59,
+       "max": 82,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 30.266666666666666,
+       "ci95": 3.1631050848458666,
+       "min": 16,
+       "max": 47,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 554.7666666666667,
+       "ci95": 33.81744291444921,
+       "min": 354,
+       "max": 715,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 204.93333333333334,
+       "ci95": 26.51887356934629,
+       "min": 84,
+       "max": 365,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 10.4,
+       "ci95": 0.22238498254102076,
+       "min": 9,
+       "max": 11,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 30,
+      "WRR": 0,
+      "tie": 0
+     }
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "unit": "count",
+     "lowerIsBetter": null,
+     "summary": {
+      "WPS-A": {
+       "mean": 17.566666666666666,
+       "ci95": 1.5603308618582896,
+       "min": 9,
+       "max": 25,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 42.5,
+       "ci95": 1.0786654163640226,
+       "min": 34,
+       "max": 48,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 0,
+      "tie": 30
+     }
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 14.366666666666667,
+       "ci95": 0.5904978872013616,
+       "min": 9,
+       "max": 15,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 7.3,
+       "ci95": 0.2842640831436804,
+       "min": 6,
+       "max": 9,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 30,
+      "tie": 0
+     }
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "unit": "count",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 7.866666666666666,
+       "ci95": 0.9799249013371056,
+       "min": 0,
+       "max": 12,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0,
+       "ci95": 0,
+       "min": 0,
+       "max": 0,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 0,
+      "WRR": 29,
+      "tie": 1
+     }
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 19.36908128515106,
+       "ci95": 0.3649050634662661,
+       "min": 17.74458239046572,
+       "max": 21.06207937662394,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 19.33413403354591,
+       "ci95": 0.3678351895606478,
+       "min": 17.663146644079283,
+       "max": 21.160185465473127,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 0,
+      "tie": 29
+     }
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "summary": {
+      "WPS-A": {
+       "mean": 0.9863125640253122,
+       "ci95": 0.004940090817957687,
+       "min": 0.9399099410292256,
+       "max": 0.9981032334824161,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 0.984497648482311,
+       "ci95": 0.004674991435717354,
+       "min": 0.9451835806133895,
+       "max": 0.9965469645671118,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 0,
+      "tie": 29
+     }
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "unit": "min",
+     "lowerIsBetter": true,
+     "summary": {
+      "WPS-A": {
+       "mean": 310.5949085739559,
+       "ci95": 5.791802276822982,
+       "min": 284.87215781074246,
+       "max": 338.1313726055249,
+       "n": 30
+      },
+      "WRR": {
+       "mean": 311.17224190062757,
+       "ci95": 5.857083019694034,
+       "min": 283.5513899341829,
+       "max": 339.69032363841075,
+       "n": 30
+      }
+     },
+     "better": {
+      "WPS-A": 1,
+      "WRR": 0,
+      "tie": 29
+     }
+    }
+   ],
+   "byGroup": {
+    "regular": {
+     "WPS-A": {
+      "avg": {
+       "mean": 169.30743872576633,
+       "ci95": 8.65084039807009,
+       "min": 121.02267571361658,
+       "max": 209.71437146995555,
+       "n": 30
+      },
+      "max": {
+       "mean": 254.66340014051386,
+       "ci95": 7.295125475868686,
+       "min": 196.26711965104198,
+       "max": 292.7125739670494,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 91.08157294745631,
+       "ci95": 6.37776459567793,
+       "min": 61.38105346809616,
+       "max": 130.86408832104465,
+       "n": 30
+      },
+      "max": {
+       "mean": 145.30247599192927,
+       "ci95": 9.715923747121092,
+       "min": 107.16707989707277,
+       "max": 209.98705079492726,
+       "n": 30
+      }
+     }
+    },
+    "senior": {
+     "WPS-A": {
+      "avg": {
+       "mean": 13.253236492973087,
+       "ci95": 1.1185973552952932,
+       "min": 5.812261554336505,
+       "max": 17.46483053004387,
+       "n": 30
+      },
+      "max": {
+       "mean": 25.5351094284615,
+       "ci95": 2.0589303494347493,
+       "min": 14.91959890402805,
+       "max": 38.82902963359976,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 34.66681945216511,
+       "ci95": 4.14997883446547,
+       "min": 18.008771129779223,
+       "max": 58.019027522146175,
+       "n": 30
+      },
+      "max": {
+       "mean": 67.19265723904293,
+       "ci95": 6.017776699119451,
+       "min": 34.33478747117681,
+       "max": 99.45183642055088,
+       "n": 30
+      }
+     }
+    },
+    "pwd": {
+     "WPS-A": {
+      "avg": {
+       "mean": 46.03814591645455,
+       "ci95": 5.5035409940428295,
+       "min": 15.304061078245775,
+       "max": 66.92821650593335,
+       "n": 30
+      },
+      "max": {
+       "mean": 75.51636938982602,
+       "ci95": 7.643815105155002,
+       "min": 33.20103564205054,
+       "max": 120.72667889606328,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 51.876203362992634,
+       "ci95": 4.004146217503699,
+       "min": 28.345492142463144,
+       "max": 76.38142704674067,
+       "n": 30
+      },
+      "max": {
+       "mean": 86.45889666721537,
+       "ci95": 5.604622589646123,
+       "min": 53.972430094652836,
+       "max": 111.70618909506686,
+       "n": 30
+      }
+     }
+    },
+    "pregnant": {
+     "WPS-A": {
+      "avg": {
+       "mean": 45.65829881756587,
+       "ci95": 6.013793084234931,
+       "min": 18.18365249494566,
+       "max": 72.57526801639763,
+       "n": 30
+      },
+      "max": {
+       "mean": 72.74995616521619,
+       "ci95": 7.648480487607882,
+       "min": 29.076746350819306,
+       "max": 110.17129803781285,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 49.66009110181008,
+       "ci95": 4.6704957242864795,
+       "min": 27.513797702081934,
+       "max": 80.39141123183872,
+       "n": 30
+      },
+      "max": {
+       "mean": 85.87360702458778,
+       "ci95": 6.0835567240979085,
+       "min": 49.808245758503205,
+       "max": 117.53267796676306,
+       "n": 30
+      }
+     }
+    },
+    "multiple": {
+     "WPS-A": {
+      "avg": {
+       "mean": 2.7856716071459924,
+       "ci95": 0.34460520301695313,
+       "min": 1.525114326565208,
+       "max": 5.267364311398713,
+       "n": 30
+      },
+      "max": {
+       "mean": 7.334388064901322,
+       "ci95": 0.7999550621461224,
+       "min": 4.262090111259084,
+       "max": 13.288452898904099,
+       "n": 30
+      }
+     },
+     "WRR": {
+      "avg": {
+       "mean": 12.13804910899685,
+       "ci95": 0.9857527955316524,
+       "min": 7.743586234167089,
+       "max": 18.553395836961677,
+       "n": 30
+      },
+      "max": {
+       "mean": 24.42303238493304,
+       "ci95": 1.548807067752223,
+       "min": 14.912143491114492,
+       "max": 31.572159980086184,
+       "n": 30
+      }
+     }
+    }
+   },
+   "sameOrderRuns": 0,
+   "overloadedRuns": 30,
+   "offeredLoad": {
+    "mean": 1.3715410562395425,
+    "ci95": 0.026162758344861328,
+    "min": 1.245918499930278,
+    "max": 1.4809477903649644,
+    "n": 30
+   },
+   "laterRegularAheadOfVulnerable": {
+    "WPS-A": {
+     "mean": 0,
+     "ci95": 0,
+     "min": 0,
+     "max": 0,
+     "n": 30
+    },
+    "WRR": {
+     "mean": 3.8666666666666667,
+     "ci95": 2.0518669790258963,
+     "min": 0,
+     "max": 21,
+     "n": 30
+    }
+   }
+  }
+ ],
+ "single": [
+  {
+   "scenario": "regular-majority",
+   "seed": 20261029,
+   "count": 100,
+   "profile": {
+    "patients": 100,
+    "lastArrival": 433.3724923292175,
+    "consultationMinutes": 887.932106406283,
+    "meanConsultation": 8.879321064062829,
+    "capacityPerHour": 20.271820187751953,
+    "offeredLoad": 0.682962979979013,
+    "hourly": [
+     {
+      "hour": 0,
+      "arrivals": 19,
+      "load": 0.9302674541909035
+     },
+     {
+      "hour": 1,
+      "arrivals": 20,
+      "load": 1.1574154902091136
+     },
+     {
+      "hour": 2,
+      "arrivals": 20,
+      "load": 0.8202796074661017
+     },
+     {
+      "hour": 3,
+      "arrivals": 10,
+      "load": 0.4183423431612855
+     },
+     {
+      "hour": 4,
+      "arrivals": 8,
+      "load": 0.430429417910865
+     },
+     {
+      "hour": 5,
+      "arrivals": 16,
+      "load": 0.8010266594954234
+     },
+     {
+      "hour": 6,
+      "arrivals": 6,
+      "load": 0.3155653825798404
+     },
+     {
+      "hour": 7,
+      "arrivals": 1,
+      "load": 0.05962979168803823
+     }
+    ],
+    "overloadedHours": [
+     1
+    ]
+   },
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "values": [
+      100,
+      100
+     ],
+     "shown": [
+      "100",
+      "100"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "values": [
+      5.021621665680723,
+      5.021621665680723
+     ],
+     "shown": [
+      "5.0 min",
+      "5.0 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "values": [
+      19.076807304887158,
+      19.076807304887158
+     ],
+     "shown": [
+      "19.1 min",
+      "19.1 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "values": [
+      26.526250855862543,
+      26.526250855862543
+     ],
+     "shown": [
+      "26.5 min",
+      "26.5 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "values": [
+      5.861436313778545,
+      5.861436313778545
+     ],
+     "shown": [
+      "5.9 min",
+      "5.9 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "values": [
+      19.437790191471006,
+      19.437790191471006
+     ],
+     "shown": [
+      "19.4 min",
+      "19.4 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "values": [
+      26.526250855862543,
+      26.526250855862543
+     ],
+     "shown": [
+      "26.5 min",
+      "26.5 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "values": [
+      1.6623630732894394,
+      1.6623630732894394
+     ],
+     "shown": [
+      "1.7 min",
+      "1.7 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "values": [
+      6.5765056737747685,
+      6.5765056737747685
+     ],
+     "shown": [
+      "6.6 min",
+      "6.6 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "values": [
+      14.712868585639555,
+      14.712868585639555
+     ],
+     "shown": [
+      "14.7 min",
+      "14.7 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "values": [
+      26,
+      26
+     ],
+     "shown": [
+      "26",
+      "26"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "values": [
+      3,
+      3
+     ],
+     "shown": [
+      "3",
+      "3"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "values": [
+      2,
+      2
+     ],
+     "shown": [
+      "2",
+      "2"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "values": [
+      0,
+      0
+     ],
+     "shown": [
+      "0",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "values": [
+      0,
+      0
+     ],
+     "shown": [
+      "0",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "values": [
+      0,
+      0
+     ],
+     "shown": [
+      "0",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "values": [
+      0,
+      0
+     ],
+     "shown": [
+      "0",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "values": [
+      13.51029250054663,
+      13.51029250054663
+     ],
+     "shown": [
+      "13.51",
+      "13.51"
+     ],
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "values": [
+      0.6664568043430764,
+      0.6664568043430764
+     ],
+     "shown": [
+      "66.6%",
+      "66.6%"
+     ],
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "values": [
+      444.10585483306437,
+      444.10585483306437
+     ],
+     "shown": [
+      "444.1 min",
+      "444.1 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    }
+   ],
+   "ordering": {
+    "sameOrder": true,
+    "positionsChanged": 0,
+    "meanShift": 0,
+    "meanPosition": {
+     "WPS-A": {
+      "regular": 50.475,
+      "vulnerable": 50.6
+     },
+     "WRR": {
+      "regular": 50.475,
+      "vulnerable": 50.6
+     }
+    },
+    "laterRegularAheadOfVulnerable": {
+     "WPS-A": 0,
+     "WRR": 0
+    }
+   },
+   "findings": {
+    "lines": [
+     "Registrations exceeded what three doctors can see in 1 hour(s) (starting 09:00; peak load 1.16 × capacity), so a queue built up.",
+     "Both algorithms called every patient in the same order, so every waiting-time result is identical: in this workload WRR's rotation never had to choose differently from WPS-A.",
+     "Priority-lane violations: WPS-A 0, WRR 0. WRR did not need to call a Regular ahead of a waiting Senior/PWD/Pregnant patient in this run.",
+     "Aging cap: 4 Regular patient(s) waited 20 minutes or more under WPS-A (bonus capped at +2); they were bypassed 2 more time(s) after reaching the cap. A Regular's effective priority stops at 3, so it can never pass a waiting Senior, PWD or Pregnant patient; the cap limits reordering, not waiting time.",
+     "Throughput 13.51 vs 13.51 patients/hour and mean utilization 66.6% vs 66.6%: both algorithms keep every free doctor busy, so capacity is not what separates them."
+    ],
+    "criteria": [
+     {
+      "id": "lane",
+      "importance": "Primary",
+      "label": "Priority-lane protection of Vulnerable patients",
+      "metrics": [
+       "laneViolations",
+       "vulnerableAvg",
+       "vulnerableP95",
+       "vulnerableMax"
+      ],
+      "why": "The office's priority policy puts Senior, PWD and Pregnant patients ahead of Regular patients; a call that breaks it is visible to patients and staff.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 0
+      },
+      "leader": null
+     },
+     {
+      "id": "bounded",
+      "importance": "Primary",
+      "label": "Bounded waiting for Regular patients (no starvation)",
+      "metrics": [
+       "regularMax",
+       "regularP95",
+       "maxRegularBypasses",
+       "starvationRegular"
+      ],
+      "why": "A Regular patient must eventually be seen even on a day with many Vulnerable registrations.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 0
+      },
+      "leader": null
+     },
+     {
+      "id": "average",
+      "importance": "Secondary",
+      "label": "Average waiting time",
+      "metrics": [
+       "avgWait",
+       "regularAvg"
+      ],
+      "why": "Matters for overall satisfaction, but averages can hide a few very long waits.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 0
+      },
+      "leader": null
+     },
+     {
+      "id": "capacity",
+      "importance": "Context",
+      "label": "Throughput and doctor utilization",
+      "metrics": [
+       "throughput",
+       "utilization",
+       "makespan"
+      ],
+      "why": "Both algorithms keep every free doctor busy whenever someone waits, so these are expected to match; a difference only reflects which consultation lengths ended last.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 0
+      },
+      "leader": null
+     }
+    ]
+   },
+   "tracked": {
+    "WPS-A": null,
+    "WRR": null
+   },
+   "byGroup": {
+    "WPS-A": {
+     "regular": {
+      "n": 80,
+      "avg": 5.861436313778545,
+      "p95": 19.437790191471006,
+      "max": 26.526250855862543
+     },
+     "senior": {
+      "n": 7,
+      "avg": 1.3641174705268295,
+      "p95": 5.060935423433083,
+      "max": 6.148276046834511
+     },
+     "pwd": {
+      "n": 3,
+      "avg": 5.01788321310211,
+      "p95": 13.275659832442276,
+      "max": 14.712868585639555
+     },
+     "pregnant": {
+      "n": 3,
+      "avg": 0.960202154121987,
+      "p95": 2.4180068117526217,
+      "max": 2.662432706895032
+     },
+     "indigenous": {
+      "n": 2,
+      "avg": 0.2490090686809161,
+      "p95": 0.47311723049374055,
+      "max": 0.4980181373618322
+     },
+     "solo_parent": {
+      "n": 2,
+      "avg": 0,
+      "p95": 0,
+      "max": 0
+     },
+     "multiple": {
+      "n": 3,
+      "avg": 1.755388311022287,
+      "p95": 3.96106816603482,
+      "max": 4.32180214231704
+     }
+    },
+    "WRR": {
+     "regular": {
+      "n": 80,
+      "avg": 5.861436313778545,
+      "p95": 19.437790191471006,
+      "max": 26.526250855862543
+     },
+     "senior": {
+      "n": 7,
+      "avg": 1.3641174705268295,
+      "p95": 5.060935423433083,
+      "max": 6.148276046834511
+     },
+     "pwd": {
+      "n": 3,
+      "avg": 5.01788321310211,
+      "p95": 13.275659832442276,
+      "max": 14.712868585639555
+     },
+     "pregnant": {
+      "n": 3,
+      "avg": 0.960202154121987,
+      "p95": 2.4180068117526217,
+      "max": 2.662432706895032
+     },
+     "indigenous": {
+      "n": 2,
+      "avg": 0.2490090686809161,
+      "p95": 0.47311723049374055,
+      "max": 0.4980181373618322
+     },
+     "solo_parent": {
+      "n": 2,
+      "avg": 0,
+      "p95": 0,
+      "max": 0
+     },
+     "multiple": {
+      "n": 3,
+      "avg": 1.755388311022287,
+      "p95": 3.96106816603482,
+      "max": 4.32180214231704
+     }
+    }
+   }
+  },
+  {
+   "scenario": "vulnerable-majority",
+   "seed": 20261029,
+   "count": 100,
+   "profile": {
+    "patients": 100,
+    "lastArrival": 433.3724923292175,
+    "consultationMinutes": 945.795417817764,
+    "meanConsultation": 9.45795417817764,
+    "capacityPerHour": 19.031599922033287,
+    "offeredLoad": 0.7274691976367813,
+    "hourly": [
+     {
+      "hour": 0,
+      "arrivals": 19,
+      "load": 1.0233528027307832
+     },
+     {
+      "hour": 1,
+      "arrivals": 20,
+      "load": 1.221132105323029
+     },
+     {
+      "hour": 2,
+      "arrivals": 20,
+      "load": 0.8120963286987559
+     },
+     {
+      "hour": 3,
+      "arrivals": 10,
+      "load": 0.44950620139169756
+     },
+     {
+      "hour": 4,
+      "arrivals": 8,
+      "load": 0.4741427399067639
+     },
+     {
+      "hour": 5,
+      "arrivals": 16,
+      "load": 0.8989936355575594
+     },
+     {
+      "hour": 6,
+      "arrivals": 6,
+      "load": 0.3155653825798404
+     },
+     {
+      "hour": 7,
+      "arrivals": 1,
+      "load": 0.05962979168803823
+     }
+    ],
+    "overloadedHours": [
+     0,
+     1
+    ]
+   },
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "values": [
+      100,
+      100
+     ],
+     "shown": [
+      "100",
+      "100"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "values": [
+      6.3453007150276,
+      6.94938580435226
+     ],
+     "shown": [
+      "6.3 min",
+      "6.9 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "values": [
+      26.27980427663655,
+      27.468169724323186
+     ],
+     "shown": [
+      "26.3 min",
+      "27.5 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "values": [
+      57.16651711645724,
+      42.25984260443238
+     ],
+     "shown": [
+      "57.2 min",
+      "42.3 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "values": [
+      14.275754202818783,
+      10.646903134437842
+     ],
+     "shown": [
+      "14.3 min",
+      "10.6 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "values": [
+      37.1828840066464,
+      28.224463421740097
+     ],
+     "shown": [
+      "37.2 min",
+      "28.2 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "values": [
+      57.16651711645724,
+      28.664982964891237
+     ],
+     "shown": [
+      "57.2 min",
+      "28.7 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "values": [
+      4.362687343079802,
+      6.025006471830862
+     ],
+     "shown": [
+      "4.4 min",
+      "6.0 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "values": [
+      17.56458317475987,
+      24.168186040792794
+     ],
+     "shown": [
+      "17.6 min",
+      "24.2 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "values": [
+      25.017542775936008,
+      42.25984260443238
+     ],
+     "shown": [
+      "25.0 min",
+      "42.3 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "values": [
+      58,
+      32
+     ],
+     "shown": [
+      "58",
+      "32"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "values": [
+      16,
+      6
+     ],
+     "shown": [
+      "16",
+      "6"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "values": [
+      28,
+      7
+     ],
+     "shown": [
+      "28",
+      "7"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "values": [
+      0,
+      6
+     ],
+     "shown": [
+      "0",
+      "6"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "values": [
+      1,
+      17
+     ],
+     "shown": [
+      "1",
+      "17"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "values": [
+      0,
+      0
+     ],
+     "shown": [
+      "0",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "values": [
+      0,
+      0
+     ],
+     "shown": [
+      "0",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "values": [
+      13.51029250054663,
+      13.51029250054663
+     ],
+     "shown": [
+      "13.51",
+      "13.51"
+     ],
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "values": [
+      0.7098873744663726,
+      0.7098873744663726
+     ],
+     "shown": [
+      "71.0%",
+      "71.0%"
+     ],
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "values": [
+      444.10585483306437,
+      444.10585483306437
+     ],
+     "shown": [
+      "444.1 min",
+      "444.1 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    }
+   ],
+   "ordering": {
+    "sameOrder": false,
+    "positionsChanged": 34,
+    "meanShift": 0.74,
+    "meanPosition": {
+     "WPS-A": {
+      "regular": 51.95,
+      "vulnerable": 50.1375
+     },
+     "WRR": {
+      "regular": 50.6,
+      "vulnerable": 50.475
+     }
+    },
+    "laterRegularAheadOfVulnerable": {
+     "WPS-A": 0,
+     "WRR": 1
+    }
+   },
+   "findings": {
+    "lines": [
+     "Registrations exceeded what three doctors can see in 2 hour(s) (starting 08:00, 09:00; peak load 1.22 × capacity), so a queue built up.",
+     "The two algorithms called 34 of 100 patients at a different position (mean shift 0.7 places).",
+     "Regular patients: average 14.3 min under WPS-A vs 10.6 min under WRR; longest 57.2 min vs 28.7 min.",
+     "Vulnerable patients: average 4.4 min under WPS-A vs 6.0 min under WRR; longest 25.0 min vs 42.3 min.",
+     "Priority-lane violations: WPS-A 0, WRR 6. WRR gives the Regular class its turn even while Senior/PWD/Pregnant patients wait.",
+     "Aging cap: 7 Regular patient(s) waited 20 minutes or more under WPS-A (bonus capped at +2); they were bypassed 28 more time(s) after reaching the cap. A Regular's effective priority stops at 3, so it can never pass a waiting Senior, PWD or Pregnant patient; the cap limits reordering, not waiting time.",
+     "Throughput 13.51 vs 13.51 patients/hour and mean utilization 71.0% vs 71.0%: both algorithms keep every free doctor busy, so capacity is not what separates them."
+    ],
+    "criteria": [
+     {
+      "id": "lane",
+      "importance": "Primary",
+      "label": "Priority-lane protection of Vulnerable patients",
+      "metrics": [
+       "laneViolations",
+       "vulnerableAvg",
+       "vulnerableP95",
+       "vulnerableMax"
+      ],
+      "why": "The office's priority policy puts Senior, PWD and Pregnant patients ahead of Regular patients; a call that breaks it is visible to patients and staff.",
+      "wins": {
+       "WPS-A": 4,
+       "WRR": 0
+      },
+      "leader": "WPS-A"
+     },
+     {
+      "id": "bounded",
+      "importance": "Primary",
+      "label": "Bounded waiting for Regular patients (no starvation)",
+      "metrics": [
+       "regularMax",
+       "regularP95",
+       "maxRegularBypasses",
+       "starvationRegular"
+      ],
+      "why": "A Regular patient must eventually be seen even on a day with many Vulnerable registrations.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 3
+      },
+      "leader": "WRR"
+     },
+     {
+      "id": "average",
+      "importance": "Secondary",
+      "label": "Average waiting time",
+      "metrics": [
+       "avgWait",
+       "regularAvg"
+      ],
+      "why": "Matters for overall satisfaction, but averages can hide a few very long waits.",
+      "wins": {
+       "WPS-A": 1,
+       "WRR": 1
+      },
+      "leader": null
+     },
+     {
+      "id": "capacity",
+      "importance": "Context",
+      "label": "Throughput and doctor utilization",
+      "metrics": [
+       "throughput",
+       "utilization",
+       "makespan"
+      ],
+      "why": "Both algorithms keep every free doctor busy whenever someone waits, so these are expected to match; a difference only reflects which consultation lengths ended last.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 0
+      },
+      "leader": null
+     }
+    ]
+   },
+   "tracked": {
+    "WPS-A": null,
+    "WRR": null
+   },
+   "byGroup": {
+    "WPS-A": {
+     "regular": {
+      "n": 20,
+      "avg": 14.275754202818783,
+      "p95": 37.1828840066464,
+      "max": 57.16651711645724
+     },
+     "senior": {
+      "n": 27,
+      "avg": 3.086867757948813,
+      "p95": 10.231679879588274,
+      "max": 11.055955575448593
+     },
+     "pwd": {
+      "n": 11,
+      "avg": 7.397588315579353,
+      "p95": 23.251440609169222,
+      "max": 25.017542775936008
+     },
+     "pregnant": {
+      "n": 13,
+      "avg": 6.302260051621129,
+      "p95": 17.600133259375884,
+      "max": 17.661076261574763
+     },
+     "indigenous": {
+      "n": 7,
+      "avg": 2.781742548783833,
+      "p95": 12.277252721883118,
+      "max": 16.59511681455143
+     },
+     "solo_parent": {
+      "n": 6,
+      "avg": 8.475060162565354,
+      "p95": 17.261758166330708,
+      "max": 18.666269631704637
+     },
+     "multiple": {
+      "n": 16,
+      "avg": 2.0027591889024814,
+      "p95": 5.873757780510388,
+      "max": 8.20211588352953
+     }
+    },
+    "WRR": {
+     "regular": {
+      "n": 20,
+      "avg": 10.646903134437842,
+      "p95": 28.224463421740097,
+      "max": 28.664982964891237
+     },
+     "senior": {
+      "n": 27,
+      "avg": 5.734012729614194,
+      "p95": 17.09494505572641,
+      "max": 28.414016473431786
+     },
+     "pwd": {
+      "n": 11,
+      "avg": 7.765336121827686,
+      "p95": 27.04730979185255,
+      "max": 27.78360682230044
+     },
+     "pregnant": {
+      "n": 13,
+      "avg": 8.146468399652942,
+      "p95": 31.337180454018757,
+      "max": 42.25984260443238
+     },
+     "indigenous": {
+      "n": 7,
+      "avg": 2.0033309984406418,
+      "p95": 7.737609942275691,
+      "max": 10.109912843683674
+     },
+     "solo_parent": {
+      "n": 6,
+      "avg": 8.23691949080329,
+      "p95": 17.475797536135495,
+      "max": 18.95165545811102
+     },
+     "multiple": {
+      "n": 16,
+      "avg": 4.5259095985867885,
+      "p95": 12.774815626167829,
+      "max": 14.700066639042205
+     }
+    }
+   }
+  },
+  {
+   "scenario": "early-regular",
+   "seed": 20261029,
+   "count": 13,
+   "profile": {
+    "patients": 13,
+    "lastArrival": 10,
+    "consultationMinutes": 160,
+    "meanConsultation": 12.307692307692308,
+    "capacityPerHour": 14.625,
+    "offeredLoad": 5.333333333333333,
+    "hourly": [
+     {
+      "hour": 0,
+      "arrivals": 13,
+      "load": 0.8888888888888888
+     }
+    ],
+    "overloadedHours": []
+   },
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "values": [
+      13,
+      13
+     ],
+     "shown": [
+      "13",
+      "13"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "values": [
+      20.384615384615383,
+      20.384615384615383
+     ],
+     "shown": [
+      "20.4 min",
+      "20.4 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "values": [
+      39.99999999999998,
+      39.8
+     ],
+     "shown": [
+      "40.0 min",
+      "39.8 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "values": [
+      49,
+      41
+     ],
+     "shown": [
+      "49.0 min",
+      "41.0 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "values": [
+      12.25,
+      9.75
+     ],
+     "shown": [
+      "12.3 min",
+      "9.8 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "values": [
+      41.649999999999984,
+      33.149999999999984
+     ],
+     "shown": [
+      "41.6 min",
+      "33.1 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "values": [
+      49,
+      39
+     ],
+     "shown": [
+      "49.0 min",
+      "39.0 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "values": [
+      24,
+      25.11111111111111
+     ],
+     "shown": [
+      "24.0 min",
+      "25.1 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "values": [
+      33.6,
+      38.199999999999996
+     ],
+     "shown": [
+      "33.6 min",
+      "38.2 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "values": [
+      34,
+      41
+     ],
+     "shown": [
+      "34.0 min",
+      "41.0 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "values": [
+      9,
+      8
+     ],
+     "shown": [
+      "9",
+      "8"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "values": [
+      9,
+      8
+     ],
+     "shown": [
+      "9",
+      "8"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "values": [
+      6,
+      5
+     ],
+     "shown": [
+      "6",
+      "5"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "values": [
+      0,
+      1
+     ],
+     "shown": [
+      "0",
+      "1"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "values": [
+      0,
+      2
+     ],
+     "shown": [
+      "0",
+      "2"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "values": [
+      1,
+      1
+     ],
+     "shown": [
+      "1",
+      "1"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "values": [
+      0,
+      0
+     ],
+     "shown": [
+      "0",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": null
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "values": [
+      13,
+      13
+     ],
+     "shown": [
+      "13.00",
+      "13.00"
+     ],
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "values": [
+      0.888888888888889,
+      0.888888888888889
+     ],
+     "shown": [
+      "88.9%",
+      "88.9%"
+     ],
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "values": [
+      60,
+      60
+     ],
+     "shown": [
+      "60.0 min",
+      "60.0 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    }
+   ],
+   "ordering": {
+    "sameOrder": false,
+    "positionsChanged": 3,
+    "meanShift": 0.3076923076923077,
+    "meanPosition": {
+     "WPS-A": {
+      "regular": 4.75,
+      "vulnerable": 8
+     },
+     "WRR": {
+      "regular": 4.5,
+      "vulnerable": 8.11111111111111
+     }
+    },
+    "laterRegularAheadOfVulnerable": {
+     "WPS-A": 0,
+     "WRR": 0
+    }
+   },
+   "findings": {
+    "lines": [
+     "Registrations never exceeded the three doctors' hourly capacity (peak load 0.89 × capacity).",
+     "The two algorithms called 3 of 13 patients at a different position (mean shift 0.3 places).",
+     "Regular patients: average 12.3 min under WPS-A vs 9.8 min under WRR; longest 49.0 min vs 39.0 min.",
+     "Vulnerable patients: average 24.0 min under WPS-A vs 25.1 min under WRR; longest 34.0 min vs 41.0 min.",
+     "Priority-lane violations: WPS-A 0, WRR 1. WRR gives the Regular class its turn even while Senior/PWD/Pregnant patients wait.",
+     "Aging cap: 1 Regular patient(s) waited 20 minutes or more under WPS-A (bonus capped at +2); they were bypassed 6 more time(s) after reaching the cap. A Regular's effective priority stops at 3, so it can never pass a waiting Senior, PWD or Pregnant patient; the cap limits reordering, not waiting time.",
+     "Regular patients still waiting when registrations stopped: WPS-A 1, WRR 1. None meets the starvation-evidence rule; all were served as the queue drained.",
+     "Followed Regular P004: called 13th after 49.0 min and 9 bypass(es) under WPS-A; 12th after 39.0 min and 8 bypass(es) under WRR.",
+     "Throughput 13.00 vs 13.00 patients/hour and mean utilization 88.9% vs 88.9%: both algorithms keep every free doctor busy, so capacity is not what separates them."
+    ],
+    "criteria": [
+     {
+      "id": "lane",
+      "importance": "Primary",
+      "label": "Priority-lane protection of Vulnerable patients",
+      "metrics": [
+       "laneViolations",
+       "vulnerableAvg",
+       "vulnerableP95",
+       "vulnerableMax"
+      ],
+      "why": "The office's priority policy puts Senior, PWD and Pregnant patients ahead of Regular patients; a call that breaks it is visible to patients and staff.",
+      "wins": {
+       "WPS-A": 4,
+       "WRR": 0
+      },
+      "leader": "WPS-A"
+     },
+     {
+      "id": "bounded",
+      "importance": "Primary",
+      "label": "Bounded waiting for Regular patients (no starvation)",
+      "metrics": [
+       "regularMax",
+       "regularP95",
+       "maxRegularBypasses",
+       "starvationRegular"
+      ],
+      "why": "A Regular patient must eventually be seen even on a day with many Vulnerable registrations.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 3
+      },
+      "leader": "WRR"
+     },
+     {
+      "id": "average",
+      "importance": "Secondary",
+      "label": "Average waiting time",
+      "metrics": [
+       "avgWait",
+       "regularAvg"
+      ],
+      "why": "Matters for overall satisfaction, but averages can hide a few very long waits.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 1
+      },
+      "leader": "WRR"
+     },
+     {
+      "id": "capacity",
+      "importance": "Context",
+      "label": "Throughput and doctor utilization",
+      "metrics": [
+       "throughput",
+       "utilization",
+       "makespan"
+      ],
+      "why": "Both algorithms keep every free doctor busy whenever someone waits, so these are expected to match; a difference only reflects which consultation lengths ended last.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 0
+      },
+      "leader": null
+     }
+    ]
+   },
+   "tracked": {
+    "WPS-A": {
+     "ticket": "P004",
+     "category": "Regular",
+     "arrival": 1,
+     "start": 50,
+     "wait": 49,
+     "callOrder": 13,
+     "bypasses": 9,
+     "cappedBypasses": 6,
+     "servedAfterCutoff": true
+    },
+    "WRR": {
+     "ticket": "P004",
+     "category": "Regular",
+     "arrival": 1,
+     "start": 40,
+     "wait": 39,
+     "callOrder": 12,
+     "bypasses": 8,
+     "cappedBypasses": 5,
+     "servedAfterCutoff": true
+    }
+   },
+   "byGroup": {
+    "WPS-A": {
+     "regular": {
+      "n": 4,
+      "avg": 12.25,
+      "p95": 41.649999999999984,
+      "max": 49
+     },
+     "senior": {
+      "n": 3,
+      "avg": 17.666666666666668,
+      "p95": 19.8,
+      "max": 20
+     },
+     "pwd": {
+      "n": 2,
+      "avg": 30,
+      "p95": 32.7,
+      "max": 33
+     },
+     "pregnant": {
+      "n": 2,
+      "avg": 28.5,
+      "p95": 30.75,
+      "max": 31
+     },
+     "indigenous": {
+      "n": 1,
+      "avg": 34,
+      "p95": 34,
+      "max": 34
+     },
+     "multiple": {
+      "n": 1,
+      "avg": 12,
+      "p95": 12,
+      "max": 12
+     }
+    },
+    "WRR": {
+     "regular": {
+      "n": 4,
+      "avg": 9.75,
+      "p95": 33.149999999999984,
+      "max": 39
+     },
+     "senior": {
+      "n": 3,
+      "avg": 17.666666666666668,
+      "p95": 19.8,
+      "max": 20
+     },
+     "pwd": {
+      "n": 2,
+      "avg": 30,
+      "p95": 32.7,
+      "max": 33
+     },
+     "pregnant": {
+      "n": 2,
+      "avg": 33.5,
+      "p95": 40.25,
+      "max": 41
+     },
+     "indigenous": {
+      "n": 1,
+      "avg": 34,
+      "p95": 34,
+      "max": 34
+     },
+     "multiple": {
+      "n": 1,
+      "avg": 12,
+      "p95": 12,
+      "max": 12
+     }
+    }
+   }
+  },
+  {
+   "scenario": "sustained-arrivals",
+   "seed": 20261029,
+   "count": 100,
+   "profile": {
+    "patients": 100,
+    "lastArrival": 224.3232069236692,
+    "consultationMinutes": 996.6328728635717,
+    "meanConsultation": 9.966328728635718,
+    "capacityPerHour": 18.060813053739203,
+    "offeredLoad": 1.4809477903649644,
+    "hourly": [
+     {
+      "hour": 0,
+      "arrivals": 28,
+      "load": 1.3556976557080884
+     },
+     {
+      "hour": 1,
+      "arrivals": 29,
+      "load": 1.667661124631868
+     },
+     {
+      "hour": 2,
+      "arrivals": 25,
+      "load": 1.5026745324125048
+     },
+     {
+      "hour": 3,
+      "arrivals": 18,
+      "load": 1.0108159809340498
+     }
+    ],
+    "overloadedHours": [
+     0,
+     1,
+     2,
+     3
+    ]
+   },
+   "rows": [
+    {
+     "key": "completed",
+     "label": "Patients completed",
+     "values": [
+      100,
+      100
+     ],
+     "shown": [
+      "100",
+      "100"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "avgWait",
+     "label": "Average wait — all patients",
+     "values": [
+      48.50533864510697,
+      47.797155605349765
+     ],
+     "shown": [
+      "48.5 min",
+      "47.8 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "p95Wait",
+     "label": "95th-percentile wait — all patients",
+     "values": [
+      154.95843145149897,
+      104.32106295224058
+     ],
+     "shown": [
+      "155.0 min",
+      "104.3 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "maxWait",
+     "label": "Maximum wait — all patients",
+     "values": [
+      254.8344723388476,
+      129.16192827440346
+     ],
+     "shown": [
+      "254.8 min",
+      "129.2 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularAvg",
+     "label": "Average wait — Regular",
+     "values": [
+      142.35470570143843,
+      79.39337700794293
+     ],
+     "shown": [
+      "142.4 min",
+      "79.4 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularP95",
+     "label": "95th-percentile wait — Regular",
+     "values": [
+      238.218320538795,
+      128.30421299513753
+     ],
+     "shown": [
+      "238.2 min",
+      "128.3 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularMax",
+     "label": "Maximum wait — Regular",
+     "values": [
+      254.8344723388476,
+      129.16192827440346
+     ],
+     "shown": [
+      "254.8 min",
+      "129.2 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "vulnerableAvg",
+     "label": "Average wait — Vulnerable",
+     "values": [
+      31.94368563516613,
+      42.22135182842156
+     ],
+     "shown": [
+      "31.9 min",
+      "42.2 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "vulnerableP95",
+     "label": "95th-percentile wait — Vulnerable",
+     "values": [
+      107.30742758426207,
+      99.0076397580984
+     ],
+     "shown": [
+      "107.3 min",
+      "99.0 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "vulnerableMax",
+     "label": "Maximum wait — Vulnerable",
+     "values": [
+      120.72667889606328,
+      104.13591248706632
+     ],
+     "shown": [
+      "120.7 min",
+      "104.1 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularBypasses",
+     "label": "Regular bypasses (a later registration called while a Regular waited)",
+     "values": [
+      389,
+      119
+     ],
+     "shown": [
+      "389",
+      "119"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "maxRegularBypasses",
+     "label": "Most bypasses of a single Regular patient",
+     "values": [
+      68,
+      16
+     ],
+     "shown": [
+      "68",
+      "16"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "regularCappedBypasses",
+     "label": "Regular bypasses after 20 min of waiting (Aging bonus at its +2 cap)",
+     "values": [
+      354,
+      105
+     ],
+     "shown": [
+      "354",
+      "105"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "laneViolations",
+     "label": "Priority-lane violations (Regular called while a Senior/PWD/Pregnant patient waited)",
+     "values": [
+      0,
+      10
+     ],
+     "shown": [
+      "0",
+      "10"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WPS-A"
+    },
+    {
+     "key": "priorityInversions",
+     "label": "Calls of a lower base score while a higher one waited",
+     "values": [
+      11,
+      43
+     ],
+     "shown": [
+      "11",
+      "43"
+     ],
+     "unit": "count",
+     "lowerIsBetter": null,
+     "better": null
+    },
+    {
+     "key": "stillWaitingRegular",
+     "label": "Regular patients still waiting when registrations stopped",
+     "values": [
+      12,
+      7
+     ],
+     "shown": [
+      "12",
+      "7"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "starvationRegular",
+     "label": "Regular patients with starvation evidence (every call in the last 60 min of arrivals bypassed them)",
+     "values": [
+      4,
+      0
+     ],
+     "shown": [
+      "4",
+      "0"
+     ],
+     "unit": "count",
+     "lowerIsBetter": true,
+     "better": "WRR"
+    },
+    {
+     "key": "throughput",
+     "label": "Throughput (patients per hour until the queue emptied)",
+     "values": [
+      17.937040171856378,
+      17.88658617345755
+     ],
+     "shown": [
+      "17.94",
+      "17.89"
+     ],
+     "unit": "rate",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "utilization",
+     "label": "Mean utilization of the three doctors",
+     "values": [
+      0.9931468820636956,
+      0.9903533202097133
+     ],
+     "shown": [
+      "99.3%",
+      "99.0%"
+     ],
+     "unit": "pct",
+     "lowerIsBetter": false,
+     "better": null
+    },
+    {
+     "key": "makespan",
+     "label": "Time to finish the whole workload",
+     "values": [
+      334.5033485186779,
+      335.44690651498286
+     ],
+     "shown": [
+      "334.5 min",
+      "335.4 min"
+     ],
+     "unit": "min",
+     "lowerIsBetter": true,
+     "better": null
+    }
+   ],
+   "ordering": {
+    "sameOrder": false,
+    "positionsChanged": 86,
+    "meanShift": 8.5,
+    "meanPosition": {
+     "WPS-A": {
+      "regular": 79.73333333333333,
+      "vulnerable": 45.34117647058824
+     },
+     "WRR": {
+      "regular": 61.733333333333334,
+      "vulnerable": 48.51764705882353
+     }
+    },
+    "laterRegularAheadOfVulnerable": {
+     "WPS-A": 0,
+     "WRR": 0
+    }
+   },
+   "findings": {
+    "lines": [
+     "Registrations exceeded what three doctors can see in 4 hour(s) (starting 08:00, 09:00, 10:00, 11:00; peak load 1.67 × capacity), so a queue built up.",
+     "The two algorithms called 86 of 100 patients at a different position (mean shift 8.5 places).",
+     "Regular patients: average 142.4 min under WPS-A vs 79.4 min under WRR; longest 254.8 min vs 129.2 min.",
+     "Vulnerable patients: average 31.9 min under WPS-A vs 42.2 min under WRR; longest 120.7 min vs 104.1 min.",
+     "Priority-lane violations: WPS-A 0, WRR 10. WRR gives the Regular class its turn even while Senior/PWD/Pregnant patients wait.",
+     "Aging cap: 15 Regular patient(s) waited 20 minutes or more under WPS-A (bonus capped at +2); they were bypassed 354 more time(s) after reaching the cap. A Regular's effective priority stops at 3, so it can never pass a waiting Senior, PWD or Pregnant patient; the cap limits reordering, not waiting time.",
+     "Starvation evidence (still waiting when registrations stopped, bypassed by every call in the last 60 minutes of arrivals): WPS-A 4 Regular patient(s), WRR 0.",
+     "Followed Regular P004: called 19th after 44.6 min and 15 bypass(es) under WPS-A; 6th after 9.3 min and 2 bypass(es) under WRR.",
+     "Throughput 17.94 vs 17.89 patients/hour and mean utilization 99.3% vs 99.0%: both algorithms keep every free doctor busy, so capacity is not what separates them."
+    ],
+    "criteria": [
+     {
+      "id": "lane",
+      "importance": "Primary",
+      "label": "Priority-lane protection of Vulnerable patients",
+      "metrics": [
+       "laneViolations",
+       "vulnerableAvg",
+       "vulnerableP95",
+       "vulnerableMax"
+      ],
+      "why": "The office's priority policy puts Senior, PWD and Pregnant patients ahead of Regular patients; a call that breaks it is visible to patients and staff.",
+      "wins": {
+       "WPS-A": 2,
+       "WRR": 2
+      },
+      "leader": null
+     },
+     {
+      "id": "bounded",
+      "importance": "Primary",
+      "label": "Bounded waiting for Regular patients (no starvation)",
+      "metrics": [
+       "regularMax",
+       "regularP95",
+       "maxRegularBypasses",
+       "starvationRegular"
+      ],
+      "why": "A Regular patient must eventually be seen even on a day with many Vulnerable registrations.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 4
+      },
+      "leader": "WRR"
+     },
+     {
+      "id": "average",
+      "importance": "Secondary",
+      "label": "Average waiting time",
+      "metrics": [
+       "avgWait",
+       "regularAvg"
+      ],
+      "why": "Matters for overall satisfaction, but averages can hide a few very long waits.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 2
+      },
+      "leader": "WRR"
+     },
+     {
+      "id": "capacity",
+      "importance": "Context",
+      "label": "Throughput and doctor utilization",
+      "metrics": [
+       "throughput",
+       "utilization",
+       "makespan"
+      ],
+      "why": "Both algorithms keep every free doctor busy whenever someone waits, so these are expected to match; a difference only reflects which consultation lengths ended last.",
+      "wins": {
+       "WPS-A": 0,
+       "WRR": 0
+      },
+      "leader": null
+     }
+    ]
+   },
+   "tracked": {
+    "WPS-A": {
+     "ticket": "P004",
+     "category": "Regular",
+     "arrival": 0.420744240982458,
+     "start": 44.98951156855792,
+     "wait": 44.568767327575465,
+     "callOrder": 19,
+     "bypasses": 15,
+     "cappedBypasses": 10,
+     "servedAfterCutoff": false
+    },
+    "WRR": {
+     "ticket": "P004",
+     "category": "Regular",
+     "arrival": 0.420744240982458,
+     "start": 9.70043378121327,
+     "wait": 9.279689540230812,
+     "callOrder": 6,
+     "bypasses": 2,
+     "cappedBypasses": 0,
+     "servedAfterCutoff": false
+    }
+   },
+   "byGroup": {
+    "WPS-A": {
+     "regular": {
+      "n": 15,
+      "avg": 142.35470570143843,
+      "p95": 238.218320538795,
+      "max": 254.8344723388476
+     },
+     "senior": {
+      "n": 38,
+      "avg": 14.98926337881814,
+      "p95": 32.38942834389388,
+      "max": 38.82902963359976
+     },
+     "pwd": {
+      "n": 17,
+      "avg": 56.409913983202024,
+      "p95": 110.64052773257069,
+      "max": 120.72667889606328
+     },
+     "pregnant": {
+      "n": 17,
+      "avg": 66.67932902482858,
+      "p95": 109.65851439307788,
+      "max": 110.17129803781285
+     },
+     "multiple": {
+      "n": 13,
+      "avg": 4.084933804423845,
+      "p95": 8.28887206189827,
+      "max": 11.059170983498632
+     }
+    },
+    "WRR": {
+     "regular": {
+      "n": 15,
+      "avg": 79.39337700794293,
+      "p95": 128.30421299513753,
+      "max": 129.16192827440346
+     },
+     "senior": {
+      "n": 38,
+      "avg": 47.94833483325177,
+      "p95": 85.25643988960222,
+      "max": 99.45183642055088
+     },
+     "pwd": {
+      "n": 17,
+      "avg": 47.254884807096,
+      "p95": 103.37191396789383,
+      "max": 104.13591248706632
+     },
+     "pregnant": {
+      "n": 17,
+      "avg": 47.18779582164834,
+      "p95": 98.05789573029773,
+      "max": 101.36606621833442
+     },
+     "multiple": {
+      "n": 13,
+      "avg": 12.404047004893119,
+      "p95": 24.773591616310476,
+      "max": 27.683377274949777
+     }
+    }
+   }
+  }
+ ]
+}

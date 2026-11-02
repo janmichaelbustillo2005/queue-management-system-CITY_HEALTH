@@ -129,4 +129,4 @@ function runSimulation(patients, makePolicy, { dispatch = "service" } = {}) {
   return { served, busy, makespan, inversions };
 }
 
-module.exports = { DOCTORS, PROTECTED, WEIGHTS, createRng, generateWorkload, runSimulation, wpsPolicy, priorityScore, groupOf };
+module.exports = { DOCTORS, DOCTOR_FOR_SERVICE, PROTECTED, WEIGHTS, EPOCH, createRng, generateWorkload, runSimulation, wpsPolicy, priorityScore, groupOf };

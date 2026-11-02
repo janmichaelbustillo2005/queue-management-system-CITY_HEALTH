@@ -1,0 +1,3213 @@
+{
+ "scenario": "long-waits",
+ "seed": 20261029,
+ "dispatch": "shared",
+ "window": {
+  "fromMinute": 111.65533510172054,
+  "toMinute": 131.65533510172054,
+  "from": "09:51:39",
+  "to": "10:11:39"
+ },
+ "arrivals": [
+  {
+   "id": 52,
+   "arrival": 113.20094143370841,
+   "service": "consultation",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 6.302162055352255
+  },
+  {
+   "id": 53,
+   "arrival": 114.84312846911558,
+   "service": "family_planning",
+   "flags": [
+    "indigenous"
+   ],
+   "group": "indigenous",
+   "priority_score": 2,
+   "serviceTime": 6.934657224382051
+  },
+  {
+   "id": 54,
+   "arrival": 118.48448000934718,
+   "service": "consultation",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 9.510694116175758
+  },
+  {
+   "id": 55,
+   "arrival": 119.7422752767597,
+   "service": "consultation",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 12.579914914729208
+  },
+  {
+   "id": 56,
+   "arrival": 120.376833217021,
+   "service": "prenatal",
+   "flags": [
+    "pregnant"
+   ],
+   "group": "pregnant",
+   "priority_score": 3,
+   "serviceTime": 10.52312903097354
+  },
+  {
+   "id": 57,
+   "arrival": 121.42927669043874,
+   "service": "family_planning",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 7.197494810605379
+  },
+  {
+   "id": 58,
+   "arrival": 122.30329674560666,
+   "service": "prenatal",
+   "flags": [
+    "pregnant"
+   ],
+   "group": "pregnant",
+   "priority_score": 3,
+   "serviceTime": 4.664111181142277
+  },
+  {
+   "id": 59,
+   "arrival": 125.08514652099765,
+   "service": "prenatal",
+   "flags": [
+    "pregnant"
+   ],
+   "group": "pregnant",
+   "priority_score": 3,
+   "serviceTime": 9.599014176116254
+  },
+  {
+   "id": 60,
+   "arrival": 127.46427047252685,
+   "service": "consultation",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 2.9815813182978723
+  },
+  {
+   "id": 61,
+   "arrival": 128.95637337296333,
+   "service": "consultation",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 13.250229458518257
+  },
+  {
+   "id": 62,
+   "arrival": 130.1494181251044,
+   "service": "consultation",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 3.6674054988790608
+  },
+  {
+   "id": 63,
+   "arrival": 130.39349406805337,
+   "service": "checkup",
+   "flags": [],
+   "group": "regular",
+   "priority_score": 1,
+   "serviceTime": 6.677295043015392
+  }
+ ],
+ "decisions": {
+  "WPS": [
+   {
+    "now": 111.65533510172054,
+    "doctor": "Doctor 2",
+    "chosen": 50,
+    "start": 111.65533510172054,
+    "end": 118.71064144797997,
+    "wait": 1.6576092113535026,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 50,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 109.99772589036704,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 51,
+      "group": "pwd",
+      "service": "family_planning",
+      "arrival": 111.39445171995796,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 112.40291627772972,
+    "doctor": "Doctor 3",
+    "chosen": 51,
+    "start": 112.40291627772972,
+    "end": 122.56548312515437,
+    "wait": 1.0084645577717595,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 51,
+      "group": "pwd",
+      "service": "family_planning",
+      "arrival": 111.39445171995796,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 115.06755385714357,
+    "doctor": "Doctor 1",
+    "chosen": 53,
+    "start": 115.06755385714357,
+    "end": 122.00221108152562,
+    "wait": 0.2244253880279814,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 53,
+      "group": "indigenous",
+      "service": "family_planning",
+      "arrival": 114.84312846911558,
+      "base": 2,
+      "effective": 2
+     }
+    ]
+   },
+   {
+    "now": 118.71064144797997,
+    "doctor": "Doctor 2",
+    "chosen": 32,
+    "start": 118.71064144797997,
+    "end": 129.68198638320462,
+    "wait": 59.3585422753067,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   },
+   {
+    "now": 122.00221108152562,
+    "doctor": "Doctor 1",
+    "chosen": 56,
+    "start": 122.00221108152562,
+    "end": 132.52534011249915,
+    "wait": 1.625377864504614,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 56,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 120.376833217021,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   },
+   {
+    "now": 122.56548312515437,
+    "doctor": "Doctor 3",
+    "chosen": 58,
+    "start": 122.56548312515437,
+    "end": 127.22959430629665,
+    "wait": 0.26218637954771395,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 58,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 122.30329674560666,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 127.22959430629665,
+    "doctor": "Doctor 3",
+    "chosen": 59,
+    "start": 127.22959430629665,
+    "end": 136.8286084824129,
+    "wait": 2.1444477852989934,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 59,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 125.08514652099765,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 129.68198638320462,
+    "doctor": "Doctor 2",
+    "chosen": 33,
+    "start": 129.68198638320462,
+    "end": 145.516397287099,
+    "wait": 68.55565700456421,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 60,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 127.46427047252685,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 61,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 128.95637337296333,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   }
+  ],
+  "WPS-A": [
+   {
+    "now": 111.65533510172054,
+    "doctor": "Doctor 2",
+    "chosen": 50,
+    "start": 111.65533510172054,
+    "end": 118.71064144797997,
+    "wait": 1.6576092113535026,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 50,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 109.99772589036704,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 51,
+      "group": "pwd",
+      "service": "family_planning",
+      "arrival": 111.39445171995796,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 112.40291627772972,
+    "doctor": "Doctor 3",
+    "chosen": 51,
+    "start": 112.40291627772972,
+    "end": 122.56548312515437,
+    "wait": 1.0084645577717595,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 51,
+      "group": "pwd",
+      "service": "family_planning",
+      "arrival": 111.39445171995796,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 115.06755385714357,
+    "doctor": "Doctor 1",
+    "chosen": 32,
+    "start": 115.06755385714357,
+    "end": 126.0388987923682,
+    "wait": 55.715454684470295,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 53,
+      "group": "indigenous",
+      "service": "family_planning",
+      "arrival": 114.84312846911558,
+      "base": 2,
+      "effective": 2
+     }
+    ]
+   },
+   {
+    "now": 118.71064144797997,
+    "doctor": "Doctor 2",
+    "chosen": 33,
+    "start": 118.71064144797997,
+    "end": 134.54505235187435,
+    "wait": 57.58431206933957,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 53,
+      "group": "indigenous",
+      "service": "family_planning",
+      "arrival": 114.84312846911558,
+      "base": 2,
+      "effective": 2
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   },
+   {
+    "now": 122.56548312515437,
+    "doctor": "Doctor 3",
+    "chosen": 56,
+    "start": 122.56548312515437,
+    "end": 133.0886121561279,
+    "wait": 2.188649908133371,
+    "waiting": [
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 53,
+      "group": "indigenous",
+      "service": "family_planning",
+      "arrival": 114.84312846911558,
+      "base": 2,
+      "effective": 2
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 56,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 120.376833217021,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 58,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 122.30329674560666,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 126.0388987923682,
+    "doctor": "Doctor 1",
+    "chosen": 58,
+    "start": 126.0388987923682,
+    "end": 130.7030099735105,
+    "wait": 3.7356020467615423,
+    "waiting": [
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 53,
+      "group": "indigenous",
+      "service": "family_planning",
+      "arrival": 114.84312846911558,
+      "base": 2,
+      "effective": 3
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 58,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 122.30329674560666,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 59,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 125.08514652099765,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 130.7030099735105,
+    "doctor": "Doctor 1",
+    "chosen": 59,
+    "start": 130.7030099735105,
+    "end": 140.30202414962673,
+    "wait": 5.617863452512836,
+    "waiting": [
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 3
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 53,
+      "group": "indigenous",
+      "service": "family_planning",
+      "arrival": 114.84312846911558,
+      "base": 2,
+      "effective": 3
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 2
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 59,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 125.08514652099765,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 60,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 127.46427047252685,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 61,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 128.95637337296333,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 62,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 130.1494181251044,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 63,
+      "group": "regular",
+      "service": "checkup",
+      "arrival": 130.39349406805337,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   }
+  ],
+  "WRR": [
+   {
+    "now": 112.98277861962175,
+    "doctor": "Doctor 3",
+    "chosen": 51,
+    "start": 112.98277861962175,
+    "end": 123.14534546704641,
+    "wait": 1.588326899663798,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 51,
+      "group": "pwd",
+      "service": "family_planning",
+      "arrival": 111.39445171995796,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 114.95438007364126,
+    "doctor": "Doctor 2",
+    "chosen": 53,
+    "start": 114.95438007364126,
+    "end": 121.88903729802331,
+    "wait": 0.11125160452567684,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 53,
+      "group": "indigenous",
+      "service": "family_planning",
+      "arrival": 114.84312846911558,
+      "base": 2,
+      "effective": 2
+     }
+    ]
+   },
+   {
+    "now": 118.24395288959023,
+    "doctor": "Doctor 1",
+    "chosen": 32,
+    "start": 118.24395288959023,
+    "end": 129.21529782481488,
+    "wait": 58.89185371691696,
+    "waiting": [
+     {
+      "id": 32,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 59.35209917267327,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   },
+   {
+    "now": 121.88903729802331,
+    "doctor": "Doctor 2",
+    "chosen": 56,
+    "start": 121.88903729802331,
+    "end": 132.41216632899685,
+    "wait": 1.5122040810023094,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 56,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 120.376833217021,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   },
+   {
+    "now": 123.14534546704641,
+    "doctor": "Doctor 3",
+    "chosen": 58,
+    "start": 123.14534546704641,
+    "end": 127.80945664818869,
+    "wait": 0.8420487214397525,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 58,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 122.30329674560666,
+      "base": 3,
+      "effective": 3
+     }
+    ]
+   },
+   {
+    "now": 127.80945664818869,
+    "doctor": "Doctor 3",
+    "chosen": 59,
+    "start": 127.80945664818869,
+    "end": 137.40847082430494,
+    "wait": 2.724310127191032,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 59,
+      "group": "pregnant",
+      "service": "prenatal",
+      "arrival": 125.08514652099765,
+      "base": 3,
+      "effective": 3
+     },
+     {
+      "id": 60,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 127.46427047252685,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   },
+   {
+    "now": 129.21529782481488,
+    "doctor": "Doctor 1",
+    "chosen": 33,
+    "start": 129.21529782481488,
+    "end": 145.04970872870928,
+    "wait": 68.08896844617448,
+    "waiting": [
+     {
+      "id": 33,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 61.1263293786404,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 35,
+      "group": "solo_parent",
+      "service": "maternity",
+      "arrival": 65.45703233566579,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 36,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 65.98523732840191,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 38,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 72.36898362501765,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 40,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 77.54941437920681,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 42,
+      "group": "solo_parent",
+      "service": "consultation",
+      "arrival": 85.44422840796932,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 43,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 86.07461316267099,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 45,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 91.4138823068794,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 46,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 94.4573138298991,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 47,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 95.7583960903314,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 48,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 102.63059545096453,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 49,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 104.26129810967133,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 52,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 113.20094143370841,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 54,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 118.48448000934718,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 55,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 119.7422752767597,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 57,
+      "group": "regular",
+      "service": "family_planning",
+      "arrival": 121.42927669043874,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 60,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 127.46427047252685,
+      "base": 1,
+      "effective": 1
+     },
+     {
+      "id": 61,
+      "group": "regular",
+      "service": "consultation",
+      "arrival": 128.95637337296333,
+      "base": 1,
+      "effective": 1
+     }
+    ]
+   }
+  ]
+ }
+}

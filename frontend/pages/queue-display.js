@@ -42,6 +42,23 @@ function groupWaitingQueues(displayData, counters, matchService) {
   return groups;
 }
 
+// D1 shared dispatch (the backend's dispatch_mode "shared", provisional): one waiting list for
+// all three general doctors, in the backend's priority order. The doctor is announced at Call.
+const SHARED_DISPATCH = "shared";
+const SHARED_WAITING_COUNTER = { id: "shared", id_num: "Next Available Doctor", name: "Next Available Doctor" };
+
+function groupSharedWaitingQueue(displayData) {
+  const servingIds = new Set((displayData?.all_serving || []).map((row) => String(row.id)));
+  const seen = new Set();
+  const rows = (displayData?.waiting_queue || []).filter((row) => {
+    const id = String(row.id);
+    if (row.status !== "waiting" || row.completed_at || servingIds.has(id) || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  return [{ counter: SHARED_WAITING_COUNTER, rows }];
+}
+
 function getWaitingPage(rows, previous, pageSize, advance = false) {
   const ids = rows.map((row) => String(row.id));
   const positions = new Map(ids.map((id, index) => [id, index]));
@@ -932,15 +949,15 @@ export default function QueueDisplayPage() {
               s.counter_id === counter.id_num ||
               s.counter_name === counter.id_num
             );
-            const info = doctorInfoMap[counter.id_num] || { specialty: "Medical Professional", badge: "MD", room: "TBA" };
+            const sharedDispatch = display?.dispatch_mode === SHARED_DISPATCH;
+            const mappedInfo = doctorInfoMap[counter.id_num] || { specialty: "Medical Professional", badge: "MD", room: "TBA" };
+            // Shared dispatch: no service badge, and every doctor shares one waiting list.
+            const info = sharedDispatch ? { ...mappedInfo, specialty: "General Doctor", badge: "MD" } : mappedInfo;
             const isAvailable = !servingPatient;
             const counterServices = counter.service_types || [];
-            const waitingForCounter = display?.waiting_queue?.filter((p) =>
-              matchesDoctor(p.service_type, counterServices)
-            ).length || 0;
-            const nextForCounter = display?.waiting_queue?.find((p) =>
-              matchesDoctor(p.service_type, counterServices)
-            );
+            const servesRow = (p) => sharedDispatch || matchesDoctor(p.service_type, counterServices);
+            const waitingForCounter = display?.waiting_queue?.filter(servesRow).length || 0;
+            const nextForCounter = display?.waiting_queue?.find(servesRow);
 
             return (
               <div key={counter.id} className="queue-serving-card display-card overflow-hidden border border-[var(--display-border)] flex flex-col shadow-2xl">
@@ -1066,11 +1083,13 @@ function WaitingQueueView({ displayData, counters, matchService, visible, visit,
   const paginationRef = useRef({ visit: 0, pages: {} });
   const [layout, setLayout] = useState({ cards: {} });
   const counterKey = counters.map((counter) => `${counter.id}:${counter.id_num}`).join("|");
-  const groups = groupWaitingQueues(displayData, counters, matchService);
+  const shared = displayData?.dispatch_mode === SHARED_DISPATCH;
+  const groups = shared ? groupSharedWaitingQueue(displayData) : groupWaitingQueues(displayData, counters, matchService);
   const previous = paginationRef.current;
   const advance = visible && visit > 1 && visit !== previous.visit;
   const pages = groups.map(({ counter, rows }) => {
-    const cardLayout = layout.cards[counter.id_num] || measureWaitingLayout(408);
+    // The single shared list spans the grid and takes the height of a doctor card.
+    const cardLayout = layout.cards[counter.id_num] || (shared && Object.values(layout.cards)[0]) || measureWaitingLayout(408);
     return { counter, total: rows.length, layout: cardLayout,
       ...getWaitingPage(rows, previous.pages[counter.id_num], cardLayout.pageSize, advance) };
   });
@@ -1112,9 +1131,9 @@ function WaitingQueueView({ displayData, counters, matchService, visible, visit,
     <section hidden={!visible} aria-label="Waiting Queue" className="queue-waiting-view">
       <div className="queue-waiting-grid" style={{ gridTemplateColumns: layout.gridTemplateColumns, columnGap: layout.columnGap, rowGap: layout.rowGap }}>
         {pages.map((page) => {
-          const info = DOCTOR_INFO_MAP[page.counter.id_num] || { badge: "MD", room: "TBA" };
+          const info = shared ? { badge: "ALL", room: "Any doctor" } : DOCTOR_INFO_MAP[page.counter.id_num] || { badge: "MD", room: "TBA" };
           return (
-            <section key={page.counter.id} className="display-card queue-waiting-card shadow-2xl" style={{ height: page.layout.cardHeight }} aria-label={`${page.counter.id_num} waiting queue`}>
+            <section key={page.counter.id} className="display-card queue-waiting-card shadow-2xl" style={{ height: page.layout.cardHeight, ...(shared ? { gridColumn: "1 / -1" } : {}) }} aria-label={`${page.counter.id_num} waiting queue`}>
               <div className="queue-waiting-card-header" style={{ height: page.layout.headerHeight }}>
                 <h3 className="text-lg font-bold text-white">{page.counter.id_num}</h3>
                 <div className="flex items-center gap-2">

@@ -27,6 +27,10 @@ function normalizeDoctorAssignment(value, counters = []) {
   return raw;
 }
 
+// D1 shared dispatch (provisional): the general doctors serve every configured service and a
+// waiting visit belongs to no doctor until Frontdesk calls it to one.
+const SHARED_DISPATCH = "shared";
+
 function isAssignedToDoctor(row, doctorName, counters = []) {
   if (!row || !doctorName) return false;
   return (
@@ -49,6 +53,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   // table be reported as an empty queue.
   const [queueStatus, setQueueStatus] = useState("loading");
   const [storageMode, setStorageMode] = useState(null);
+  const [dispatchMode, setDispatchMode] = useState("service");
+  const sharedDispatch = dispatchMode === SHARED_DISPATCH;
   const [recallCooldown, setRecallCooldown] = useState(false);
   const [pendingActions, setPendingActions] = useState({});
   const pendingActionsRef = useRef(new Set());
@@ -270,12 +276,13 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       // Show if the patient is already being served by THIS doctor
       if (isAssignedToDoctor(row, doctorName, counters)) return true;
 
-      // Show recent cancellations for this doctor's services (Undo window)
-      if (row.status === "cancelled" && matchesDoctor(row.service_type, doctorName)) return true;
+      // Show recent cancellations for this doctor's services (Undo window). In shared dispatch
+      // only this doctor's own patients, already matched above, belong to it.
+      if (row.status === "cancelled" && !sharedDispatch && matchesDoctor(row.service_type, doctorName)) return true;
       
       return false;
     });
-  }, [queueRows, doctorName, counters]);
+  }, [queueRows, doctorName, counters, sharedDispatch]);
 
   const filteredRows = useMemo(() => {
     const queue = doctorQueue ?? [];
@@ -306,11 +313,11 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
         const rankDiff = rank(a.status) - rank(b.status);
         if (rankDiff !== 0) return rankDiff;
 
-        // FRD-02: Sort by priority score DESC, then by check-in time ASC
-        if ((b.priority_score || 0) !== (a.priority_score || 0)) {
-          return (b.priority_score || 0) - (a.priority_score || 0);
-        }
-        return new Date(a.created_at) - new Date(b.created_at);
+        // FRD-02: WPS rank DESC (effective_priority includes WPS-A aging when enabled; a higher
+        // base priority wins a tie), then check-in time ASC
+        const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
+        return wpsRank(b) - wpsRank(a) || (b.priority_score || 0) - (a.priority_score || 0) ||
+          new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
       })
       .slice(0, 20);
   }, [doctorQueue, doctorName, counters]);
@@ -438,6 +445,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       setQueueRows(data.patients ?? []);
       setCounters(data.counters ?? []);
       setStorageMode(data.storage_mode ?? null);
+      const shared = data.dispatch_mode === SHARED_DISPATCH;
+      setDispatchMode(shared ? SHARED_DISPATCH : "service");
       if (data.queue_settings) {
         setQueueSettings(mergeQueueSettings(data.queue_settings));
       }
@@ -447,7 +456,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     
     const myServed = patients.filter(q => isAssignedToDoctor(q, doctorName, data.counters ?? []));
     const matchingWaiting = patients.filter(q => 
-      q.status === "waiting" && matchesDoctor(q.service_type, doctorName)
+      // Shared dispatch: every waiting patient may come to this doctor.
+      q.status === "waiting" && (shared || matchesDoctor(q.service_type, doctorName))
     );
 
       setStats({
@@ -608,7 +618,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
             </div>
             <div>
               <div className="text-sm font-bold brand-text">
-                {doctorName === "Doctor 1" ? "Consultation, Check-up" : 
+                {sharedDispatch ? "All services (general doctor)" :
+                 doctorName === "Doctor 1" ? "Consultation, Check-up" :
                  doctorName === "Doctor 2" ? "Prenatal, Maternity" : 
                  doctorName === "Doctor 3" ? "Family Planning" : "No assignments"}
               </div>

@@ -243,13 +243,14 @@ router.post("/queue/call", authenticateToken, async (req, res) => {
     if (accountDoctor && requestedDoctor != null && requestedDoctor !== accountDoctor) {
       return res.status(403).json({ success: false, message: "You can only call patients assigned to your doctor." });
     }
-    await callPatient(Number(patient_id), requestedDoctor ?? accountDoctor, req.user);
+    const called = await callPatient(Number(patient_id), requestedDoctor ?? accountDoctor, req.user);
     console.info("[voice][queue-call]", {
       patient_id: Number(patient_id),
       requested_counter: requestedDoctor ?? accountDoctor,
+      doctor: called?.doctor ?? null,
       at: new Date().toISOString()
     });
-    res.json({ success: true, message: "Patient called successfully" });
+    res.json({ success: true, doctor: called?.doctor ?? null, message: "Patient called successfully" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
@@ -264,7 +265,7 @@ router.post("/queue/accept", authenticateToken, async (req, res) => {
     if (patient.consultation_started_at || (!isAwaitingAccept(patientId) && getAcceptedAt(patientId))) {
       return res.status(400).json({ success: false, message: "This patient is not waiting to be accepted" });
     }
-    const acceptedAt = markAccepted(patientId);
+    const acceptedAt = markAccepted(patientId, patient.called_at);
     const announcement = recordVoiceAnnouncementEvent({ patient, eventType: "accept", eventAt: acceptedAt });
     console.info("[voice][accept]", {
       patient_id: patientId,
@@ -480,16 +481,16 @@ router.post("/queue/undo", authenticateToken, async (req, res) => {
   }
 });
 
-router.post("/queue/clear", authenticateToken, authorizeRole(["superadmin"]), async (_req, res) => {
+router.post("/queue/clear", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    const { archivedPatientIds } = await clearTodaysQueues();
+    const { archivedPatientIds } = await clearTodaysQueues(req.user);
     for (const patientId of archivedPatientIds) resetAcceptState(patientId);
     res.json({
       success: true,
       message: "Active queues were reset. Transaction history was preserved."
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
@@ -668,25 +669,25 @@ router.post("/users", authenticateToken, authorizeRole(["superadmin"]), async (r
     const user = await createUser(req.body);
     res.json({ success: true, user, message: "User created successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
 router.put("/users/:id_num", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    const user = await updateUser(req.params.id_num, req.body);
+    const user = await updateUser(req.params.id_num, req.body || {});
     res.json({ success: true, user, message: "User updated successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 
 router.delete("/users/:id_num", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    await deleteUser(req.params.id_num);
+    await deleteUser(req.params.id_num, req.user);
     res.json({ success: true, message: "User deleted successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 

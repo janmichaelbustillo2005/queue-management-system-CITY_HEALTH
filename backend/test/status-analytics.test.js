@@ -396,7 +396,7 @@ test("Status Analytics route preserves Superadmin auth, validates functional fil
   const router = {};
   for (const method of ["get", "post", "put", "delete"]) router[method] = (route, ...handlers) => routes.set(`${method} ${route}`, handlers);
   load("routes/index.js", { express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto,
-    "../lib/businessDay": require("../src/lib/businessDay"),
+    "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"),
     "../config/env": { jwtSecret: secret }, "../middleware/auth": auth, "../services/presenceService": presence,
     "../services/queueService": {}, "../services/settingsService": {}, "../services/statusAnalyticsService": h.service }, h.clock);
   async function request(role, query = { date }) {

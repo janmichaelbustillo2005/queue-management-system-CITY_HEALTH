@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import SiteFrame from "../components/SiteFrame";
-import PatientQueueTable, { DOCTORS } from "../components/PatientQueueTable";
+import PatientQueueTable, { DOCTORS, SHARED_ASSIGNMENT, SHARED_DISPATCH } from "../components/PatientQueueTable";
 import QueueTicketDialog from "../components/QueueTicketDialog";
 import { defaultQueueSettings } from "../components/SettingsModal";
 import { useAuth } from "../context/AuthContext";
@@ -37,6 +37,8 @@ export default function PatientManagementPage() {
   const router = useRouter();
   const [queueRows, setQueueRows] = useState([]);
   const [counters, setCounters] = useState([]);
+  // D1: "service" (fixed service doctors) or "shared" (one queue, doctor chosen at Call).
+  const [dispatchMode, setDispatchMode] = useState("service");
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState({ type: "", text: "" });
@@ -97,6 +99,7 @@ export default function PatientManagementPage() {
       const patients = data.patients ?? [];
       setQueueRows(patients);
       setCounters(data.counters ?? []);
+      setDispatchMode(data.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
       if (data.queue_settings) {
         setQueueSettings(mergeQueueSettings(data.queue_settings));
       }
@@ -105,7 +108,7 @@ export default function PatientManagementPage() {
       if (ticketReadVersion === ticketRequestRef.current && ticketPatientIdRef.current != null) {
         const patient = patients.find((row) => String(row.id) === String(ticketPatientIdRef.current));
         if (patient) {
-          setQueueTicket(createQueueTicket(patient));
+          setQueueTicket(createQueueTicket(patient, { dispatchMode: data.dispatch_mode }));
         } else {
           ticketPatientIdRef.current = null;
           setQueueTicket(null);
@@ -285,7 +288,7 @@ export default function PatientManagementPage() {
               >
                 <option value="all">All Doctors</option>
                 {DOCTORS.map((d) => (
-                  <option key={d.name} value={d.name}>{d.name} ({d.assignment})</option>
+                  <option key={d.name} value={d.name}>{d.name} ({dispatchMode === SHARED_DISPATCH ? SHARED_ASSIGNMENT : d.assignment})</option>
                 ))}
               </select>
             </label>
@@ -339,6 +342,7 @@ export default function PatientManagementPage() {
           onConfirm={showConfirmModal}
           onViewTicket={canIssueTicket ? handleViewTicket : undefined}
           ticketLoadingId={ticketLoadingId}
+          dispatchMode={dispatchMode}
         />
       </div>
 

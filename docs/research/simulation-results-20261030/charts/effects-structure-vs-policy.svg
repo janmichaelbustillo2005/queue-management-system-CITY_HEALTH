@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 968 918" width="968" height="918" role="img" aria-label="Where the improvement comes from: change in wait per paired seed (minutes; below 0 = shorter)">
+<style>svg{--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--service:#6250d6;--shared:#008300;}@media (prefers-color-scheme: dark){svg{--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;--s1:#3987e5;--s2:#d95926;--s3:#199e70;--service:#9085e9;--shared:#008300;}}
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:var(--ink2);font-size:12px}
+.t{fill:var(--ink);font-size:15px;font-weight:600}.st{font-size:12px}.pt{fill:var(--ink);font-size:13px;font-weight:600}
+.ax{fill:var(--muted);font-size:11px}.grid{stroke:var(--grid);stroke-width:1}.base{stroke:var(--axis);stroke-width:1}
+.ci{stroke:var(--ink2);stroke-width:1}</style>
+<rect width="100%" height="100%" fill="var(--surface)"/>
+<text class="t" x="52" y="26">Where the improvement comes from: change in wait per paired seed (minutes; below 0 = shorter)</text>
+<text class="st" x="52" y="46">Mean of 30 paired synthetic days per scenario; identical patients for every policy and dispatch mode. Whiskers: 95% CI of the paired difference.</text>
+<rect x="52" y="64" width="12" height="12" rx="3" fill="var(--service)"/><text x="70" y="74">Queue structure (shared − service, WPS)</text>
+<rect x="339.4" y="64" width="12" height="12" rx="3" fill="var(--s2)"/><text x="357.4" y="74">WPS-A − WPS (shared)</text>
+<rect x="501.4" y="64" width="12" height="12" rx="3" fill="var(--s3)"/><text x="519.4" y="74">WRR − WPS (shared)</text>
+<text class="pt" x="52" y="108">Average wait</text>
+<line class="grid" x1="52" x2="952" y1="318" y2="318"/>
+<text class="ax" x="46" y="322" text-anchor="end">-200</text>
+<line class="grid" x1="52" x2="952" y1="218.04997501249375" y2="218.04997501249375"/>
+<text class="ax" x="46" y="222.04997501249375" text-anchor="end">-100</text>
+<line class="grid" x1="52" x2="952" y1="118.09995002498749" y2="118.09995002498749"/>
+<text class="ax" x="46" y="122.09995002498749" text-anchor="end">0</text>
+<line class="base" x1="52" x2="952" y1="118.09995002498749" y2="118.09995002498749"/>
+<path d="M89,118.09995002498749V118.79486525456048Q89,122.79486525456048 93,122.79486525456048H109Q113,122.79486525456048 113,118.79486525456048V118.09995002498749Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Low: -4.70 min</title></path>
+<line class="ci" x1="101" x2="101" y1="123.90210254628997" y2="121.68762796283093"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Low: 0.00 min</title></path>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Low: -0.00 min</title></path>
+<line class="ci" x1="153" x2="153" y1="118.11201805229285" y2="118.09349133342823"/>
+<text x="127" y="336" text-anchor="middle">Low</text>
+<path d="M239,118.09995002498749V136.21988782340208Q239,140.21988782340208 243,140.21988782340208H259Q263,140.21988782340208 263,136.21988782340208V118.09995002498749Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Medium: -22.13 min</title></path>
+<line class="ci" x1="251" x2="251" y1="146.29533970688357" y2="134.14443593992058"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Medium: 0.01 min</title></path>
+<line class="ci" x1="277" x2="277" y1="118.10415481614191" y2="118.07556533500022"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Medium: -0.01 min</title></path>
+<line class="ci" x1="303" x2="303" y1="118.1279554224088" y2="118.08244561313626"/>
+<text x="277" y="336" text-anchor="middle">Medium</text>
+<path d="M389,118.09995002498749V161.02641199980835Q389,165.02641199980835 393,165.02641199980835H409Q413,165.02641199980835 413,161.02641199980835V118.09995002498749Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), High: -46.95 min</title></path>
+<line class="ci" x1="401" x2="401" y1="171.76764151169627" y2="158.28518248792042"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), High: -0.02 min</title></path>
+<line class="ci" x1="427" x2="427" y1="118.16407034170433" y2="118.06965244226674"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), High: -0.06 min</title></path>
+<line class="ci" x1="453" x2="453" y1="118.21947616900695" y2="118.10831239481172"/>
+<text x="427" y="336" text-anchor="middle">High</text>
+<path d="M539,118.09995002498749V133.74615269910444Q539,137.74615269910444 543,137.74615269910444H559Q563,137.74615269910444 563,133.74615269910444V118.09995002498749Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Surge: -19.66 min</title></path>
+<line class="ci" x1="551" x2="551" y1="142.99442605168014" y2="132.49787934652872"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Surge: 0.00 min</title></path>
+<line class="ci" x1="577" x2="577" y1="118.10312270383466" y2="118.08826504113381"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Surge: 0.01 min</title></path>
+<line class="ci" x1="603" x2="603" y1="118.13953683820114" y2="118.04248252462779"/>
+<text x="577" y="336" text-anchor="middle">Surge</text>
+<path d="M689,118.09995002498749V214.23170899922417Q689,218.23170899922417 693,218.23170899922417H709Q713,218.23170899922417 713,214.23170899922417V118.09995002498749Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Unequal: -100.18 min</title></path>
+<line class="ci" x1="701" x2="701" y1="232.67524165810536" y2="203.78817634034294"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Unequal: 0.00 min</title></path>
+<line class="ci" x1="727" x2="727" y1="118.10571457227445" y2="118.0889021891731"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Unequal: 0.00 min</title></path>
+<line class="ci" x1="753" x2="753" y1="118.11692437262653" y2="118.0763896865625"/>
+<text x="727" y="336" text-anchor="middle">Unequal</text>
+<path d="M839,118.09995002498749V162.07179741570405Q839,166.07179741570405 843,166.07179741570405H859Q863,166.07179741570405 863,162.07179741570405V118.09995002498749Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Long waits: -48.00 min</title></path>
+<line class="ci" x1="851" x2="851" y1="172.68033152224743" y2="159.46326330916062"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Long waits: 0.00 min</title></path>
+<line class="ci" x1="877" x2="877" y1="118.13273571424116" y2="118.06713358532735"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Long waits: -0.04 min</title></path>
+<line class="ci" x1="903" x2="903" y1="118.19746550761963" y2="118.07512491577012"/>
+<text x="877" y="336" text-anchor="middle">Long waits</text>
+<text class="pt" x="52" y="378">P95 wait</text>
+<line class="grid" x1="52" x2="952" y1="548.0798403193613" y2="548.0798403193613"/>
+<text class="ax" x="46" y="552.0798403193613" text-anchor="end">-400</text>
+<line class="grid" x1="52" x2="952" y1="468.23952095808386" y2="468.23952095808386"/>
+<text class="ax" x="46" y="472.23952095808386" text-anchor="end">-200</text>
+<line class="grid" x1="52" x2="952" y1="388.3992015968064" y2="388.3992015968064"/>
+<text class="ax" x="46" y="392.3992015968064" text-anchor="end">0</text>
+<line class="base" x1="52" x2="952" y1="388.3992015968064" y2="388.3992015968064"/>
+<path d="M89,388.3992015968064V392.63738986537186Q89,396.63738986537186 93,396.63738986537186H109Q113,396.63738986537186 113,392.63738986537186V388.3992015968064Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Low: -20.64 min</title></path>
+<line class="ci" x1="101" x2="101" y1="398.9961176395479" y2="394.2786620911958"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Low: 0.00 min</title></path>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Low: -0.03 min</title></path>
+<line class="ci" x1="153" x2="153" y1="388.4374699457934" y2="388.38113535070795"/>
+<text x="127" y="606" text-anchor="middle">Low</text>
+<path d="M239,388.3992015968064V415.538497758292Q239,419.538497758292 243,419.538497758292H259Q263,419.538497758292 263,415.538497758292V388.3992015968064Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Medium: -78.00 min</title></path>
+<line class="ci" x1="251" x2="251" y1="428.07488444021885" y2="411.0021110763651"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Medium: -0.00 min</title></path>
+<line class="ci" x1="277" x2="277" y1="388.402716952931" y2="388.3982951202198"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Medium: -0.53 min</title></path>
+<line class="ci" x1="303" x2="303" y1="388.80429010657724" y2="388.4163798703388"/>
+<text x="277" y="606" text-anchor="middle">Medium</text>
+<path d="M389,388.3992015968064V451.34917934775643Q389,455.34917934775643 393,455.34917934775643H409Q413,455.34917934775643 413,451.34917934775643V388.3992015968064Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), High: -167.71 min</title></path>
+<line class="ci" x1="401" x2="401" y1="465.09532251111455" y2="445.6030361843983"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), High: -0.38 min</title></path>
+<line class="ci" x1="427" x2="427" y1="388.7736160050325" y2="388.3305222633943"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), High: -0.41 min</title></path>
+<line class="ci" x1="453" x2="453" y1="388.73841472568273" y2="388.3912217944619"/>
+<text x="427" y="606" text-anchor="middle">High</text>
+<path d="M539,388.3992015968064V425.15234612367124Q539,429.15234612367124 543,429.15234612367124H559Q563,429.15234612367124 563,425.15234612367124V388.3992015968064Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Surge: -102.09 min</title></path>
+<line class="ci" x1="551" x2="551" y1="441.6805820332688" y2="416.6241102140737"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Surge: 0.15 min</title></path>
+<line class="ci" x1="577" x2="577" y1="388.4485611461304" y2="388.2296020210257"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Surge: -0.17 min</title></path>
+<line class="ci" x1="603" x2="603" y1="388.7964195985839" y2="388.137386311854"/>
+<text x="577" y="606" text-anchor="middle">Surge</text>
+<path d="M689,388.3992015968064V491.53389407817457Q689,495.53389407817457 693,495.53389407817457H709Q713,495.53389407817457 713,491.53389407817457V388.3992015968064Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Unequal: -268.37 min</title></path>
+<line class="ci" x1="701" x2="701" y1="507.56566633542576" y2="483.5021218209233"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Unequal: -0.17 min</title></path>
+<line class="ci" x1="727" x2="727" y1="388.5662991903936" y2="388.3654987721414"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Unequal: -0.12 min</title></path>
+<line class="ci" x1="753" x2="753" y1="388.59420199829015" y2="388.29782883063615"/>
+<text x="727" y="606" text-anchor="middle">Unequal</text>
+<path d="M839,388.3992015968064V457.0533147963639Q839,461.0533147963639 843,461.0533147963639H859Q863,461.0533147963639 863,457.0533147963639V388.3992015968064Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Long waits: -182.00 min</title></path>
+<line class="ci" x1="851" x2="851" y1="470.01274878011037" y2="452.0938808126174"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Long waits: -0.17 min</title></path>
+<line class="ci" x1="877" x2="877" y1="388.64124715901437" y2="388.29095022889004"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Long waits: -0.64 min</title></path>
+<line class="ci" x1="903" x2="903" y1="388.8602478735671" y2="388.4507833629591"/>
+<text x="877" y="606" text-anchor="middle">Long waits</text>
+<text class="pt" x="52" y="648">Maximum wait</text>
+<line class="grid" x1="52" x2="952" y1="818.0399600399601" y2="818.0399600399601"/>
+<text class="ax" x="46" y="822.0399600399601" text-anchor="end">-400</text>
+<line class="grid" x1="52" x2="952" y1="738.1198801198801" y2="738.1198801198801"/>
+<text class="ax" x="46" y="742.1198801198801" text-anchor="end">-200</text>
+<line class="grid" x1="52" x2="952" y1="658.1998001998002" y2="658.1998001998002"/>
+<text class="ax" x="46" y="662.1998001998002" text-anchor="end">0</text>
+<line class="base" x1="52" x2="952" y1="658.1998001998002" y2="658.1998001998002"/>
+<path d="M89,658.1998001998002V666.3323777826564Q89,670.3323777826564 93,670.3323777826564H109Q113,670.3323777826564 113,666.3323777826564V658.1998001998002Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Low: -30.36 min</title></path>
+<line class="ci" x1="101" x2="101" y1="673.3448774934834" y2="667.3198780718294"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Low: 0.00 min</title></path>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Low: -0.33 min</title></path>
+<line class="ci" x1="153" x2="153" y1="658.4493383553464" y2="658.2113583745852"/>
+<text x="127" y="876" text-anchor="middle">Low</text>
+<path d="M239,658.1998001998002V692.7207658392318Q239,696.7207658392318 243,696.7207658392318H259Q263,696.7207658392318 263,692.7207658392318V658.1998001998002Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Medium: -96.40 min</title></path>
+<line class="ci" x1="251" x2="251" y1="704.6075563392186" y2="688.8339753392452"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Medium: -0.09 min</title></path>
+<line class="ci" x1="277" x2="277" y1="658.3092141304719" y2="658.1643146006634"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Medium: -1.02 min</title></path>
+<line class="ci" x1="303" x2="303" y1="658.859336836909" y2="658.3516246275361"/>
+<text x="277" y="876" text-anchor="middle">Medium</text>
+<path d="M389,658.1998001998002V727.3428563730383Q389,731.3428563730383 393,731.3428563730383H409Q413,731.3428563730383 413,727.3428563730383V658.1998001998002Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), High: -183.04 min</title></path>
+<line class="ci" x1="401" x2="401" y1="740.1466411991217" y2="722.5390715469548"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), High: -0.79 min</title></path>
+<line class="ci" x1="427" x2="427" y1="658.9021428904489" y2="658.1307212962249"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), High: -1.12 min</title></path>
+<line class="ci" x1="453" x2="453" y1="659.0882794384383" y2="658.2048375346841"/>
+<text x="427" y="876" text-anchor="middle">High</text>
+<path d="M539,658.1998001998002V712.6567525238302Q539,716.6567525238302 543,716.6567525238302H559Q563,716.6567525238302 563,712.6567525238302V658.1998001998002Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Surge: -146.29 min</title></path>
+<line class="ci" x1="551" x2="551" y1="730.1754126843787" y2="703.1380923632817"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Surge: 0.07 min</title></path>
+<line class="ci" x1="577" x2="577" y1="658.3103894379212" y2="658.0334339772338"/>
+<path d="M591,658.1998001998002V658.1998001998002Q591,659.8122622039094 592.6124620041093,659.8122622039094H613.3875379958907Q615,659.8122622039094 615,658.1998001998002V658.1998001998002Z" fill="var(--s3)"><title>WRR − WPS (shared), Surge: -4.04 min</title></path>
+<line class="ci" x1="603" x2="603" y1="660.5300050260305" y2="659.0945193817882"/>
+<text x="577" y="876" text-anchor="middle">Surge</text>
+<path d="M689,658.1998001998002V764.8422531403709Q689,768.8422531403709 693,768.8422531403709H709Q713,768.8422531403709 713,764.8422531403709V658.1998001998002Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Unequal: -276.88 min</title></path>
+<line class="ci" x1="701" x2="701" y1="780.2498706464503" y2="757.4346356342915"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Unequal: -0.21 min</title></path>
+<line class="ci" x1="727" x2="727" y1="658.396954615207" y2="658.1681820003173"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Unequal: -0.40 min</title></path>
+<line class="ci" x1="753" x2="753" y1="658.6686758164496" y2="658.0486854960318"/>
+<text x="727" y="876" text-anchor="middle">Unequal</text>
+<path d="M839,658.1998001998002V731.9302386603482Q839,735.9302386603482 843,735.9302386603482H859Q863,735.9302386603482 863,731.9302386603482V658.1998001998002Z" fill="var(--service)"><title>Queue structure (shared − service, WPS), Long waits: -194.52 min</title></path>
+<line class="ci" x1="851" x2="851" y1="743.7078282535471" y2="728.1526490671495"/>
+<path d="" fill="var(--s2)"><title>WPS-A − WPS (shared), Long waits: -0.68 min</title></path>
+<line class="ci" x1="877" x2="877" y1="658.8066513941012" y2="658.1372066099859"/>
+<path d="" fill="var(--s3)"><title>WRR − WPS (shared), Long waits: -1.15 min</title></path>
+<line class="ci" x1="903" x2="903" y1="659.1975010909546" y2="658.1202831007862"/>
+<text x="877" y="876" text-anchor="middle">Long waits</text>
+<text class="ax" x="52" y="910">Synthetic simulation (backend/simulation). Hover a bar for its value; numbers are in tables.md.</text>
+</svg>

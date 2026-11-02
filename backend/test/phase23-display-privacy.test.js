@@ -25,8 +25,9 @@ const registration = (name, service = "consultation", flags = []) => ({
   birthdate: SENTINEL.birthdate, sex: SENTINEL.sex
 });
 
-// Contract: the exact keys each public collection may contain.
-const TOP_KEYS = ["all_serving", "counters", "next_in_line", "now_serving", "queue_settings", "recent_accepted",
+// Contract: the exact keys each public collection may contain. dispatch_mode (D1) is the
+// configured "service"/"shared" policy, not patient data.
+const TOP_KEYS = ["all_serving", "counters", "dispatch_mode", "next_in_line", "now_serving", "queue_settings", "recent_accepted",
   "recent_called", "serving_count", "settings", "storage_mode", "voice_announcements", "waiting_count", "waiting_queue"];
 const WAITING_KEYS = ["completed_at", "counter_id", "id", "queue_number", "service_type", "status"];
 const WAITING_REQUIRED = ["id", "queue_number", "service_type", "status"];

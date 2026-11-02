@@ -1,8 +1,9 @@
 const supabase = require("../lib/supabase");
 const env = require("../config/env");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash, timingSafeEqual } = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const { getBusinessDate, getBusinessDayRange, getDateFilterRange } = require("../lib/businessDay");
+const { compareWps, effectivePriority } = require("../lib/wpsPriority");
 const {
   sendQueueCreatedNotification,
   sendQueueCalledNotification
@@ -44,10 +45,11 @@ const localData = {
   nextCancellationId: 1,
   nextPatientId: 1,
   countersMap: { "Doctor 1": 1, "Doctor 2": 2, "Doctor 3": 3 },
+  // Queue numbers are per service code, not per doctor.
   sequenceMap: {
-    "Doctor 1": 0,
-    "Doctor 2": 0,
-    "Doctor 3": 0
+    GP: 0,
+    OB: 0,
+    FP: 0
   }
 };
 
@@ -386,11 +388,16 @@ async function getQueueOverview() {
   }
   const patients = Array.from(patientsById.values());
   const settings = getQueueSettings();
+  const rankedAt = Date.now();
 
   return {
     storage_mode: getQueueStorageMode(),
+    dispatch_mode: getDispatchMode(),
+    // effective_priority is the WPS rank key at read time (equal to priority_score without aging).
+    wps: { aging: wpsAging() },
     patients: patients.map((p) => ({
       ...p,
+      effective_priority: p.status === "waiting" ? effectivePriority(p, rankedAt, wpsAging()) : p.priority_score,
       recall_count: getRecallCount(p.id),
       accepted_at: getAcceptedAt(p.id),
       awaiting_accept: p.status === "serving" && (isAwaitingAccept(p.id) ||
@@ -409,6 +416,25 @@ const SERVICE_CODE_MAP = {
   family_planning: "FP"
 };
 
+// Every service the three general doctors may serve (D1: the administrator's stated scope).
+const CONFIGURED_SERVICES = Object.keys(SERVICE_CODE_MAP);
+const DOCTOR_NAMES = ["Doctor 1", "Doctor 2", "Doctor 3"];
+const DISPATCH_SHARED = "shared";
+const UNASSIGNED_DOCTOR = "Unassigned";
+
+// D1: "service" (default) routes a waiting visit to its service's doctor, as before. "shared"
+// (Model A, provisional) keeps one Weighted-Priority queue; the doctor is chosen at Call and
+// stored on the visit, so a visit that was never called belongs to no doctor.
+function getDispatchMode() {
+  return env.doctorDispatchMode === DISPATCH_SHARED ? DISPATCH_SHARED : "service";
+}
+
+function isSharedDispatch() {
+  return getDispatchMode() === DISPATCH_SHARED;
+}
+
+// The legacy service-to-doctor routing. Shared dispatch uses it for nothing but a legacy serving
+// row without an assignment, which still blocks the doctor its service used to route to.
 function getDoctorForService(serviceType) {
   if (["consultation", "checkup"].includes(serviceType)) {
     return "Doctor 1";
@@ -422,11 +448,26 @@ function getDoctorForService(serviceType) {
   return "Doctor 1";
 }
 
+// The doctor a visit without a stored assignment is routed to: its service's doctor, or none
+// in shared dispatch.
+function getRoutedDoctor(serviceType) {
+  return isSharedDispatch() ? null : getDoctorForService(serviceType);
+}
+
 function getDoctorOfflineMessage(doctorName) {
   return `${doctorName} is currently offline and unavailable. Please select another available doctor.`;
 }
 
 async function ensureDoctorAvailableForService(serviceType) {
+  if (isSharedDispatch()) {
+    // Registration assigns no doctor: any enabled doctor may take the visit when it is called.
+    if (!CONFIGURED_SERVICES.includes(serviceType)) throw registrationError("Select one of the offered services.");
+    const counters = await getCounters();
+    if (!counters.some((c) => DOCTOR_NAMES.includes(c.id_num) && c.is_online !== false)) {
+      throw registrationError("No doctor is currently available. Ask Super Admin to enable a doctor counter before registering patients.");
+    }
+    return null;
+  }
   const doctorName = getDoctorForService(serviceType);
   const counters = await getCounters();
   const counter = counters.find((c) => c.id_num === doctorName || c.name === doctorName);
@@ -442,8 +483,7 @@ async function ensureDoctorAvailableForService(serviceType) {
 
 async function getNextQueueNumber(serviceType, offset = 0) {
   const doctorCode = SERVICE_CODE_MAP[serviceType] || "GP";
-  const doctorName = getDoctorForService(serviceType);
-  
+
   if (useLocalFallback) {
     // Keep local sequence at least one past any already-used number in memory
     const existing = localData.patients
@@ -451,10 +491,10 @@ async function getNextQueueNumber(serviceType, offset = 0) {
       .filter((qNum) => qNum.startsWith(`${doctorCode}-`) && qNum.split("-").length === 2)
       .map((qNum) => Number(qNum.split("-")[1]) || 0);
     const maxExisting = existing.length ? Math.max(...existing) : 0;
-    const base = Math.max(localData.sequenceMap[doctorName] || 0, maxExisting);
+    const base = Math.max(localData.sequenceMap[doctorCode] || 0, maxExisting);
     const next = base + 1 + offset;
     if (offset === 0) {
-      localData.sequenceMap[doctorName] = next;
+      localData.sequenceMap[doctorCode] = next;
     }
     return `${doctorCode}-${String(next).padStart(3, "0")}`;
   }
@@ -506,7 +546,43 @@ function computePriorityScore(vulnerabilityFlags = []) {
   return score === 0 ? 1 : score; // Base weight 1 for Regular
 }
 
-async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate, sex, source = "admin", vulnerabilityFlags = [] }) {
+const SENIOR_AGE = 60;
+
+function registrationError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+// Registration is public, so priority input is validated before anything is stored: each known
+// category counts once, and a Senior Citizen flag must agree with the birthdate (60 or older on
+// the Manila business date, as the registration form computes it); below 60 it is refused rather
+// than silently dropped. The form ticks Senior itself; the backend does not add it. Without a
+// birthdate a staff-entered Senior flag is kept.
+function normalizeRegistrationPriority(vulnerabilityFlags, birthdate, now = new Date()) {
+  const flags = vulnerabilityFlags == null ? [] : vulnerabilityFlags;
+  if (!Array.isArray(flags) || flags.some((flag) => typeof flag !== "string" || !Object.hasOwn(VULNERABILITY_WEIGHTS, flag))) {
+    throw registrationError("Unknown priority category. Use Senior Citizen, PWD, Pregnant, Indigenous Person or Solo Parent.");
+  }
+  const unique = flags.filter((flag, index) => flags.indexOf(flag) === index);
+  if (birthdate == null || birthdate === "") return { flags: unique, birthdate: null };
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(birthdate));
+  const today = getBusinessDate(now);
+  const valid = match && new Date(`${birthdate}T00:00:00Z`).toISOString().slice(0, 10) === birthdate;
+  if (!valid || birthdate > today || Number(match[1]) < 1900) {
+    throw registrationError("Enter a valid birthdate (YYYY-MM-DD) that is not in the future.");
+  }
+  const [year, month, day] = today.split("-").map(Number);
+  const age = year - Number(match[1]) - ((month * 100 + day) < (Number(match[2]) * 100 + Number(match[3])) ? 1 : 0);
+  if (age < SENIOR_AGE && unique.includes("senior")) {
+    throw registrationError("Senior Citizen priority requires age 60 or older on the birthdate entered. Check the birthdate or remove Senior Citizen.");
+  }
+  return { flags: unique, birthdate };
+}
+
+async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate: rawBirthdate, sex, source = "admin", vulnerabilityFlags: rawFlags = [] }) {
+  const { flags: vulnerabilityFlags, birthdate } = normalizeRegistrationPriority(rawFlags, rawBirthdate);
   await ensureDoctorAvailableForService(serviceType);
 
   let attempts = 0;
@@ -662,34 +738,108 @@ async function clearCounterAssignment(patientId) {
 
 // Reject overlapping calls in this process. Across processes the database decides: the C1
 // call_patient_visit RPC re-validates and writes patient and counter in one transaction, and
-// the fallback used until it is installed guards both writes with conditions.
+// the opt-in fallback for a database without it guards both writes with conditions.
 const callsInProgress = new Set();
 
-function compareWaitingPriority(a, b) {
-  return (b.priority_score || 0) - (a.priority_score || 0) ||
-    new Date(a.created_at) - new Date(b.created_at) ||
-    Number(a.id) - Number(b.id);
+// WPS order at `rankedAt`; with WPS_AGING off this is priority_score DESC, created_at, id.
+const wpsAging = () => env.wpsAging === true;
+const compareWaitingPriority = (rankedAt) => (a, b) => compareWps(a, b, rankedAt, wpsAging());
+const WPS_A_REQUIRED = "WPS with Aging is enabled but its database function is not installed (backend/scripts/20261029-wps-a-call-aging.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
+
+// D1 shared queue: the waiting visits `doctorName` may take. Every configured service is
+// eligible; a legacy Phase 2.1 reservation keeps its visit for the reserved doctor only.
+// Mirrors the candidate filter of call_patient_visit_shared.
+function isSharedCandidate(patient, doctorName) {
+  const reserved = String(patient.counter_id ?? "").trim();
+  return CONFIGURED_SERVICES.includes(patient.service_type) && (!reserved || patient.counter_id === doctorName);
+}
+
+// The visit the shared queue gives `doctorName` at `rankedAt`: WPS, or WPS-A when aging is on.
+function getSharedQueueHead(waitingPatients, doctorName, rankedAt = Date.now()) {
+  return waitingPatients.filter((p) => isSharedCandidate(p, doctorName)).sort(compareWaitingPriority(rankedAt))[0] || null;
 }
 
 const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
+const SHARED_CALL_MIGRATION_REQUIRED = "Shared doctor dispatch needs the D1 database migration (backend/scripts/20261029-d1-shared-call.sql). Nothing was changed.";
+const SHARED_WPS_A_REQUIRED = "Shared doctor dispatch with WPS Aging needs its database function (backend/scripts/20261029-d1a-shared-wps-a-call.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
+const C1_CALL_REQUIRED = "Call needs the atomic C1 database function (backend/scripts/20261025-c1-atomic-call.sql), and it could not be used. Nothing was changed. Refresh and retry; if this continues, ask the administrator to check the function.";
 
-// C1: returns the called row, or null when the migration is not installed. Any rejection
-// leaves patient and counter unchanged. A lost response may hide a committed call, so it is
-// never treated as success: no pending acceptance is created for an unconfirmed call (the
-// assigned doctor can still accept a serving visit that has no acceptance state).
-async function callPatientVisitRpc(patient, doctorName, actor, { start, end }) {
+// The atomic Call for the configured dispatch and aging. Each re-ranks under the same locks as
+// the backend ranked. Without its function every Call refuses (I2 Finding 8); only C1 (service
+// dispatch, no aging) may use the older two-statement Call, and only when
+// ALLOW_LEGACY_TWO_STEP_CALL opts in for a database that never had C1.
+const CALL_RPCS = {
+  service: { plain: "call_patient_visit", aging: "call_patient_visit_wps_a" },
+  shared: { plain: "call_patient_visit_shared", aging: "call_patient_visit_shared_wps_a" }
+};
+const CALL_RPC_REQUIRED = {
+  call_patient_visit: C1_CALL_REQUIRED,
+  call_patient_visit_wps_a: WPS_A_REQUIRED,
+  call_patient_visit_shared: SHARED_CALL_MIGRATION_REQUIRED,
+  call_patient_visit_shared_wps_a: SHARED_WPS_A_REQUIRED
+};
+
+function getCallRpcName(shared, aging) {
+  return CALL_RPCS[shared ? "shared" : "service"][aging ? "aging" : "plain"];
+}
+
+// D1: the doctor Frontdesk or Superadmin selected (or the calling doctor itself). Any doctor
+// may take any configured service; the choice is stored on the visit by the Call.
+function resolveSharedCallDoctor(patient, counterId, counters) {
+  if (!CONFIGURED_SERVICES.includes(patient.service_type)) {
+    throw consultationError("This visit's service is not configured for doctor assignment", 400);
+  }
+  if (!String(counterId ?? "").trim()) {
+    throw consultationError("Select an available doctor to call this patient.", 400);
+  }
+  const selected = resolveDoctorCounter(counterId, counters);
+  if (!selected || !DOCTOR_NAMES.includes(selected.id_num)) {
+    throw consultationError("The selected doctor is not a valid doctor counter", 400);
+  }
+  if (String(patient.counter_id ?? "").trim() && patient.counter_id !== selected.id_num) {
+    throw new Error("This waiting patient has a conflicting doctor assignment");
+  }
+  return selected.id_num;
+}
+
+// D1: Frontdesk may assign a visit only to a doctor whose authenticated session is live
+// (Phase A presence, 75-second window). Counter availability is checked separately.
+async function assertDoctorSignedIn(doctorName) {
   let result;
   try {
-    result = await supabase.rpc("call_patient_visit", {
+    result = await supabase.rpc("get_staff_doctor_presence");
+  } catch {
+    throw consultationError("Doctor presence could not be verified. Please retry.", 503);
+  }
+  const doctors = result?.data?.doctors;
+  if (result?.error || !Array.isArray(doctors)) {
+    throw consultationError("Doctor presence could not be verified. Please retry.", 503);
+  }
+  if (doctors.find((doctor) => doctor.doctor_name === doctorName)?.online !== true) {
+    throw consultationError(`${doctorName} is not signed in. Select a doctor who is online.`, 409);
+  }
+}
+
+// C1, WPS-A, D1 or D1-A (getCallRpcName): returns the called row, or null when the migration is
+// not installed. Any rejection leaves patient and counter unchanged. A lost response may hide a
+// committed call, so it is never treated as success: no pending acceptance is created for an
+// unconfirmed call (the assigned doctor can still accept a serving visit that has no acceptance state).
+// The aging functions rank at `rankedAt`, the instant the backend ranked.
+async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, rankedAt, rpcName = "call_patient_visit") {
+  const aging = rpcName.endsWith("_wps_a");
+  let result;
+  try {
+    result = await supabase.rpc(rpcName, {
       p_patient_id: patient.id, p_doctor_name: doctorName, p_user_id_num: actor?.id_num ?? null,
-      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end
+      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end,
+      ...(aging ? { p_ranked_at: new Date(rankedAt).toISOString() } : {})
     });
   } catch {
     throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
   }
   const { data, error } = result || {};
   if (error) {
-    if (MISSING_RPC_CODES.includes(error.code)) return null;
+    if (CALL_MISSING_RPC_CODES.includes(error.code)) return null;
     if (!error.code) throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
     const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
       ["P0001", "22023"].includes(error.code) ? 400 : 503;
@@ -725,20 +875,34 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
   if (patient.status !== "waiting" || patient.completed_at != null) {
     throw new Error("Only a waiting patient without a completion timestamp can be called");
   }
-  const doctorName = getDoctorForService(patient.service_type);
-  // Undo can retain the patient's previous doctor association while waiting.
-  if (patient.counter_id != null && patient.counter_id !== doctorName) {
-    throw new Error("This waiting patient has a conflicting doctor assignment");
+  const shared = isSharedDispatch();
+  let doctorName;
+  if (shared) {
+    doctorName = resolveSharedCallDoctor(patient, counterId, accountCounters);
+  } else {
+    doctorName = getDoctorForService(patient.service_type);
+    // Undo can retain the patient's previous doctor association while waiting.
+    if (patient.counter_id != null && patient.counter_id !== doctorName) {
+      throw new Error("This waiting patient has a conflicting doctor assignment");
+    }
+    if (counterId != null && counterId !== doctorName) {
+      throw new Error(`This patient is assigned to ${doctorName}`);
+    }
   }
-  if (counterId != null && counterId !== doctorName) {
-    throw new Error(`This patient is assigned to ${doctorName}`);
-  }
+  // In shared dispatch two doctors can be selected for the same visit; both keys are held.
+  const visitKey = `visit:${patientId}`;
   if (callsInProgress.has(doctorName)) {
     throw new Error(`A call for ${doctorName} is already processing`);
   }
+  if (callsInProgress.has(visitKey)) {
+    throw new Error("A call for this patient is already processing");
+  }
   callsInProgress.add(doctorName);
+  callsInProgress.add(visitKey);
 
   try {
+    // A doctor calling for itself is proven present by its own validated session.
+    if (shared && !localCall && who.kind !== "doctor") await assertDoctorSignedIn(doctorName);
     let counters;
     let waitingPatients;
     let servingPatients;
@@ -782,18 +946,32 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     if (counters.some((c) => c.id_num !== doctorName && Number(c.current_patient_id) === patientId)) {
       throw new Error("This patient is already assigned to another doctor");
     }
-    const nextPatient = waitingPatients
-      .filter((p) => getDoctorForService(p.service_type) === doctorName)
-      .sort(compareWaitingPriority)[0];
+    // One ranking instant for Node and the database, so aging is computed the same way in both.
+    const rankedAt = Date.now();
+    const nextPatient = shared
+      ? getSharedQueueHead(waitingPatients, doctorName, rankedAt)
+      : waitingPatients.filter((p) => getDoctorForService(p.service_type) === doctorName).sort(compareWaitingPriority(rankedAt))[0];
     if (!nextPatient || Number(nextPatient.id) !== patientId) {
-      throw new Error(`Call the next eligible patient for ${doctorName} according to queue priority`);
+      throw new Error(shared
+        ? "Call the next patient in the shared queue according to priority"
+        : `Call the next eligible patient for ${doctorName} according to queue priority`);
     }
 
     const calledAt = new Date().toISOString();
     // Phase 2.1+ rows carry a revision; the RPC needs it to detect any change since this read.
+    const rpcName = getCallRpcName(shared, wpsAging());
     const atomicCall = !localCall && patient.visit_state_revision
-      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange)
+      ? await callPatientVisitRpc(patient, doctorName, actor, queueRange, rankedAt, rpcName)
       : null;
+    // Shared dispatch and aging rank only in the database; neither falls back to the two-step Call.
+    // C1 does only with the explicit opt-in (a database that never had C1).
+    if (!localCall && !atomicCall && (rpcName !== "call_patient_visit" || env.allowLegacyTwoStepCall !== true)) {
+      throw consultationError(CALL_RPC_REQUIRED[rpcName], 503);
+    }
+    if (!localCall && !atomicCall && !legacyCallWarned) {
+      legacyCallWarned = true;
+      console.warn("ALLOW_LEGACY_TWO_STEP_CALL is on: Call is using the non-atomic two-statement fallback because call_patient_visit is not available.");
+    }
     if (localCall) {
       // No await between the final checks and both in-memory updates.
       patient.status = "serving";
@@ -802,7 +980,7 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
       patient.visit_state_revision = randomUUID();
       counter.current_patient_id = patientId;
     } else if (!atomicCall) {
-      // Fallback until the C1 migration is installed: two conditional statements. The patient
+      // Opt-in fallback for a database without C1: two conditional statements. The patient
       // compare-and-set includes the revision, so a Cancel + Requeue or Undo committed between
       // them (status back to waiting, new revision) can no longer be called by this request.
       // Claim an empty online doctor slot, or validate this patient's existing
@@ -870,9 +1048,10 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
         console.error("Failed to send call notification:", err.message);
       }
     }
-    return { success: true };
+    return { success: true, doctor: doctorName };
   } finally {
     callsInProgress.delete(doctorName);
+    callsInProgress.delete(visitKey);
   }
 }
 
@@ -1116,12 +1295,14 @@ function resolveCancelActor(actor, user, counters) {
 }
 
 // The doctor a patient belongs to, from persisted data only: the stored
-// assignment first; a patient never called follows the service mapping. A
-// serving patient with no resolvable assignment is an orphan and has no owner.
+// assignment first; a patient never called follows the service mapping (in shared
+// dispatch it belongs to no doctor until it is called). A serving patient with no
+// resolvable assignment is an orphan and has no owner.
 function resolveCancelOwner(patient, counters) {
   if (String(patient.counter_id ?? "").trim()) return resolveDoctorCounter(patient.counter_id, counters);
   if (patient.status === "serving") return null;
-  return resolveDoctorCounter(getDoctorForService(patient.service_type), counters);
+  const routed = getRoutedDoctor(patient.service_type);
+  return routed ? resolveDoctorCounter(routed, counters) : null;
 }
 
 // Shared by Cancel, No-show, Recall, Re-Call, Requeue and Undo (R2/R2.1). Loads the
@@ -1256,7 +1437,7 @@ async function performCancellation(patientId, reason, counterId, actor, backlog 
     } else if (pointed) {
       // W1: a stale pointer is released only under the RPC's locks. A separate release could
       // clear the counter of a later Requeue/Undo + Call of this same visit.
-      const row = actor == null ? null : await cancelPatientVisitRpc(existing, actor, reason, counterId);
+      const row = actor == null ? null : await cancelPatientVisitRpc(existing, actor, reason, owner ? counterId : null);
       if (!row) throw consultationError(actor == null ? NO_SESSION_CANCEL_MESSAGE : CANCEL_MIGRATION_REQUIRED, 503);
       return { ...row, already_cancelled: true };
     }
@@ -1290,8 +1471,10 @@ async function performCancellation(patientId, reason, counterId, actor, backlog 
   }
 
   // W1: the RPC cancels the visit and releases its counter(s) in one transaction. Trusted
-  // in-process callers have no session to re-validate and take the path below.
-  const atomic = actor == null ? null : await cancelPatientVisitRpc(existing, actor, trimmedReason, counterId);
+  // in-process callers have no session to re-validate and take the path below. A visit with no
+  // owner (a shared-dispatch visit never called) gets no doctor from the request: W1 would
+  // otherwise check or stamp the legacy service doctor.
+  const atomic = actor == null ? null : await cancelPatientVisitRpc(existing, actor, trimmedReason, owner ? counterId : null);
   if (atomic) {
     clearRecallCount(patientId);
     return atomic;
@@ -1408,9 +1591,10 @@ function backlogView(patient, counters) {
     patient_name: patient.id_num ?? null,
     service_type: patient.service_type,
     status: patient.status,
-    // Same reading as Records: a stored assignment, or the doctor the service routes to.
-    doctor: stored ? (owner?.id_num || stored) : (owner?.id_num || getDoctorForService(patient.service_type)),
-    doctor_source: stored ? (owner ? "stored" : "unresolved") : "service",
+    // Same reading as Records: a stored assignment, or the doctor the service routes to
+    // (none in shared dispatch, where an uncalled visit is unassigned).
+    doctor: stored ? (owner?.id_num || stored) : (owner?.id_num || getRoutedDoctor(patient.service_type)),
+    doctor_source: stored ? (owner ? "stored" : "unresolved") : getRoutedDoctor(patient.service_type) ? "service" : "unassigned",
     priority_score: parsed.priority_score,
     priority_categories: parsed.vulnerability_flags,
     created_at: patient.created_at,
@@ -1720,6 +1904,10 @@ function assertRecoverySnapshot(current, expected) {
 }
 
 const MISSING_RPC_CODES = ["PGRST202", "PGRST204", "42883", "42703"];
+// For Call only "the function cannot be found" counts as missing. 42703 (undefined column) is
+// also raised from inside an installed function by unrelated schema drift (I2 Finding 8).
+const CALL_MISSING_RPC_CODES = MISSING_RPC_CODES.filter((code) => code !== "42703");
+let legacyCallWarned = false;
 
 // `counters` is the authorization snapshot's counter list. Requeue uses it to decide whether a
 // stale pointer to this terminal visit must be released together with the recovery (F5).
@@ -1862,7 +2050,7 @@ async function undoPatientAction(patientId, actor) {
   return recoverPatientVisit(existing, "undo", actor);
 }
 
-async function clearTodaysQueues() {
+async function clearTodaysQueues(actor = null) {
   // Safe reset: archive active patients (waiting/serving) instead of deleting history.
   const archiveReason = "System queue reset";
   const completedAt = new Date().toISOString();
@@ -1888,13 +2076,28 @@ async function clearTodaysQueues() {
     return { archived: true, archivedPatientIds };
   }
   
-  const candidates = await fetchPatientPages(() => supabase.from("patients").select("id")
+  const candidates = await fetchPatientPages(() => supabase.from("patients").select("id, status, visit_state_revision")
     .gte("created_at", start).lt("created_at", end).in("status", ["waiting", "serving"]),
     "Failed to load today's reset candidates");
   const archivedPatientIds = [];
+  // With W1 installed each visit is cancelled atomically together with releasing only a counter
+  // that still points at it, so a Requeue + Call committed while the reset runs keeps its new
+  // counter. A visit that changed since it was read (409) is left as it now is.
+  let viaW1 = Boolean(actor);
+  for (const candidate of viaW1 ? candidates : []) {
+    try {
+      const row = await cancelPatientVisitRpc(candidate, actor, archiveReason, null);
+      if (!row) { viaW1 = false; break; }
+      archivedPatientIds.push(Number(row.id));
+    } catch (error) {
+      if (error.statusCode !== 409) throw error;
+    }
+  }
+  if (viaW1) return { archived: true, archivedPatientIds };
+  // Without W1: the earlier two-step archive and counter release.
   // A mutation response can be capped too. Single-row conditional updates let
   // us identify every row actually archived even when the server cap is one.
-  for (const candidate of candidates) {
+  for (const candidate of candidates.filter((row) => !archivedPatientIds.includes(Number(row.id)))) {
     const archive = (withReason) => supabase.from("patients")
       .update({ status: "cancelled", completed_at: completedAt, ...(withReason ? { reason: archiveReason } : {}) })
       .eq("id", candidate.id).gte("created_at", start).lt("created_at", end)
@@ -1999,10 +2202,10 @@ async function getFilteredPatients({ status = "", service = "", doctor = "", ...
   }
   if (selectedDoctor) patients = patients.filter((patient) => {
     // Stored ownership wins for historical visits. Older unassigned rows use
-    // the established service mapping; aliases resolve against real counters.
+    // the established service mapping (none in shared dispatch); aliases resolve against real counters.
     const assignment = patient.counter_id != null && String(patient.counter_id).trim()
       ? resolveDoctorCounter(patient.counter_id, counters)?.id_num
-      : getDoctorForService(patient.service_type);
+      : getRoutedDoctor(patient.service_type);
     return assignment === selectedDoctor.id_num;
   });
   return patients.sort(comparePatientCreation).map(parsePatientPriority);
@@ -2130,15 +2333,10 @@ async function getDisplayData() {
     return toPublicServingEntry(patient, assignedCounter);
   });
 
+  // FRD-02: Weighted-Priority order (priority score DESC, then check-in time ASC; WPS-A aging when enabled)
   const waitingQueue = patients
     .filter((patient) => patient.status === "waiting")
-    .sort((a, b) => {
-      // FRD-02: Sort by priority score DESC, then by check-in time ASC
-      if ((b.priority_score || 0) !== (a.priority_score || 0)) {
-        return (b.priority_score || 0) - (a.priority_score || 0);
-      }
-      return new Date(a.created_at) - new Date(b.created_at);
-    });
+    .sort(compareWaitingPriority(Date.now()));
   const nextInLine = waitingQueue[0] || null;
   const waitingQueueSlice = waitingQueue.slice(0, 10);
   const recentCalled = patients
@@ -2210,6 +2408,7 @@ async function getDisplayData() {
   return {
     settings: toPublicDisplaySettings(settings),
     storage_mode: getQueueStorageMode(),
+    dispatch_mode: getDispatchMode(),
     queue_settings: getQueueSettings(),
     voice_announcements: voiceAnnouncements,
     recent_accepted: recentAccepted,
@@ -2419,9 +2618,11 @@ async function loadCounterAliases(rows) {
   }
 }
 
+// The treating doctor stored on the visit. Without one, the service's routed doctor, or
+// "Unassigned" in shared dispatch (the visit was never called by any doctor).
 function getVisitDoctor(row, counterAliases) {
   const raw = row.counter_id == null ? "" : String(row.counter_id).trim();
-  if (!raw) return getDoctorForService(row.service_type);
+  if (!raw) return getRoutedDoctor(row.service_type) || UNASSIGNED_DOCTOR;
   const named = raw.match(/^doctor\s*(\d+)$/i);
   if (named) return `Doctor ${Number(named[1])}`;
   return resolveDoctorCounter(raw, counterAliases)?.id_num || raw;
@@ -2547,6 +2748,17 @@ async function renameServiceType(oldValue, newValue) {
   }
 }
 
+// Only the account's own password matches: there is no shared fallback password. Seeded
+// accounts may still store plaintext (legacy); those compare in constant time until they are
+// re-hashed (see docs). New and changed passwords are always stored as bcrypt hashes.
+async function passwordMatches(password, stored) {
+  if (typeof password !== "string" || typeof stored !== "string" || !stored) return false;
+  if (/^\$2[aby]\$/.test(stored)) return bcrypt.compare(password, stored);
+  const given = createHash("sha256").update(password).digest();
+  const expected = createHash("sha256").update(stored).digest();
+  return timingSafeEqual(given, expected);
+}
+
 async function loginUser(id_num, password) {
   console.log("Login attempt for id_num:", id_num);
   
@@ -2556,12 +2768,7 @@ async function loginUser(id_num, password) {
       throw new Error("Invalid username or password");
     }
     
-    // Accept both the specified password and admin123 for backward compatibility
-    let isMatch = password === user.password;
-    if (!isMatch && id_num.startsWith("admin")) {
-      isMatch = password === "admin123";
-    }
-    if (!isMatch) {
+    if (!(await passwordMatches(password, user.password))) {
       throw new Error("Invalid username or password");
     }
     
@@ -2598,21 +2805,7 @@ async function loginUser(id_num, password) {
 
     console.log("User data retrieved from DB (excluding password):", { id_num: data.id_num, role: data.role, doctor_name: data.doctor_name });
 
-    // Support both plain text (for initial seeding) and hashed passwords, plus admin123 for backward compatibility
-    let isMatch = false;
-    if (data.password && (data.password.startsWith("$2a$") || data.password.startsWith("$2b$"))) {
-      isMatch = await bcrypt.compare(password, data.password);
-      // If not a match, try admin123 for admin users for backward compatibility
-      if (!isMatch && id_num.startsWith("admin")) {
-        isMatch = password === "admin123";
-      }
-    } else {
-      isMatch = password === data.password;
-      // If not a match, try admin123 for admin users for backward compatibility
-      if (!isMatch && id_num.startsWith("admin")) {
-        isMatch = password === "admin123";
-      }
-    }
+    const isMatch = await passwordMatches(password, data.password);
 
     console.log("Password comparison result (isMatch):", isMatch);
 
@@ -2665,7 +2858,42 @@ async function getUsers() {
   }
 }
 
+const STAFF_ROLES = ["admin", "superadmin"];
+const MIN_PASSWORD_LENGTH = 8;
+
+function accountError(message) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+function validateAccountInput({ id_num, password, role }, { creating }) {
+  if (creating && (typeof id_num !== "string" || !id_num.trim() || id_num.length > 100)) {
+    throw accountError("A user ID of up to 100 characters is required.");
+  }
+  if ((creating || role !== undefined) && !STAFF_ROLES.includes(role)) {
+    throw accountError("Role must be Doctor/Frontdesk (admin) or Superadmin.");
+  }
+  if ((creating || password) && (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH)) {
+    throw accountError(`Passwords must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  }
+}
+
+// Never leave the clinic without a Superadmin: the last one cannot be deleted or demoted.
+async function assertNotLastSuperadmin(id_num) {
+  const users = useLocalFallback ? localData.users : await (async () => {
+    const { data, error } = await supabase.from("users").select("id_num, role").eq("role", "superadmin");
+    if (error) throw formatError(error, "Failed to check Superadmin accounts");
+    return data || [];
+  })();
+  const superadmins = users.filter((user) => user.role === "superadmin");
+  if (superadmins.length <= 1 && superadmins.some((user) => user.id_num === id_num)) {
+    throw accountError("This is the last Superadmin account. Create another Superadmin before removing or demoting it.");
+  }
+}
+
 async function createUser({ id_num, password, role, doctor_name }) {
+  validateAccountInput({ id_num, password, role }, { creating: true });
   if (useLocalFallback) {
     const existing = localData.users.find(u => u.id_num === id_num);
     if (existing) {
@@ -2709,6 +2937,8 @@ async function createUser({ id_num, password, role, doctor_name }) {
 }
 
 async function updateUser(id_num, { password, role, doctor_name }) {
+  validateAccountInput({ password, role }, { creating: false });
+  if (role !== undefined && role !== "superadmin") await assertNotLastSuperadmin(id_num);
   if (useLocalFallback) {
     const userIndex = localData.users.findIndex(u => u.id_num === id_num);
     if (userIndex === -1) {
@@ -2745,7 +2975,11 @@ async function updateUser(id_num, { password, role, doctor_name }) {
   return data;
 }
 
-async function deleteUser(id_num) {
+async function deleteUser(id_num, actor = null) {
+  if (actor?.id_num != null && actor.id_num === id_num) {
+    throw accountError("You cannot delete your own account while signed in with it.");
+  }
+  await assertNotLastSuperadmin(id_num);
   if (useLocalFallback) {
     const index = localData.users.findIndex(u => u.id_num === id_num);
     if (index !== -1) {
@@ -3010,6 +3244,8 @@ module.exports = {
   getPatientsForExport,
   getQueueOverview,
   getQueueStorageMode,
+  getDispatchMode,
+  getSharedQueueHead,
   getQueueStats,
   getTransactions,
   renameServiceType,

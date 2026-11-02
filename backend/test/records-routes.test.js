@@ -11,12 +11,12 @@ function load(file, imports, context = {}) {
 }
 const secret='phase-b-isolated-tests';
 const okResult={data:{rows:[],total:0,page:1,limit:20,observed_at:'2026-10-23T00:00:00Z'}};
-function harness(rpc=async()=>okResult) {
+function harness(rpc=async()=>okResult, doctorDispatchMode) {
  const auth=load('src/middleware/auth.js',{jsonwebtoken:jwt,'../config/env':{jwtSecret:secret},'../services/presenceService':{validateAuthSession:async claims=>{if(claims.jti==='revoked') throw Object.assign(Error('Revoked'),{statusCode:401});return {};}}});
  let chain, calls=[], logs=[];
  const router={use:(...handlers)=>chain=handlers,get:(_path,handler)=>chain.push(handler)};
  const console={warn:(...args)=>logs.push(['warn',...args]),error:(...args)=>logs.push(['error',...args])};
- load('src/routes/records.js',{express:{Router:()=>router},'../middleware/auth':auth,'../lib/supabase':{rpc:async(name,args)=>{calls.push({name,args});return rpc(name,args);}}},{console});
+ load('src/routes/records.js',{express:{Router:()=>router},'../middleware/auth':auth,'../config/env':{doctorDispatchMode},'../lib/supabase':{rpc:async(name,args)=>{calls.push({name,args});return rpc(name,args);}}},{console});
  return {calls,logs,async request(role,query={},category='patients',session='valid') {
  const token=role?jwt.sign({role,id_num:'safe-test',jti:session},secret):null;
  const req={headers:token?{authorization:`Bearer ${token}`}:{},params:{category},query};
@@ -96,4 +96,38 @@ test('transport failures, malformed codes and unexpected results are 503 and log
   assert.equal(res.code,503,JSON.stringify(data));assert.match(res.body.message,/unexpected result/);
   assert.deepEqual(h.logs,[['error','[records] GET /api/records/patients failed: invalid-result']]);
  }
+});
+test('D1 shared dispatch reports a never-called visit as unassigned; stored doctors are unchanged',async()=>{
+ const rows=[{id:1,service_type:'prenatal',doctor:'Doctor 2',doctor_source:'service'},{id:2,service_type:'prenatal',doctor:'Doctor 3',doctor_source:'assigned'},{id:3,service_type:'consultation',doctor:'Doctor 9',doctor_source:'unresolved'}];
+ const result=()=>({data:{rows:rows.map((row)=>({...row})),total:3,page:1,limit:20}});
+ const shared=await harness(async()=>result(),'shared').request('superadmin');
+ assert.equal(shared.code,200);
+ assert.deepEqual(shared.body.rows.map(({doctor,doctor_source})=>[doctor,doctor_source]),[[null,'unassigned'],['Doctor 3','assigned'],['Doctor 9','unresolved']]);
+ const service=await harness(async()=>result()).request('superadmin');
+ assert.deepEqual(service.body.rows,rows,'service mode keeps the Phase B.2 routing label');
+ const staff=await harness(async()=>({data:{rows:[{id_num:'admin2',doctor:'Doctor 2',doctor_source:'service'}],total:1}}),'shared').request('superadmin',{},'staff');
+ assert.equal(staff.body.rows[0].doctor_source,'service','only patient visits are relabelled');
+});
+test('D1 shared dispatch asks D1-R for shared attribution and falls back once when Phase B.2 refuses the key',async()=>{
+ // The harness does not await the handler behind the auth middleware; let the retry finish.
+ const settle=()=>new Promise(resolve=>setTimeout(resolve,20));
+ const rows=[{id:1,doctor:'Doctor 2',doctor_source:'service'}];
+ const d1r=harness(async(_name,args)=>({data:{rows:args.p_filters.dispatch==='shared'?[{id:1,doctor:null,doctor_source:'unassigned'}]:rows,total:1}}),'shared');
+ let res=await d1r.request('superadmin',{doctor:'Doctor 2'});await settle();
+ assert.equal(res.code,200);
+ assert.deepEqual(JSON.parse(JSON.stringify(d1r.calls.map(c=>c.args.p_filters))),[{...Object.fromEntries(['search','status','service','doctor','date','role','presence','account','visit','position'].map(k=>[k,k==='doctor'?'Doctor 2':''])),dispatch:'shared'}]);
+ assert.equal(res.body.rows[0].doctor_source,'unassigned');
+ const b2=harness(async(_name,args)=>args.p_filters.dispatch?{error:{code:'22023'}}:{data:{rows:rows.map(r=>({...r})),total:1}},'shared');
+ res=await b2.request('superadmin');await settle();
+ assert.equal(res.code,200);
+ assert.deepEqual(b2.calls.map(c=>'dispatch' in c.args.p_filters),[true,false],'retried once without the key');
+ assert.deepEqual([res.body.rows[0].doctor,res.body.rows[0].doctor_source],[null,'unassigned'],'relabelled by the route');
+ const invalid=harness(async()=>({error:{code:'22023'}}),'shared');
+ res=await invalid.request('superadmin',{doctor:'Doctor 9'});await settle();
+ assert.equal(res.code,400);assert.equal(invalid.calls.length,2);
+ const service=harness();
+ await service.request('superadmin');await service.request('superadmin',{},'staff');
+ assert.ok(service.calls.every(c=>!('dispatch' in c.args.p_filters)),'service mode never sends the key');
+ const staff=harness(async()=>okResult,'shared');await staff.request('superadmin',{},'staff');
+ assert.ok(!('dispatch' in staff.calls[0].args.p_filters),'only patient records carry it');
 });

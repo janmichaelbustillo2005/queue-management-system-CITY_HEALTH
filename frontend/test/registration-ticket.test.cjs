@@ -266,3 +266,23 @@ test("existing required controls have associated labels and unavailable doctor s
   assert.equal(h.calls.filter(call => call.method === "POST").length, 0);
   assert.match(text(h.render()), /Doctor 2 is currently offline/);
 });
+
+test("D1 shared dispatch: the redesigned snapshot counts the whole shared queue and promises no doctor", async () => {
+  const rows = [
+    { ...savedPatient, id: 3, queue_number: "OB-003", priority_score: 2, created_at: "2026-10-13T01:00:00Z" },
+    { ...savedPatient, id: 4, queue_number: "GP-001", service_type: "consultation", priority_score: 4 },
+    { ...savedPatient, id: 6, queue_number: "FP-001", service_type: "family_planning", priority_score: 1, effective_priority: 3, created_at: "2026-10-13T02:00:00Z" },
+    savedPatient
+  ];
+  const h = harness({ request: route => route === "/queue" ? { dispatch_mode: "shared", patients: rows }
+    : route === "/display" ? { dispatch_mode: "shared", counters: [{ id_num: "Doctor 2", is_online: false }, { id_num: "Doctor 3", is_online: true }] } : undefined });
+  h.fill(); await h.submit();
+  const shown = text(h.render());
+  assert.match(shown, /Patient registered successfully\./, "Doctor 2 offline does not block a prenatal registration");
+  // Only the Senior consultation is ahead: the aged family-planning visit (1 + 2 = 3) ties with this
+  // Pregnant patient (3), and the higher base priority wins the tie; the Indigenous visit (2) is behind.
+  assert.match(shown, /1 waiting patient ahead/);
+  assert.match(shown, /in the shared queue when this patient was registered/);
+  assert.doesNotMatch(shown, /Doctor 2's queue/);
+  assert.equal(nodes(h.render(), node => node.type === "DigitalQueuePass")[0].props.ticket.doctorName, "Next available doctor");
+});

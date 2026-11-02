@@ -503,6 +503,9 @@ describe("W1 cancel_patient_visit with C1 and F5 on real PostgreSQL (independent
     test("a Cancel backend terminated while waiting, and a failure after its writes, leave patient and counters unchanged", async () => {
       const { A } = sessions;
       const victim = await connect("victim");
+      // The termination below is intended. pg reports it as a client 'error' event, which without a
+      // listener is thrown as unhandled and can fail the test under load before `pending` settles.
+      victim.client.on("error", () => {});
       try {
         const before = await state();
         await A.client.query("BEGIN");

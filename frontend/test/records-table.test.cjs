@@ -292,3 +292,15 @@ test("the stylesheet bounds scrolling to the table, stacks the footer on phones 
   assert.match(cssSource, /:focus-visible/);
   assert.match(cssSource, /prefers-reduced-motion/);
 });
+
+test("D1 shared dispatch: a never-called visit reads as unassigned, separate from its service", () => {
+  const view = render("Patient Records", patientColumns, [
+    { id: 3, patient_name: "Synthetic Shared", queue_number: "OB-003", service_type: "prenatal", doctor: null, doctor_source: "unassigned",
+      priority_score: 1, status: "cancelled", created_at: at, called_at: null, consultation_started_at: null, completed_at: at },
+    { id: 4, patient_name: "Synthetic Treated", queue_number: "OB-004", service_type: "prenatal", doctor: "Doctor 1", doctor_source: "assigned",
+      priority_score: 1, status: "completed", created_at: at, called_at: at, consultation_started_at: at, completed_at: at }
+  ]);
+  const [uncalled, treated] = view.rows;
+  assert.deepEqual(plain(view.cellsOf(uncalled).slice(2, 4)), ["Prenatal", "Unassigned (not called)"]);
+  assert.deepEqual(plain(view.cellsOf(treated).slice(2, 4)), ["Prenatal", "Doctor 1"], "the treating doctor, not the service doctor");
+});

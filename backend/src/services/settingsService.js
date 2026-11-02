@@ -159,8 +159,15 @@ function markAwaitingAccept(patientId) {
   persistAcceptState();
 }
 
-function markAccepted(patientId) {
-  const acceptedAt = new Date().toISOString();
+/**
+ * `calledAt` is the accepted call's called_at, written by the database clock. Acceptance is
+ * recorded no earlier than 1 ms after it, so a backend clock running behind the database cannot
+ * make a valid acceptance look older than the call it accepts (Start requires accepted >= called,
+ * and called_at may carry microseconds).
+ */
+function markAccepted(patientId, calledAt = null) {
+  const calledMs = Date.parse(calledAt);
+  const acceptedAt = new Date(Number.isFinite(calledMs) ? Math.max(Date.now(), calledMs + 1) : Date.now()).toISOString();
   loadAcceptState().set(Number(patientId), { awaiting: false, acceptedAt });
   persistAcceptState();
   return acceptedAt;

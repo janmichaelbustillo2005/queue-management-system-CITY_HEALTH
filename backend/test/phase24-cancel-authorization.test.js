@@ -564,7 +564,7 @@ function routeHarness() {
   const cleared = [];
   loadSource("routes/index.js", {
     express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto, "../config/env": { jwtSecret: secret },
-    "../middleware/auth": auth, "../lib/businessDay": require("../src/lib/businessDay"), "../services/presenceService": presence,
+    "../middleware/auth": auth, "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"), "../services/presenceService": presence,
     "../services/queueService": {
       cancelPatient: async (...args) => { cancelCalls.push(args); return { id: args[0], status: "cancelled" }; }
     },

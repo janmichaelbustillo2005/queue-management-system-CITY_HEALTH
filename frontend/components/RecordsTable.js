@@ -43,6 +43,8 @@ export function recordCell(row, key) {
   // Patients: a stored assignment, or the doctor the service routes to before one is stored.
   if (key === "doctor" && row.doctor_source === "service") return value ? `${value} (by service)` : muted("Not assigned");
   if (key === "doctor" && row.doctor_source === "unresolved") return `${value} (no matching counter)`;
+  // D1 shared dispatch: a visit nobody has called has no treating doctor yet.
+  if (key === "doctor" && row.doctor_source === "unassigned") return muted("Unassigned (not called)");
   if (TIME_KEYS.includes(key)) return value ? <time dateTime={value}>{stamp(value)}</time> : muted("Unavailable");
   if (key === "online") return value ? indicator("green", "fas fa-circle", "Online") : indicator("gray", "far fa-circle", "Offline");
   if (key === "authenticated") return value ? indicator("teal", "fas fa-key", "Active session") : indicator("neutral", "far fa-circle", "No active session");

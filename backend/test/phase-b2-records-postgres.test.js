@@ -131,7 +131,7 @@ function backendFor(db) {
   let chain;
   const logs = [];
   const router = { use: (...handlers) => { chain = handlers; }, get: (_path, handler) => chain.push(handler) };
-  loadModule("src/routes/records.js", { express: { Router: () => router }, "../middleware/auth": auth, "../lib/supabase": supabase },
+  loadModule("src/routes/records.js", { express: { Router: () => router }, "../middleware/auth": auth, "../config/env": {}, "../lib/supabase": supabase },
     { console: { warn: (...args) => logs.push(args.join(" ")), error: (...args) => logs.push(args.join(" ")) } });
   // Same steps as POST /auth/login after the password check (routes/index.js).
   async function login(idNum) {

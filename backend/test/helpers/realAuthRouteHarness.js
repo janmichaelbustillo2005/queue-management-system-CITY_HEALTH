@@ -91,7 +91,7 @@ function createRealAuthHarness(options = {}) {
   }
   load("routes/index.js", {
     express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto,
-    "../config/env": config, "../lib/businessDay": require("../../src/lib/businessDay"),
+    "../config/env": config, "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"),
     "../middleware/auth": auth, "../services/presenceService": presence,
     "../services/queueService": h.service, "../services/settingsService": h.settings
   });

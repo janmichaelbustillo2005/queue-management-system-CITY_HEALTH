@@ -436,9 +436,13 @@ function createHarness(options = {}) {
   if (options.rpc) supabase.rpc = options.rpc;
   const service = loadModule("src/services/queueService.js", {
     "../lib/supabase": supabase,
-    "../config/env": options.localFallback ? {} : { supabaseUrl: "https://isolated-test.invalid", supabaseServiceRoleKey: "isolated-test-key" },
+    // This fake database has no C1 unless a test sets callRpcInstalled, so it is the database
+    // ALLOW_LEGACY_TWO_STEP_CALL exists for. allowLegacyTwoStepCall: false models a deployment
+    // without the opt-in (I2 Finding 8: Call then refuses).
+    "../config/env": options.localFallback ? {} : { supabaseUrl: "https://isolated-test.invalid", supabaseServiceRoleKey: "isolated-test-key",
+      allowLegacyTwoStepCall: options.allowLegacyTwoStepCall ?? true },
     bcryptjs: {},
-    "../lib/businessDay": require("../../src/lib/businessDay"),
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"),
     "node:crypto": crypto,
     "./notificationService": {
       sendQueueCreatedNotification: (...args) => notifications.push({ type: "created", args }),
@@ -456,7 +460,7 @@ function createHarness(options = {}) {
     jsonwebtoken: {},
     "node:crypto": crypto,
     "../config/env": {},
-    "../lib/businessDay": require("../../src/lib/businessDay"),
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"),
     "../middleware/auth": {
       // Requests provide an already verified identity. JWT cryptography itself
       // is outside this isolated route/service harness.

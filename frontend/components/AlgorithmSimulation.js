@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./AlgorithmSimulation.module.css";
 import {
-  ALGORITHM_IDS, ALGORITHM_INFO, AGING_MAX_BONUS, AGING_STEP_MINUTES, DEFAULT_SCENARIO, DEFAULT_SEED, DEFAULT_SPEED, MODES,
-  SCENARIO_LABELS, SCENARIO_OPTIONS, SLIDER_STEP, SPEEDS, advance, buildRun, classLabels, clock, comparisonRows, formatDuration,
-  formatMinutes, formatPercent, nextEventTime, nextHighlight, parseSeed, recentEvents, sliderTime, snapshotAt, visibleAlgorithms
+  ALGORITHM_IDS, ALGORITHM_INFO, AGING_MAX_BONUS, AGING_STEP_MINUTES, CAP_MINUTES, CRITERIA, DEFAULT_COUNT, DEFAULT_SCENARIO, DEFAULT_SEED,
+  DEFAULT_SPEED, GROUP_LABELS, MAX_COUNT, MIN_COUNT, MODES, SCENARIO_LABELS, SCENARIO_OPTIONS, SLIDER_STEP, SPEEDS, STARVATION_MIN_CALLS,
+  STARVATION_WINDOW, advance, buildRun, classLabels, clock, comparisonRows, formatDuration, formatMinutes, formatPercent, formatValue,
+  nextEventTime, nextHighlight, parseCount, parseSeed, recentEvents, scenarioOption, sliderTime, snapshotAt, visibleAlgorithms
 } from "../lib/algorithmSimulation";
 
 const COLORS = { "WPS-A": "#167d3f", WRR: "#2563eb" };
@@ -70,18 +71,37 @@ function WrrRotation({ decision, labels }) {
   </div>;
 }
 
+// WPS-A recalculates every waiting patient's effective priority at each call; these are the top rows.
+function RankingAtCall({ decision, byId }) {
+  return <div className={styles.tableWrap}>
+    <table className={`${styles.table} ${styles.compactTable}`}>
+      <caption className={styles.caption}>Ranking recalculated at {clock(decision.now)} when {decision.doctor} became available</caption>
+      <thead><tr><th scope="col">Position</th><th scope="col">Ticket</th><th scope="col">Registered</th><th scope="col">Base</th><th scope="col">Waited</th><th scope="col">Aging bonus</th><th scope="col">Effective</th></tr></thead>
+      <tbody>{decision.rankingDetail.map(r => <tr key={r.id} className={r.id === decision.patientId ? styles.nextRow : undefined}>
+        <td>#{r.position}</td><td className={styles.ticket}><Dot group={byId[r.id].group}/>{byId[r.id].ticket} {byId[r.id].category}</td>
+        <td>{clock(byId[r.id].arrival)}</td><td>{r.base}</td><td>{formatDuration(r.waited)}</td><td>+{r.bonus}</td><td><strong>{r.effective}</strong></td>
+      </tr>)}</tbody>
+    </table>
+  </div>;
+}
+
 function DecisionExplanation({ decision, timeline }) {
+  const byId = useMemo(() => Object.fromEntries(timeline.patients.map(p => [p.id, p])), [timeline]);
   if (!decision) return <div className={styles.explanation}><h4>Why this patient?</h4><p className={styles.small}>No call yet. A doctor calls as soon as they are free and a patient has registered.</p></div>;
-  const p = timeline.patients.find(x => x.id === decision.patientId);
+  const p = byId[decision.patientId];
   return <div className={styles.explanation}>
     <h4>Why this patient?</h4>
     <p className={styles.decisionHead}>
       <strong>{clock(decision.now)}</strong> — {decision.doctor} called <strong><Dot group={p.group}/>{p.ticket} {p.category}</strong>
+      <span className={styles.muted}>registered {clock(p.arrival)} · waited {formatDuration(decision.wait)}</span>
+      {decision.turn ? <span className={styles.badge} data-tone="blue">WRR turn {decision.turn.number}: class w{decision.turn.weight}, call {decision.turn.call} of {decision.turn.of}</span> : null}
       {decision.agingOvertake ? <span className={styles.badge} data-tone="gold">Aging changed this call</span> : null}
       {timeline.algorithm === "WRR" && decision.lowerScoreFirst ? <span className={styles.badge} data-tone="blue">Lower class&apos;s turn</span> : null}
       {decision.regularOverProtected ? <span className={styles.badge} data-tone="red">Priority-lane violation</span> : null}
+      {decision.overtakenRegular ? <span className={styles.badge} data-tone="gold">Bypassed {decision.overtakenRegular} earlier Regular</span> : null}
     </p>
     <ul>{decision.reason.map((line, i) => <li key={i}>{line}</li>)}</ul>
+    {decision.rankingDetail ? <RankingAtCall decision={decision} byId={byId}/> : null}
   </div>;
 }
 
@@ -103,7 +123,7 @@ function WaitingQueue({ algorithm, waiting, compact }) {
           {rows.map(p => <tr key={p.id} className={aging && p.order === 1 ? styles.nextRow : undefined}>
             <td>{aging ? `#${p.order}` : `w${p.base}`}</td>
             <td className={styles.ticket}>{p.ticket}</td>
-            <td title={clock(p.arrival)}>{compact ? clock(p.arrival).slice(0, 5) : clock(p.arrival)}</td>
+            <td>{clock(p.arrival)}</td>
             <td><Dot group={p.group}/>{p.category}</td>
             <td>{p.base}</td>
             <td>{aging ? <span key={`${p.id}-${p.bonus}`} className={styles.bonus} data-bonus={p.bonus}>+{p.bonus}</span> : <span className={styles.muted} title="WRR does not use Aging">n/a</span>}</td>
@@ -177,6 +197,8 @@ function QueueChart({ run, t }) {
         <path d={path(run.series[a], run.end)} fill="none" stroke={COLORS[a]} strokeOpacity="0.18" strokeWidth="2"/>
         <path d={path(run.series[a], t)} fill="none" stroke={COLORS[a]} strokeWidth="2.5" strokeDasharray={a === "WRR" ? "6 4" : undefined}/>
       </g>)}
+      <line x1={x(run.cutoff)} x2={x(run.cutoff)} y1={T} y2={H - B} className={styles.cutoff}/>
+      <text x={x(run.cutoff) - 4} y={T + 10} textAnchor="end" className={styles.axis}>registrations stop</text>
       <line x1={x(t)} x2={x(t)} y1={T} y2={H - B} className={styles.cursor}/>
     </svg>
     <div className={styles.legend}>{ALGORITHM_IDS.map(a => <span key={a}><i style={{ background: COLORS[a] }}/>{a}</span>)}</div>
@@ -226,16 +248,89 @@ function Comparison({ run, snapshots, t }) {
   </section>;
 }
 
+// Results once both algorithms have finished the same workload, computed from their simulated
+// events (experiments.js), with the findings and the criteria they are judged by.
+function FinalResults({ run, finished, onFinish }) {
+  const { analysis } = run;
+  if (!finished) return <section className={styles.panel} aria-labelledby="sim-final">
+    <h3 id="sim-final" className={styles.sectionTitle}>Results after the same workload finishes</h3>
+    <p className={styles.small}>The results and findings appear when both algorithms have seen every synthetic patient. Press Start and let the day run, or skip ahead.</p>
+    <button type="button" className={styles.modeButton} onClick={onFinish}><i className="fas fa-flag-checkered" aria-hidden="true"/>Show final results</button>
+  </section>;
+  const [A, B] = ALGORITHM_IDS;
+  const groups = Object.keys(analysis.metrics[A].byGroup);
+  const { profile, ordering } = analysis;
+  const stats = (m, g) => m.byGroup[g];
+  return <section className={styles.panel} aria-labelledby="sim-final">
+    <h3 id="sim-final" className={styles.sectionTitle}>Results after the same workload finished — {SCENARIO_LABELS[run.scenario]}, {run.count} patients, seed {run.seed}</h3>
+    <p className={styles.small}>
+      Registrations {clock(0)}–{clock(profile.lastArrival)} · mean consultation {formatMinutes(profile.meanConsultation)} · three doctors can see about {profile.capacityPerHour.toFixed(1)} patients per hour.
+      {profile.overloadedHours.length ? ` Registrations exceeded that capacity in ${profile.overloadedHours.length} hour(s) (from ${profile.overloadedHours.map(h => clock(h * 60).slice(0, 5)).join(", ")}).` : " Registrations never exceeded that capacity in any hour."}
+    </p>
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
+        <thead><tr><th scope="col">Measure</th>{ALGORITHM_IDS.map(a => <th key={a} scope="col">{a}</th>)}<th scope="col">Better</th></tr></thead>
+        <tbody>{analysis.rows.map(row => <tr key={row.key}>
+          <th scope="row">{row.label}</th>
+          {row.shown.map((value, i) => <td key={i} className={row.better === ALGORITHM_IDS[i] ? styles.better : undefined}>{value}</td>)}
+          <td>{row.lowerIsBetter == null ? <span className={styles.muted}>n/a</span> : row.better || "tie"}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <h4 className={styles.subTitle}>Waiting time by classification</h4>
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
+        <thead><tr><th scope="col">Classification</th><th scope="col">Patients</th>
+          {["Average", "95th percentile", "Maximum"].flatMap(m => ALGORITHM_IDS.map(a => <th key={`${m}-${a}`} scope="col">{m} · {a}</th>))}</tr></thead>
+        <tbody>{groups.map(g => <tr key={g}>
+          <th scope="row"><Dot group={g}/>{GROUP_LABELS[g]}</th><td>{stats(analysis.metrics[A], g).n}</td>
+          {["avg", "p95", "max"].flatMap(k => ALGORITHM_IDS.map(a => <td key={`${k}-${a}`}>{formatMinutes(stats(analysis.metrics[a], g)[k])}</td>))}
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <p className={styles.small}>
+      Call order: {ordering.sameOrder ? "both algorithms called every patient in the same order." : `${ordering.positionsChanged} of ${run.count} patients were called at a different position (mean shift ${ordering.meanShift.toFixed(1)} places).`}
+      {" "}Pairs in which a Regular who registered later was called before a Vulnerable patient: {A} {ordering.laterRegularAheadOfVulnerable[A]}, {B} {ordering.laterRegularAheadOfVulnerable[B]}.
+      {" "}Still waiting when registrations stopped ({clock(analysis.metrics[A].cutoff)}): {ALGORITHM_IDS.map(a => `${a} ${analysis.metrics[a].stillWaitingAtCutoff.regular} Regular / ${analysis.metrics[a].stillWaitingAtCutoff.vulnerable} Vulnerable`).join("; ")} — still waiting is not starvation: everyone was served as the queue drained.
+      {" "}Starvation evidence means still waiting then, after {STARVATION_WINDOW} minutes in which every call (at least {STARVATION_MIN_CALLS}) went to a later registration: {ALGORITHM_IDS.map(a => `${a} ${analysis.metrics[a].starvation.regular.length ? analysis.metrics[a].starvation.regular.join(", ") : "none"}`).join("; ")}.
+    </p>
+    <h4 className={styles.subTitle}>Findings for this run</h4>
+    <ul className={styles.findings}>{analysis.findings.lines.map((line, i) => <li key={i}>{line}</li>)}</ul>
+    <h4 className={styles.subTitle}>Evaluation criteria (no overall winner is declared)</h4>
+    <div className={styles.tableWrap}>
+      <table className={styles.table}>
+        <thead><tr><th scope="col">Importance</th><th scope="col">Criterion</th><th scope="col">Measures won ({A} / {B})</th><th scope="col">Leans</th></tr></thead>
+        <tbody>{analysis.findings.criteria.map(c => <tr key={c.id}>
+          <td>{c.importance}</td><th scope="row">{c.label}<div className={styles.muted}>{c.why}</div></th>
+          <td>{c.wins[A]} / {c.wins[B]}</td><td>{c.leader || "even"}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <p className={styles.small}>The two Primary criteria pull in opposite directions; which algorithm is preferable depends on the weight the City Health Office gives each. WPS-A&apos;s Aging cap stops the bonus at +{AGING_MAX_BONUS} after {CAP_MINUTES} minutes. Values describe one synthetic workload; see docs/research for the 30-seed results.</p>
+  </section>;
+}
+
+function ScenarioPicker({ scenario, onPick }) {
+  return <div className={styles.scenarios} role="group" aria-label="Experiment scenario">
+    {SCENARIO_OPTIONS.map(s => <button key={s.value} type="button" aria-pressed={scenario === s.value} className={styles.scenarioButton} onClick={() => onPick(s.value)}>
+      <strong>{s.label}</strong><span>{s.short}</span>
+    </button>)}
+  </div>;
+}
+
 export default function AlgorithmSimulation() {
   const [mode, setMode] = useState("compare");
   const [scenario, setScenario] = useState(DEFAULT_SCENARIO);
   const [seed, setSeed] = useState(DEFAULT_SEED);
   const [seedDraft, setSeedDraft] = useState(String(DEFAULT_SEED));
   const [seedError, setSeedError] = useState("");
+  const [count, setCount] = useState(DEFAULT_COUNT);
+  const [countDraft, setCountDraft] = useState(String(DEFAULT_COUNT));
   const [t, setT] = useState(0);
   const [running, setRunning] = useState(false);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
-  const run = useMemo(() => buildRun(scenario, seed), [scenario, seed]);
+  const run = useMemo(() => buildRun(scenario, seed, count), [scenario, seed, count]);
+  const fixedCount = scenarioOption(scenario)?.fixedCount;
   const algorithms = visibleAlgorithms(mode);
   const end = mode === "compare" ? run.end : run.timelines[mode].end;
   const snapshots = useMemo(() => Object.fromEntries(ALGORITHM_IDS.map(a => [a, snapshotAt(run.timelines[a], t)])), [run, t]);
@@ -267,10 +362,12 @@ export default function AlgorithmSimulation() {
     if (next != null) { setRunning(false); setT(next); }
   };
   const loadScenario = value => { setRunning(false); setT(0); setScenario(value); };
-  const applySeed = () => {
+  const applyWorkload = () => {
     const value = parseSeed(seedDraft);
-    if (value == null) { setSeedError("Enter a whole number (up to 9 digits)."); return; }
-    setSeedError(""); setRunning(false); setT(0); setSeed(value);
+    const patients = fixedCount ? count : parseCount(countDraft);
+    if (value == null) { setSeedError("Enter a whole number (up to 9 digits) for the seed."); return; }
+    if (patients == null) { setSeedError(`Enter a whole number of patients from ${MIN_COUNT} to ${MAX_COUNT}.`); return; }
+    setSeedError(""); setRunning(false); setT(0); setSeed(value); setCount(patients);
   };
 
   // Keyboard for the projector: Space start/pause, Right arrow next step, R reset.
@@ -288,13 +385,13 @@ export default function AlgorithmSimulation() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const description = SCENARIO_OPTIONS.find(s => s.value === scenario)?.description;
+  const description = scenarioOption(scenario)?.description;
   return <div className={styles.simulation}>
     <SimulationBanner/>
     <section className={styles.intro}>
       <div className={styles.introText}>
         <h2>Algorithm Simulation</h2>
-        <p>How WPS-A and WRR choose the next synthetic patient for three virtual general doctors sharing one queue. Both algorithms receive the same seeded patients, registration times, consultation lengths and doctors; only the choice of the next patient differs.</p>
+        <p>How WPS-A and WRR behave when Regular patients outnumber Vulnerable patients (Scenario A) and the reverse (Scenario B), for three virtual general doctors sharing one queue. Both algorithms receive the same seeded patients, registration times, consultation lengths and doctors; only the choice of the next patient differs. Vulnerable means an approved priority classification (Senior, PWD, Pregnant, Indigenous, Solo Parent), not clinical urgency.</p>
       </div>
       <div className={styles.modes} role="group" aria-label="Simulation mode">
         {MODES.map(m => <button key={m.id} type="button" aria-pressed={mode === m.id} className={styles.modeButton} onClick={() => setMode(m.id)}>
@@ -321,17 +418,18 @@ export default function AlgorithmSimulation() {
       </div>
       <input type="range" className={styles.scrubber} min={0} max={end} step={SLIDER_STEP} value={Math.min(t, end)}
         aria-label="Simulated time" aria-valuetext={clock(t)} onChange={e => { setRunning(false); setT(sliderTime(Number(e.target.value), end)); }}/>
+      <ScenarioPicker scenario={scenario} onPick={loadScenario}/>
       <div className={styles.setup}>
-        <label>Scenario
-          <select value={scenario} onChange={e => loadScenario(e.target.value)}>
-            {SCENARIO_OPTIONS.map(s => <option key={s.value} value={s.value}>{SCENARIO_LABELS[s.value] || s.value}</option>)}
-          </select>
+        <label>Patients
+          <input value={fixedCount ? String(fixedCount) : countDraft} inputMode="numeric" name="count" disabled={Boolean(fixedCount)}
+            title={fixedCount ? "The controlled case has a fixed set of patients" : `${MIN_COUNT}–${MAX_COUNT}`}
+            onChange={e => setCountDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter") applyWorkload(); }}/>
         </label>
         <label>Seed
-          <input value={seedDraft} inputMode="numeric" onChange={e => setSeedDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter") applySeed(); }}
+          <input value={seedDraft} inputMode="numeric" name="seed" onChange={e => setSeedDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter") applyWorkload(); }}
             aria-invalid={seedError ? "true" : undefined}/>
         </label>
-        <button type="button" onClick={applySeed}><i className="fas fa-seedling" aria-hidden="true"/>Load seed</button>
+        <button type="button" onClick={applyWorkload}><i className="fas fa-seedling" aria-hidden="true"/>Load workload</button>
         {algorithms.includes("WPS-A") ? <button type="button" onClick={() => jump("WPS-A")} disabled={nextHighlight(run.highlights["WPS-A"], t) == null}>
           <i className="fas fa-hourglass-half" aria-hidden="true"/>Next Aging overtake</button> : null}
         {algorithms.includes("WRR") ? <button type="button" onClick={() => jump("WRR")} disabled={nextHighlight(run.highlights.WRR, t) == null}>
@@ -339,7 +437,7 @@ export default function AlgorithmSimulation() {
       </div>
       {seedError ? <p role="alert" className={styles.error}>{seedError}</p> : null}
       <p className={styles.small}>
-        {SCENARIO_LABELS[scenario]}: {description}. Seed {seed}: {run.timelines["WPS-A"].patients.length} synthetic patients, identical for WPS-A and WRR.
+        {SCENARIO_LABELS[scenario]}: {description}. Seed {seed}{fixedCount ? " (not used: nothing in the controlled case is random)" : ""}: {run.count} synthetic patients, identical for WPS-A and WRR.
         Keyboard: Space start/pause · → next step · R reset.
       </p>
     </section>
@@ -353,7 +451,8 @@ export default function AlgorithmSimulation() {
       <AlgorithmPanel algorithm={mode} timeline={run.timelines[mode]} snapshot={snapshots[mode]}/>
       <EventLog timeline={run.timelines[mode]} t={t}/>
     </div>}
+    <FinalResults run={run} finished={atEnd} onFinish={() => { setRunning(false); setT(end); }}/>
 
-    <p className={styles.footerNote}><i className="fas fa-flask" aria-hidden="true"/> Simulation Mode — Synthetic Data Only. Generated in this browser by the research simulator (backend/simulation, shared queue with three general doctors); WRR is a research baseline that the live queue never uses. Method: docs/research/scheduling-simulation-methodology.md.</p>
+    <p className={styles.footerNote}><i className="fas fa-flask" aria-hidden="true"/> Simulation Mode — Synthetic Data Only. Generated in this browser by the research simulator (backend/simulation, shared queue with three general doctors); WRR is a research baseline that the live queue never uses. Both algorithms use the same dispatch mode, so no difference here comes from sharing the queue. Method: docs/research/regular-vulnerable-experiment-20261102.md.</p>
   </div>;
 }

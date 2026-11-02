@@ -144,6 +144,22 @@
 .grid { stroke: #e2e8f0; stroke-width: 1; }
 .axis { fill: #5f6b64; font-size: 11px; }
 .cursor { stroke: var(--brand-gold); stroke-dasharray: 4 3; stroke-width: 1.5; }
+.cutoff { stroke: #94a3b8; stroke-dasharray: 2 3; stroke-width: 1; }
+
+.scenarios { display: grid; gap: 8px; grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.scenarioButton {
+  align-items: flex-start; background: #fff; border: 1px solid var(--brand-border); border-radius: 8px; color: var(--brand-text);
+  cursor: pointer; display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; text-align: left;
+}
+.scenarioButton strong { font-size: 13.5px; }
+.scenarioButton span { color: var(--brand-muted); font-size: 12px; }
+.scenarioButton[aria-pressed="true"] { background: var(--brand-forest); border-color: var(--brand-forest); color: #fff; }
+.scenarioButton[aria-pressed="true"] span { color: #e2f3e8; }
+.scenarioButton:focus-visible { outline: 3px solid var(--brand-gold-bright); outline-offset: 2px; }
+.caption { caption-side: top; color: var(--brand-muted); font-size: 12px; padding: 4px 6px; text-align: left; }
+.subTitle { font-size: 14px; font-weight: 700; margin: 14px 0 6px; }
+.findings { margin: 0; padding-left: 18px; }
+.findings li { font-size: 13px; line-height: 1.5; margin-bottom: 3px; }
 .legend { display: flex; flex-wrap: wrap; font-size: 12px; gap: 14px; }
 .legend i { border-radius: 2px; display: inline-block; height: 10px; margin-right: 5px; width: 18px; }
 

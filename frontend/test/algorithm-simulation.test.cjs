@@ -166,7 +166,7 @@ test("the page is labelled Simulation Mode — Synthetic Data Only and opens in 
   assert.match(all, /identical for WPS-A and WRR/);
   assert.equal(view.clock(), "08:00:00");
   const pressed = nodes(view.tree, (n) => n.type === "button" && n.props["aria-pressed"] === true).map((n) => text(n));
-  assert.deepEqual(pressed, ["Side-by-side comparison"]);
+  assert.deepEqual(pressed, ["Side-by-side comparison", "Scenario A — Regular-majorityA · 80% Regular / 20% Vulnerable"]);
   assert.deepEqual(nodes(view.tree, (n) => n.type === "h3" && /^(WPS-A|WRR) —/.test(text(n))).map(text),
     ["WPS-A — Weighted Priority Scheduling with Aging", "WRR — Weighted Round Robin (research baseline)"]);
   for (const label of ["Start", "Pause", "Next Step", "Reset"]) button(view.tree, label);
@@ -177,7 +177,7 @@ test("the page is labelled Simulation Mode — Synthetic Data Only and opens in 
 test("Next Step moves to the next arrival, call or completion; Reset returns to opening", () => {
   const view = mount();
   const { buildRun, nextEventTime, clock } = view.lib;
-  const run = buildRun("long-waits", 20261029);
+  const run = buildRun("regular-majority", 20261029, 100);
   const first = nextEventTime([run.timelines["WPS-A"], run.timelines.WRR], 0);
   view.click("Next Step");
   assert.equal(view.clock(), clock(first));
@@ -208,45 +208,113 @@ test("Start and Pause run the simulated clock at the chosen speed", () => {
   assert.equal(view.clock(), "08:32:00");
 });
 
-test("the Aging jump shows WPS-A calling an aged Regular and explains why", () => {
+// Scenario buttons are labelled "<title><short description>"; pick one by its title.
+function pickScenario(view, title) {
+  const found = nodes(view.tree, (n) => n.type === "button" && text(n).startsWith(title));
+  assert.equal(found.length, 1, `one "${title}" scenario`);
+  found[0].props.onClick();
+  return view.render();
+}
+const algorithmPanel = (tree, algorithm) => nodes(tree, (n) => n.type === "section" && n.props["aria-labelledby"] === `sim-${algorithm}`)[0];
+
+test("the scenario picker offers Scenario A, Scenario B, the controlled case and the stress test", () => {
   const view = mount();
-  view.click("Next Aging overtake");
-  assert.equal(view.clock(), "09:55:04");
-  const panel = nodes(view.tree, (n) => n.type === "section" && n.props["aria-labelledby"] === "sim-WPS-A")[0];
-  const explanation = text(byClass(panel, "explanation")[0]);
-  assert.match(explanation, /Doctor 1 called P032 Regular/);
-  assert.match(explanation, /base score 1 \+ Aging bonus 2 .*= effective score 3/);
-  assert.match(explanation, /Aging changed this call: without the bonus \(original WPS\) P053 Indigenous/);
-  assert.match(text(panel), /10-minute Aging rule/);
-  const headers = nodes(panel, (n) => n.type === "th").map(text);
-  for (const h of ["Registered", "Category", "Base score", "Aging bonus", "Effective score", "Waiting"]) assert.ok(headers.includes(h), h);
+  const titles = nodes(byClass(view.tree, "scenarios")[0], (n) => n.type === "button").map((n) => text(nodes(n, (c) => c.type === "strong")[0]));
+  assert.deepEqual(titles, ["Scenario A — Regular-majority", "Scenario B — Vulnerable-majority",
+    "Controlled — one Regular before nine Vulnerable", "Stress — sustained higher-priority arrivals"]);
+  view.click("Next Step");
+  pickScenario(view, "Scenario B");
+  assert.equal(view.clock(), "08:00:00", "a new scenario starts at opening");
+  const run = view.lib.buildRun("vulnerable-majority", 20261029, 100);
+  assert.equal(run.timelines["WPS-A"].patients.filter((p) => !p.vulnerable).length, 20);
+  assert.match(text(view.tree), /Scenario B — Vulnerable-majority: 20% Regular and 80% Vulnerable.*Seed 20261029: 100 synthetic patients/);
+  pickScenario(view, "Controlled");
+  const count = nodes(view.tree, (n) => n.type === "input" && n.props.name === "count")[0];
+  assert.equal(count.props.disabled, true);
+  assert.equal(count.props.value, "13");
+  assert.match(text(view.tree), /Seed 20261029 \(not used: nothing in the controlled case is random\): 13 synthetic patients/);
 });
 
-test("WRR mode shows its weighted rotation and explains each class turn", () => {
+test("the Aging jump shows WPS-A's recalculated ranking and why the patient was selected", () => {
   const view = mount();
+  pickScenario(view, "Scenario B");
+  const run = view.lib.buildRun("vulnerable-majority", 20261029, 100);
+  const decision = run.timelines["WPS-A"].decisions.find((d) => d.agingOvertake);
+  const patient = run.timelines["WPS-A"].patients.find((p) => p.id === decision.patientId);
+  view.click("Next Aging overtake");
+  assert.equal(view.clock(), view.lib.clock(decision.now));
+  const panel = algorithmPanel(view.tree, "WPS-A");
+  const explanation = text(byClass(panel, "explanation")[0]);
+  assert.match(explanation, new RegExp(`${decision.doctor} called ${patient.ticket} ${patient.category}`));
+  assert.match(explanation, new RegExp(`registered ${view.lib.clock(patient.arrival)} · waited`));
+  const top = decision.rankingDetail[0];
+  assert.match(explanation, new RegExp(`base score ${top.base} \\+ Aging bonus ${top.bonus} .*= effective score ${top.effective}`));
+  assert.match(explanation, /Aging changed this call: without the bonus \(original WPS\)/);
+  assert.match(explanation, new RegExp(`Ranking recalculated at ${view.lib.clock(decision.now)} when ${decision.doctor} became available`));
+  const ranking = nodes(byClass(panel, "explanation")[0], (n) => n.type === "table")[0];
+  assert.deepEqual(nodes(ranking, (n) => n.type === "th").map(text), ["Position", "Ticket", "Registered", "Base", "Waited", "Aging bonus", "Effective"]);
+  assert.equal(nodes(ranking, (n) => n.type === "tr" && n.props.className === "nextRow").length, 1, "the selected patient is marked");
+  assert.match(text(panel), /10-minute Aging rule/);
+  const headers = nodes(byClass(panel, "queue")[0], (n) => n.type === "th").map(text);
+  for (const h of ["Order", "Registered", "Category", "Base score", "Aging bonus", "Effective score", "Waiting"]) assert.ok(headers.includes(h), h);
+});
+
+test("WRR mode shows its weighted rotation, the selection turn and the reason for each call", () => {
+  const view = mount();
+  pickScenario(view, "Scenario B");
   view.click("WRR");
-  assert.equal(nodes(view.tree, (n) => n.type === "section" && /^sim-/.test(n.props["aria-labelledby"] || "")).length, 1);
+  assert.equal(nodes(view.tree, (n) => n.type === "section" && /^sim-(WPS-A|WRR)$/.test(n.props["aria-labelledby"] || "")).length, 1);
   view.click("Next WRR lower-class turn");
   const all = text(view.tree);
   assert.match(all, /Weighted rotation/);
   assert.match(all, /turn: \d of \d left/);
+  assert.match(all, /WRR turn \d+: class w\d+, call \d+ of \d+/);
   assert.match(all, /Class w\d had \d+ waiting and \d of \d calls? left/);
+  assert.match(all, /Doctor \d called P\d{3}/);
   assert.match(all, /Recent events/);
   assert.doesNotMatch(all, /Next Aging overtake/, "single WRR mode offers only the WRR jump");
 });
 
-test("a seed must be a whole number; a new seed reloads the same day for both algorithms", () => {
+test("seed and patient count are validated; a new workload reloads the same patients for both algorithms", () => {
   const view = mount();
-  const seedInput = () => nodes(view.tree, (n) => n.type === "input" && n.props.inputMode === "numeric")[0];
-  seedInput().props.onChange({ target: { value: "12x" } });
+  const input = (name) => nodes(view.tree, (n) => n.type === "input" && n.props.name === name)[0];
+  input("seed").props.onChange({ target: { value: "12x" } });
   view.render();
-  view.click("Load seed");
-  assert.match(text(nodes(view.tree, (n) => n.props.role === "alert")), /whole number/);
-  seedInput().props.onChange({ target: { value: "7" } });
+  view.click("Load workload");
+  assert.match(text(nodes(view.tree, (n) => n.props.role === "alert")), /whole number .* for the seed/);
+  input("seed").props.onChange({ target: { value: "7" } });
+  input("count").props.onChange({ target: { value: "5" } });
   view.render();
-  view.click("Load seed");
+  view.click("Load workload");
+  assert.match(text(nodes(view.tree, (n) => n.props.role === "alert")), /patients from 20 to 400/);
+  input("count").props.onChange({ target: { value: "150" } });
+  view.render();
+  view.click("Load workload");
   assert.equal(nodes(view.tree, (n) => n.props.role === "alert").length, 0);
-  assert.match(text(view.tree), /Seed 7: \d+ synthetic patients, identical for WPS-A and WRR/);
+  assert.match(text(view.tree), /Seed 7: 150 synthetic patients, identical for WPS-A and WRR/);
+});
+
+test("final results appear when the same workload finishes, computed from the simulated events", () => {
+  const view = mount();
+  pickScenario(view, "Stress");
+  assert.match(text(view.tree), /appear when both algorithms have seen every synthetic patient/);
+  view.click("Show final results");
+  assert.match(text(view.tree), /Day complete/);
+  const section = nodes(view.tree, (n) => n.type === "section" && n.props["aria-labelledby"] === "sim-final")[0];
+  const run = view.lib.buildRun("sustained-arrivals", 20261029, 100);
+  const rows = nodes(nodes(section, (n) => n.type === "table")[0], (n) => n.type === "tr").slice(1);
+  assert.equal(rows.length, run.analysis.rows.length);
+  for (const [i, row] of run.analysis.rows.entries()) {
+    assert.deepEqual(nodes(rows[i], (n) => n.type === "td").map(text), [...row.shown, row.lowerIsBetter == null ? "n/a" : row.better || "tie"], row.label);
+  }
+  const all = text(section);
+  for (const label of ["Average wait — Regular", "Maximum wait — Vulnerable", "95th-percentile wait — all patients", "Regular bypasses", "Priority-lane violations",
+    "starvation evidence", "Throughput", "Mean utilization", "Patients completed"]) assert.match(all, new RegExp(label), label);
+  assert.match(all, /Waiting time by classification/);
+  assert.match(all, /still waiting is not starvation/);
+  assert.match(all, /Registrations exceeded that capacity/);
+  assert.match(all, /Evaluation criteria \(no overall winner is declared\)/);
+  for (const line of run.analysis.findings.lines) assert.ok(all.includes(line), line);
 });
 
 test("keyboard: Space starts and pauses, Right arrow steps, R resets", () => {
@@ -270,7 +338,7 @@ test("helpers: playback clamps at the end, seeds are validated, the comparison m
   for (const bad of ["", "-1", "1.5", "abc", "1234567890"]) assert.equal(lib.parseSeed(bad), null, bad);
   assert.equal(lib.formatDuration(75.5), "1:15:30");
   assert.equal(lib.formatDuration(9.25), "9:15");
-  const run = lib.buildRun("priority-surge", 20261029);
+  const run = lib.buildRun("vulnerable-majority", 20261029, 100);
   const end = Object.fromEntries(lib.ALGORITHM_IDS.map((a) => [a, lib.snapshotAt(run.timelines[a], run.end)]));
   const rows = lib.comparisonRows(end);
   const violations = rows.find((r) => r.label.startsWith("Priority-lane violations"));
@@ -293,7 +361,7 @@ test("dragging the time slider to its end completes every synthetic patient", ()
   slider.props.onChange({ target: { value: String(snapped) } });
   const tree = view.render();
   const table = nodes(tree, (n) => n.type === "tr" && text(n).startsWith("Completed consultations"))[0];
-  const total = view.lib.buildRun("long-waits", 20261029).timelines["WPS-A"].patients.length;
+  const total = view.lib.buildRun("regular-majority", 20261029, 100).timelines["WPS-A"].patients.length;
   assert.deepEqual(nodes(table, (n) => n.type === "td").map(text), [String(total), String(total)]);
   assert.match(text(tree), /Day complete/);
 });

@@ -16,6 +16,10 @@ with seeds and hashes, is `docs/research/simulation-results-20261030/`, written 
 `docs/research/wps-a-vs-wrr-simulation-report-20261030.md` (adviser walkthrough:
 `docs/research/adviser-simulation-demo-guide.md`).
 
+The Regular-majority / Vulnerable-majority experiments shown on the Algorithm Simulation page (WPS-A and WRR only,
+shared queue, controlled and stress cases) are documented separately in
+`docs/research/regular-vulnerable-experiment-20261102.md`; they reuse this engine and policies unchanged.
+
 The simulation is a research tool. It is never used by the live queue, and WRR is never offered as a live
 scheduler.
 

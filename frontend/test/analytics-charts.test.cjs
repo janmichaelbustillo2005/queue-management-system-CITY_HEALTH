@@ -68,11 +68,12 @@ test("trend, hourly and residency charts use count axes and the residency chart 
   assert.equal(colors(built.residencyChart)[1], "#9ca3af");
 });
 
-test("empty or all-zero series count as no data, and only Distribution and Trends draw page charts", () => {
+test("empty or all-zero series count as no data, and only Distribution draws page charts", () => {
   assert.equal(charts.hasChartData({ labels: [], data: [] }), false);
   assert.equal(charts.hasChartData({ labels: ["Oct 9"], data: [0] }), false);
   assert.equal(charts.hasChartData(undefined), false);
   assert.equal(charts.hasChartData({ labels: ["Oct 9"], data: [1] }), true);
-  assert.deepEqual(Object.keys(charts.TAB_CHARTS), ["distribution", "trends"]);
-  assert.equal(charts.TAB_CHARTS.distribution.length, 5);
+  assert.deepEqual(Object.keys(charts.TAB_CHARTS), ["distribution"]);
+  assert.deepEqual(Array.from(charts.TAB_CHARTS.distribution), ["serviceTypesChart", "sexDistributionChart", "priorityChart", "ageGroupChart",
+    "residencyChart", "patientsPerDayChart", "arrivalsByHourChart"]);
 });

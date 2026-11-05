@@ -42,8 +42,8 @@ const PRIORITY_COLORS = {
 
 // Each tab draws only the canvases it renders.
 export const TAB_CHARTS = {
-  distribution: ["serviceTypesChart", "sexDistributionChart", "priorityChart", "ageGroupChart", "residencyChart"],
-  trends: ["patientsPerDayChart", "arrivalsByHourChart"]
+  distribution: ["serviceTypesChart", "sexDistributionChart", "priorityChart", "ageGroupChart", "residencyChart",
+    "patientsPerDayChart", "arrivalsByHourChart"]
 };
 
 export function readableLabel(value, labels = {}) {

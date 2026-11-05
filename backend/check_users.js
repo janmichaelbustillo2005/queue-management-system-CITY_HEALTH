@@ -17,14 +17,14 @@ function normalizeSupabaseUrl(url) {
 }
 
 const supabaseUrl = normalizeSupabaseUrl(process.env.SUPABASE_URL || "");
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || "";
 
-if (!supabaseUrl || !supabaseServiceRoleKey) {
+if (!supabaseUrl || !supabaseSecretKey) {
   console.warn("Supabase environment variables are missing. Checking for local SQLite DB or .env file...");
   console.log("Looking for .env at:", path.resolve(__dirname, ".env"));
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+const supabase = createClient(supabaseUrl, supabaseSecretKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false

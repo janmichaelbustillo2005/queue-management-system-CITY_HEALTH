@@ -164,7 +164,8 @@ for (const localFallback of [false, true]) {
     assert.equal(analytics.body.metrics.avgServiceTime, 1);
     assert.match(recordsCsv.body, /October 9 sixty seconds/);
     assert.doesNotMatch(recordsCsv.body, /October 10 one hundred twenty seconds/);
-    assert.equal(analyticsCsv.body, h.service.buildCsv(analytics.body.tableData));
+    assert.equal(analyticsCsv.body, h.service.buildAnalyticsCsv(analytics.body));
+    assert.ok(analyticsCsv.body.startsWith(h.service.buildCsv(analytics.body.tableData)));
     assert.equal(recordsCsv.headers["Content-Type"], "text/csv");
     assert.equal((await h.request("GET", "/queue/export", {}, superadmin, { dateFilter: "" })).body.split("\n").length, 3);
     assert.equal((await h.request("GET", "/analytics", {}, superadmin, { dateFilter: "" })).body.metrics.totalPatients, 2);

@@ -5,6 +5,7 @@ import Script from "next/script";
 import SiteFrame from "../components/SiteFrame";
 import DailyTrends from "../components/DailyTrends";
 import StatusAnalytics from "../components/StatusAnalytics";
+import { DetailedInsights } from "../components/AnalyticsInsights";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { request } from "../lib/api";
 import { getDefaultHistoryFilters } from "../lib/historyFilters";
@@ -199,7 +200,7 @@ export default function AnalyticsPage() {
             {activeTab === "status" && (
               <p className="text-xs brand-text-muted mt-3 mb-0">
                 <i className="fas fa-info-circle mr-1" />
-                Status Analytics uses its own date selector below. These filters apply to Detailed Data, Distribution and the period charts in Trends.
+                Status Analytics uses its own date selector below. These filters apply to Detailed Data and Distribution.
               </p>
             )}
           </div>
@@ -225,26 +226,29 @@ export default function AnalyticsPage() {
           <div className="grid gap-3 md:gap-4 mb-4 grid-cols-1">
             {activeTab === "distribution" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
-                <ChartCard title="Service Types" icon="fas fa-chart-pie" canvasId="serviceTypesChart" empty={!hasChartData(charts.serviceTypes)} />
+                <ChartCard title="Percentage of Patients per Service" icon="fas fa-chart-pie" canvasId="serviceTypesChart" empty={!hasChartData(charts.serviceTypes)} />
                 <ChartCard title="Sex Distribution" icon="fas fa-venus-mars" canvasId="sexDistributionChart" empty={!hasChartData(charts.sexDistribution)} />
-                <ChartCard title="Priority Categories" icon="fas fa-star" canvasId="priorityChart" empty={!hasChartData(charts.priorityCategories)}
+                <ChartCard title="Registered Patients per Categories" icon="fas fa-star" canvasId="priorityChart" empty={!hasChartData(charts.priorityCategories)}
                   note="A visit can belong to more than one priority category, so the bars can add up to more than the total." />
                 <ChartCard title="Age Groups" icon="fas fa-birthday-cake" canvasId="ageGroupChart" empty={!hasChartData(charts.ageGroups)}
                   note="Age on the day of the visit, from the recorded birthdate." />
                 <div className="lg:col-span-2">
-                  <ChartCard title="Residency (Top Locations)" icon="fas fa-map-marker-alt" canvasId="residencyChart" empty={!hasChartData(charts.residency)}
+                  <ChartCard title="Patient Residency Distribution" icon="fas fa-map-marker-alt" canvasId="residencyChart" empty={!hasChartData(charts.residency)}
                     note="The eight most common recorded locations; the rest are grouped as Other locations." />
+                </div>
+                <div className="lg:col-span-2">
+                  <ChartCard title="Patients per Day" icon="fas fa-chart-line" canvasId="patientsPerDayChart" fullWidth empty={!hasChartData(charts.dailyTrends)}
+                    note="Registered visits per day (Asia/Manila). Days without visits show as zero." />
+                </div>
+                <div className="lg:col-span-2">
+                  <ChartCard title="Patient Arrival by Hour" icon="fas fa-clock" canvasId="arrivalsByHourChart" fullWidth empty={!hasChartData(charts.hourly)}
+                    note="Registrations per hour of the day across the whole selected period, in clock order." />
                 </div>
               </div>
             )}
 
             {activeTab === "trends" && (
               <>
-                <SectionHeading title="Selected Period" description="Uses the filters above." />
-                <ChartCard title="Patients per Day" icon="fas fa-chart-line" canvasId="patientsPerDayChart" fullWidth empty={!hasChartData(charts.dailyTrends)}
-                  note="Registered visits per day (Asia/Manila). Days without visits show as zero." />
-                <ChartCard title="Arrivals by Hour" icon="fas fa-clock" canvasId="arrivalsByHourChart" fullWidth empty={!hasChartData(charts.hourly)}
-                  note="Registrations per hour of the day across the whole selected period, in clock order." />
                 <SectionHeading title="Single-Day Detail" description="Hour-by-hour activity for one day. Choose the day with the date selector in this section." />
                 <DailyTrends enabled={!loading && user?.role === "superadmin"} />
               </>
@@ -270,6 +274,7 @@ export default function AnalyticsPage() {
                   rows={(data?.doctorTable ?? []).map((row) => ({ key: row.doctor, name: row.doctor, ...row }))}
                   totals={data?.totals}
                 />
+                <DetailedInsights insights={data?.insights} />
               </>
             )}
           </div>

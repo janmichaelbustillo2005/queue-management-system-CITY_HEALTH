@@ -70,6 +70,11 @@ function fakeSupabase(database, now, localFallback) {
     lte(key, value) { return this.compare(key, value, (actual, expected) => actual <= expected); }
     lt(key, value) { return this.compare(key, value, (actual, expected) => actual < expected); }
     like(key, value) { this.filters.push((row) => String(row[key]).startsWith(value.replace(/%$/, ""))); return this; }
+    ilike(key, value) {
+      const pattern = new RegExp(`^${value.split("%").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`, "i");
+      this.filters.push((row) => row[key] != null && pattern.test(String(row[key])));
+      return this;
+    }
     order(key, options = {}) { this.orders.push({ key, ascending: options.ascending !== false }); return this; }
     limit(value) { this.maximum = value; return this; }
     range(from, to) { this.offset = from; this.rangeEnd = to; return this; }
@@ -103,9 +108,12 @@ function fakeSupabase(database, now, localFallback) {
           }
           const defaults = this.table === "counters"
             ? { service_types: [], is_online: true, current_patient_id: null }
+            : this.table === "patient_records" ? {}
             : { called_at: null, completed_at: null, consultation_started_at: null, counter_id: null, reason: null };
           if (this.table === "patients") defaults.visit_state_revision = crypto.randomUUID();
           const inserted = { id: nextId++, created_at: new Date(now()).toISOString(), ...defaults, ...payload };
+          // Models the generated column in 20261103-patient-records.sql.
+          if (this.table === "patient_records") inserted.patient_code = `PAT-${inserted.id < 10000 ? String(inserted.id).padStart(4, "0") : inserted.id}`;
           table.push(inserted);
           rows.push(inserted);
         }
@@ -448,7 +456,8 @@ function createHarness(options = {}) {
       sendQueueCreatedNotification: (...args) => notifications.push({ type: "created", args }),
       sendQueueCalledNotification: async (...args) => notifications.push({ type: "called", args })
     },
-    "./settingsService": settings
+    "./settingsService": settings,
+    "./analyticsInsights": require("../../src/services/analyticsInsights")
   }, clock);
   const handlers = new Map();
   const router = {};
@@ -479,7 +488,7 @@ function createHarness(options = {}) {
     async initialize() {
       if (options.localFallback) await service.getDisplaySettings();
     },
-    async request(method, route, body = {}, user = { id_num: "frontdesk", role: "admin", doctor_name: null }, query = {}) {
+    async request(method, route, body = {}, user = { id_num: "frontdesk", role: "admin", doctor_name: null }, query = {}, params = {}) {
       const middleware = handlers.get(`${method.toUpperCase()} ${route}`);
       if (!middleware) throw new Error(`Missing route ${method} ${route}`);
       const response = {
@@ -489,7 +498,7 @@ function createHarness(options = {}) {
       };
       // The real middleware only admits tokens whose jti names a valid persisted session.
       if (user && !Object.hasOwn(user, "jti")) user = { ...user, jti: crypto.randomUUID() };
-      const request = { body, user, query, params: {} };
+      const request = { body, user, query, params };
       const run = async (index) => {
         const handler = middleware[index];
         if (!handler) return;

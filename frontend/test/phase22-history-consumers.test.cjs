@@ -154,6 +154,7 @@ function harness(component, options = {}) {
     "../context/AuthContext": { useAuth: () => ({ user, loading: false }) },
     "../components/SiteFrame": "SiteFrame", "../components/DailyTrends": "DailyTrends", "../components/StatusAnalytics": "StatusAnalytics",
     "../components/RecordsFilters": "RecordsFilters",
+    "../components/AnalyticsInsights": { __esModule: true, DetailedInsights: "DetailedInsights" },
     "./RecordsTable.module.css": new Proxy({}, { get: (_target, key) => key === "__esModule" || typeof key === "symbol" ? undefined : key })
   };
   function load(relative) {
@@ -427,7 +428,7 @@ async function openTab(h, label) {
   return h.flush();
 }
 
-test("Analytics has four tabs; the duplicate Hourly tab is gone and metric cards follow the top filters only", async () => {
+test("Analytics keeps its four original tabs (no duplicate Hourly tab, no Performance or Insights), and metric cards follow the top filters only", async () => {
   const h = dashboardHarness(); await h.flush();
   assert.deepEqual(nodes(h.render(), component("TabButton")).map(tab => tab.props.label),
     ["Detailed Data", "Distribution", "Trends", "Status"]);
@@ -440,6 +441,16 @@ test("Analytics has four tabs; the duplicate Hourly tab is gone and metric cards
   await openTab(h, "Status");
   assert.equal(metricCards(), 0);
   assert.match(text(h.render()), /Status Analytics uses its own date selector below/);
+});
+
+test("Detailed Data keeps its By Service and By Doctor tables and adds the additional sections after them", async () => {
+  const h = dashboardHarness(); await h.flush();
+  const tree = h.render();
+  assert.deepEqual(nodes(tree, component("SummaryTable")).map((table) => table.props.title), ["By Service", "By Doctor"]);
+  const sections = nodes(tree, (node) => node.type === "DetailedInsights");
+  assert.equal(sections.length, 1);
+  await openTab(h, "Distribution");
+  assert.equal(nodes(h.render(), (node) => node.type === "DetailedInsights").length, 0, "only Detailed Data shows them");
 });
 
 test("Detailed Data shows readable service names, no-show and in-queue columns, totals and a per-doctor table", async () => {
@@ -455,16 +466,18 @@ test("Detailed Data shows readable service names, no-show and in-queue columns, 
   assert.match(text(tables[1].type(tables[1].props)), /Doctor 32101/);
 });
 
-test("Distribution and Trends render only their own charts, with Patients per Day and Arrivals by Hour in Trends", async () => {
+test("Distribution holds the renamed charts plus Patients per Day and Patient Arrival by Hour; Trends keeps only the single-day detail", async () => {
   const h = dashboardHarness(); await h.flush();
   const chartCards = () => nodes(h.render(), component("ChartCard")).map(card => [card.props.canvasId, card.props.empty]);
   assert.deepEqual(chartCards(), []);
   await openTab(h, "Distribution");
   assert.deepEqual(chartCards(), [["serviceTypesChart", false], ["sexDistributionChart", false], ["priorityChart", false],
-    ["ageGroupChart", true], ["residencyChart", false]]);
+    ["ageGroupChart", true], ["residencyChart", false], ["patientsPerDayChart", false], ["arrivalsByHourChart", false]]);
+  assert.deepEqual(nodes(h.render(), component("ChartCard")).map(card => card.props.title), ["Percentage of Patients per Service", "Sex Distribution",
+    "Registered Patients per Categories", "Age Groups", "Patient Residency Distribution", "Patients per Day", "Patient Arrival by Hour"]);
   assert.doesNotMatch(text(h.render()), /Patient Status/);
   await openTab(h, "Trends");
-  assert.deepEqual(chartCards(), [["patientsPerDayChart", false], ["arrivalsByHourChart", false]]);
+  assert.deepEqual(chartCards(), [], "the moved charts are not duplicated in Trends");
   assert.equal(nodes(h.render(), node => node.type === "DailyTrends").length, 1);
 });
 

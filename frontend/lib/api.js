@@ -73,8 +73,9 @@ export async function request(path, options = {}) {
         localStorage.removeItem("city_health_user");
         window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT));
       }
-      // Return error object instead of throwing, so UI can handle gracefully
-      return { error: errorMsg, status: response.status };
+      // Return error object instead of throwing, so UI can handle gracefully.
+      // `details` is the server's error body, for responses that carry more than a message.
+      return { error: errorMsg, status: response.status, details: data };
     }
 
     return data;

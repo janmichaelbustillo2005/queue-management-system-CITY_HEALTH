@@ -10,6 +10,7 @@ export const defaultQueueSettings = {
   announceDoctorRoom: true,
   announceGapSeconds: 3,
   noShowWaitMinutes: 10,
+  slaTargetWaitMinutes: 30,
   recallAttempts: 2,
   allowQueueReassignment: true,
   preventDuplicateRegistration: true,
@@ -76,6 +77,10 @@ function validateSettings(draft) {
   const noShow = Number(draft.noShowWaitMinutes);
   if (!Number.isFinite(noShow) || noShow < 1 || noShow > 120) {
     errors.noShowWaitMinutes = "No-show wait time must be between 1 and 120 minutes.";
+  }
+  const slaTarget = Number(draft.slaTargetWaitMinutes ?? defaultQueueSettings.slaTargetWaitMinutes);
+  if (!Number.isInteger(slaTarget) || slaTarget < 1 || slaTarget > 240) {
+    errors.slaTargetWaitMinutes = "Target waiting time must be a whole number between 1 and 240 minutes.";
   }
   const recalls = Number(draft.recallAttempts);
   if (!Number.isFinite(recalls) || recalls < 0 || recalls > 10) {
@@ -393,6 +398,25 @@ export default function SettingsModal({
                   </div>
                   {errors.noShowWaitMinutes ? (
                     <span className="text-[10px] text-red-600 max-w-[160px] text-right">{errors.noShowWaitMinutes}</span>
+                  ) : null}
+                </div>
+              </SettingRow>
+              <SettingRow title="Target Waiting Time (SLA)" description="Patients called within this many minutes of registering count as on time in Analytics.">
+                <div className="flex flex-col items-end gap-1">
+                  <div className="flex items-center gap-1">
+                    <input
+                      aria-label="Target waiting time in minutes"
+                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.slaTargetWaitMinutes ? "border-red-400" : "brand-input"}`}
+                      type="number"
+                      min="1"
+                      max="240"
+                      value={draft.slaTargetWaitMinutes ?? defaultQueueSettings.slaTargetWaitMinutes}
+                      onChange={(e) => updateDraft({ slaTargetWaitMinutes: Number(e.target.value) })}
+                    />
+                    <span className="text-xs brand-text-muted">min</span>
+                  </div>
+                  {errors.slaTargetWaitMinutes ? (
+                    <span className="text-[10px] text-red-600 max-w-[160px] text-right">{errors.slaTargetWaitMinutes}</span>
                   ) : null}
                 </div>
               </SettingRow>

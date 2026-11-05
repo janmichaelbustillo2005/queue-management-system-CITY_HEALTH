@@ -8,7 +8,7 @@ const swc = require("next/dist/build/swc");
 const compiled = {};
 before(async () => {
   await swc.loadBindings();
-  for (const name of ["pages/fill-up_form.js", "lib/queueTicket.js", "lib/navigation.js"]) {
+  for (const name of ["pages/fill-up_form.js", "lib/queueTicket.js", "lib/navigation.js", "components/PatientRecordSearch.js"]) {
     const filename = path.join(__dirname, "..", name);
     compiled[name] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
       filename, jsc: { parser: { syntax: "ecmascript", jsx: true }, transform: { react: { runtime: "automatic" } } },
@@ -31,6 +31,8 @@ function text(tree) {
   return tree == null || typeof tree === "boolean" ? "" : String(tree);
 }
 const jsx = (type, props) => ({ type, props: props || {} });
+// Signed-in Front Desk registrations save or reuse a permanent patient record.
+const REGISTRATION = "/patient-records/visits";
 const savedPatient = {
   id: 55, queue_number: "OB-002", service_type: "prenatal", status: "waiting",
   priority_score: 3, created_at: "2026-10-13T03:04:00Z", counter_id: null,
@@ -40,7 +42,7 @@ const savedPatient = {
 function harness(options = {}) {
   let cursor = 0;
   const hooks = [], calls = [];
-  const user = options.user || { id_num: "frontdesk", role: "admin" };
+  const user = "user" in options ? options.user : { id_num: "frontdesk", role: "admin" };
   const request = async (route, init = {}) => {
     calls.push({ route, method: init.method || "GET", ...(init.body ? { body: JSON.parse(init.body) } : {}) });
     if (options.request) {
@@ -49,6 +51,7 @@ function harness(options = {}) {
     }
     if (route === "/display") return { counters: [1, 2, 3].map(n => ({ id_num: `Doctor ${n}`, is_online: true })) };
     if (route === "/queue/website") return { success: true, queue_number: savedPatient.queue_number, priority_score: 3 };
+    if (route === REGISTRATION) return { success: true, queue_number: savedPatient.queue_number, priority_score: 3, patient_record: { id: 1, patient_code: "PAT-0001" }, patient_record_created: true };
     if (route === "/queue") return { patients: [savedPatient] };
     return [];
   };
@@ -84,6 +87,10 @@ function harness(options = {}) {
     return module.exports;
   };
   dependencies["../lib/queueTicket"] = load("lib/queueTicket.js");
+  // The search component renders as a named stub; its date formatter is the real one.
+  dependencies["../components/PatientRecordSearch"] = {
+    __esModule: true, default: "PatientRecordSearch", formatRecordBirthdate: load("components/PatientRecordSearch.js").formatRecordBirthdate
+  };
   const page = load("pages/fill-up_form.js").default;
   const render = () => { cursor = 0; return page(); };
   const field = id => nodes(render(), node => node.props.id === id)[0];
@@ -104,11 +111,12 @@ function harness(options = {}) {
   return { render, calls, field, change, fill, submit, load };
 }
 
-test("registration preserves the existing payload, retrieves the actual saved record, and exposes safe delivery", async () => {
+test("registration sends the patient details, retrieves the actual saved record, and exposes safe delivery", async () => {
   const h = harness(); h.fill(); await h.submit();
-  const registration = h.calls.find(call => call.route === "/queue/website");
+  assert.equal(h.calls.some(call => call.route === "/queue/website"), false);
+  const registration = h.calls.find(call => call.route === REGISTRATION);
   assert.deepEqual(registration.body, {
-    fullName: "Juan D. Dela Cruz", serviceType: "prenatal", mobileNumber: "9123456789",
+    firstName: "Juan", middleInitial: "D", lastName: "Dela Cruz", serviceType: "prenatal", mobileNumber: "9123456789",
     residency: "Cabadbaran", philhealthId: "Private Identifier", birthdate: "1990-01-01", sex: "Female", vulnerabilityFlags: ["pregnant"]
   });
   const pass = nodes(h.render(), node => node.type === "DigitalQueuePass")[0];
@@ -123,7 +131,7 @@ test("registration preserves the existing payload, retrieves the actual saved re
 
 test("two immediate submits create one registration and stale handlers cannot resubmit after save", async () => {
   let release;
-  const h = harness({ request: route => route === "/queue/website" ? new Promise(resolve => { release = resolve; }) : undefined });
+  const h = harness({ request: route => route === REGISTRATION ? new Promise(resolve => { release = resolve; }) : undefined });
   h.fill();
   const submit = nodes(h.render(), node => node.type === "form")[0].props.onSubmit;
   const first = submit({ preventDefault() {} });
@@ -226,7 +234,7 @@ test("delayed delivery callbacks cannot restore the prior patient's ticket after
   const second = { ...savedPatient, id: 66, queue_number: "OB-003" };
   let registrations = 0;
   const h = harness({ request: route => {
-    if (route === "/queue/website") return { success: true, queue_number: (++registrations === 1 ? savedPatient : second).queue_number };
+    if (route === REGISTRATION) return { success: true, queue_number: (++registrations === 1 ? savedPatient : second).queue_number };
     if (route === "/queue") return { patients: [savedPatient, second] };
   } });
   h.fill(); await h.submit();
@@ -285,4 +293,125 @@ test("D1 shared dispatch: the redesigned snapshot counts the whole shared queue 
   assert.match(shown, /in the shared queue when this patient was registered/);
   assert.doesNotMatch(shown, /Doctor 2's queue/);
   assert.equal(nodes(h.render(), node => node.type === "DigitalQueuePass")[0].props.ticket.doctorName, "Next available doctor");
+});
+
+// Permanent patient records: Front Desk search, select, verify and register a returning visit.
+const storedRecord = {
+  id: 7, patient_code: "PAT-0007", full_name: "Maria L. Santos", first_name: "Maria", middle_initial: "L", last_name: "Santos",
+  birthdate: "1950-03-15", sex: "Female", mobile_number: "9171112222", residency: "Barangay 2, Cabadbaran City", philhealth_id: "PH-7"
+};
+const recordRequests = (extra = () => undefined) => route => route === "/patient-records/7" ? { success: true, patient: storedRecord } : extra(route);
+const searchProps = h => nodes(h.render(), node => node.type === "PatientRecordSearch")[0]?.props;
+const button = (h, label) => nodes(h.render(), node => node.type === "button" && text(node).includes(label))[0];
+
+test("only Front Desk and Super Admin see patient search; anyone else keeps the original registration", async () => {
+  assert.ok(searchProps(harness()));
+  assert.ok(searchProps(harness({ user: { id_num: "superadmin", role: "superadmin" } })));
+  for (const user of [null, { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" }]) {
+    const h = harness({ user });
+    assert.equal(searchProps(h), undefined);
+    h.fill(); await h.submit();
+    assert.equal(h.calls.some(call => call.route.startsWith("/patient-records")), false);
+    assert.deepEqual(h.calls.find(call => call.route === "/queue/website").body, {
+      fullName: "Juan D. Dela Cruz", serviceType: "prenatal", mobileNumber: "9123456789",
+      residency: "Cabadbaran", philhealthId: "Private Identifier", birthdate: "1990-01-01", sex: "Female", vulnerabilityFlags: ["pregnant"]
+    });
+  }
+});
+
+test("selecting a patient reads the record by id and fills the form read-only, without registering", async () => {
+  const h = harness({ request: recordRequests() });
+  h.change("patient-service", "consultation");
+  await searchProps(h).onSelect({ id: 7, patient_code: "PAT-0007" });
+  assert.deepEqual(h.calls.map(call => call.route), ["/patient-records/7"]);
+  assert.equal(h.calls.some(call => call.method === "POST"), false, "retrieval never creates a queue entry");
+  const expected = { "patient-first-name": "Maria", "patient-middle-initial": "L", "patient-last-name": "Santos", "patient-mobile": "9171112222",
+    "patient-philhealth": "PH-7", "patient-sex": "Female", "patient-birthdate": "1950-03-15", "patient-residency": "Barangay 2, Cabadbaran City", "patient-service": "consultation" };
+  for (const [id, value] of Object.entries(expected)) assert.equal(h.field(id).props.value, value, id);
+  for (const id of ["patient-first-name", "patient-middle-initial", "patient-last-name", "patient-mobile", "patient-philhealth", "patient-birthdate", "patient-residency"]) {
+    assert.equal(h.field(id).props.readOnly, true, id);
+  }
+  assert.equal(h.field("patient-sex").props.disabled, true);
+  assert.equal(h.field("patient-service").props.disabled, false, "visit fields stay editable");
+  assert.equal(h.field("vuln-senior").props.checked, true, "Senior is computed from the stored birthdate");
+  const shown = text(h.render());
+  assert.match(shown, /Returning patient: Maria L\. Santos/);
+  assert.match(shown, /Patient ID PAT-0007 · Born Mar 15, 1950 · Female/);
+  assert.match(shown, /Maria L\. Santos \(PAT-0007\) · General Consultation/);
+  assert.equal(searchProps(h).selectedId, 7);
+});
+
+test("a returning patient's visit sends only the record id and visit fields, and reports the Patient ID", async () => {
+  const h = harness({ request: recordRequests(route => route === REGISTRATION
+    ? { success: true, queue_number: savedPatient.queue_number, priority_score: 4, patient_record: storedRecord, patient_record_created: false } : undefined) });
+  await searchProps(h).onSelect({ id: 7 });
+  h.change("patient-service", "prenatal");
+  await h.submit();
+  const posts = h.calls.filter(call => call.method === "POST");
+  assert.equal(posts.length, 1);
+  assert.deepEqual(posts[0], { route: REGISTRATION, method: "POST", body: { patientRecordId: 7, serviceType: "prenatal", vulnerabilityFlags: ["senior"] } });
+  assert.match(text(h.render()), /Patient registered successfully\./);
+  assert.match(text(h.render()), /Patient ID PAT-0007 · returning patient/);
+});
+
+test("Change Patient returns to a blank new-patient form and keeps the visit choices", async () => {
+  const h = harness({ request: recordRequests() });
+  h.change("patient-service", "checkup");
+  await searchProps(h).onSelect({ id: 7 });
+  button(h, "Change Patient").props.onClick();
+  for (const id of ["patient-first-name", "patient-last-name", "patient-birthdate", "patient-residency", "patient-sex"]) assert.equal(h.field(id).props.value, "", id);
+  assert.equal(h.field("patient-first-name").props.readOnly, false);
+  assert.equal(h.field("patient-sex").props.disabled, false);
+  assert.equal(h.field("vuln-senior").props.checked, false);
+  assert.equal(h.field("patient-service").props.value, "checkup");
+  assert.doesNotMatch(text(h.render()), /Returning patient/);
+  h.fill(); await h.submit();
+  assert.equal(Object.hasOwn(h.calls.find(call => call.route === REGISTRATION).body, "patientRecordId"), false);
+});
+
+test("a possible duplicate record offers Select or an explicit different-person registration", async () => {
+  const existing = { id: 7, patient_code: "PAT-0007", full_name: "Juan Dela Cruz", birthdate: "1990-01-01", sex: "Female" };
+  let posts = 0;
+  const h = harness({ request: recordRequests(route => route === REGISTRATION && ++posts === 1
+    ? { error: "A patient record with the same name, sex and birthdate already exists.", status: 409, details: { possible_duplicates: [existing] } } : undefined) });
+  h.fill(); await h.submit();
+  const shown = text(h.render());
+  assert.match(shown, /already exists/);
+  assert.match(shown, /Juan Dela Cruz · PAT-0007 · Born Jan 1, 1990 · Female/);
+  assert.equal(nodes(h.render(), node => node.props.role === "alert" && /alert-danger/.test(node.props.className || "")).length, 0);
+  await button(h, "Register as a Different Person").props.onClick({ preventDefault() {} });
+  const registrations = h.calls.filter(call => call.route === REGISTRATION);
+  assert.equal(registrations.length, 2);
+  assert.equal(registrations[0].body.confirmNewRecord, undefined);
+  assert.equal(registrations[1].body.confirmNewRecord, true);
+  assert.match(text(h.render()), /Patient registered successfully\./);
+
+  const again = harness({ request: recordRequests(route => route === REGISTRATION
+    ? { error: "exists", status: 409, details: { possible_duplicates: [existing] } } : undefined) });
+  again.fill(); await again.submit();
+  await button(again, "Select PAT-0007").props.onClick();
+  assert.equal(again.calls.at(-1).route, "/patient-records/7");
+  assert.match(text(again.render()), /Returning patient: Maria L\. Santos/);
+  assert.doesNotMatch(text(again.render()), /Register as a Different Person/);
+});
+
+test("a saved record whose visit failed is selected, so the retry reuses it", async () => {
+  let posts = 0;
+  const h = harness({ request: route => route === REGISTRATION && ++posts === 1
+    ? { error: "The queue database is unavailable.", status: 503, details: { patient_record: storedRecord } } : undefined });
+  h.fill(); await h.submit();
+  assert.match(text(h.render()), /Patient record PAT-0007 was saved, but no queue number was generated: The queue database is unavailable\. Submit again/);
+  assert.match(text(h.render()), /Returning patient: Maria L\. Santos/);
+  await h.submit();
+  const retry = h.calls.filter(call => call.route === REGISTRATION)[1];
+  assert.equal(retry.body.patientRecordId, 7);
+  assert.equal(retry.body.firstName, undefined);
+});
+
+test("a record that cannot be read shows the error and selects nothing", async () => {
+  const h = harness({ request: route => route === "/patient-records/9" ? { error: "Patient record not found. Search again.", status: 404 } : undefined });
+  await searchProps(h).onSelect({ id: 9 });
+  assert.match(text(h.render()), /Patient record not found\. Search again\./);
+  assert.doesNotMatch(text(h.render()), /Returning patient/);
+  assert.equal(h.field("patient-first-name").props.readOnly, false);
 });

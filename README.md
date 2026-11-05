@@ -14,6 +14,8 @@ Phase A adds authenticated doctor presence separately from counter enablement an
 
 Phase 2.1 protects Requeue/Undo from stale requests that could erase completed consultation history. See its [revision and recovery migration](backend/scripts/20261012-phase21-stale-recovery.sql) and [Phase 2.1 guide](docs/phase21-stale-recovery.md). Phase 2.2 adds the [versioned waiting-only Undo entry point](backend/scripts/20261014-phase22-undo-waiting.sql); use the [development rollout guide](docs/phase22-audit-corrections.md) and [read-only installation checks](backend/scripts/20261015-phase22-verify.sql) before enabling that workflow in an approved environment. Pulling this code does not apply migrations.
 
+Permanent patient records let Front Desk search for a returning patient and register a new visit under the same Patient ID (PAT-0001, ...). Apply the [patient records migration](backend/scripts/20261103-patient-records.sql) to an approved development project and confirm it with the [read-only checks](backend/scripts/20261103-patient-records-verify.sql). Until it is installed, patient search answers that it is unavailable and Front Desk registration keeps working as before, without saving a record. Visits registered before the migration are not linked to records, because a name alone cannot safely identify a person. A [rollback](backend/scripts/20261103-patient-records-rollback.sql) is prepared; it keeps saved records.
+
 Install dependencies when setting up a new checkout:
 
 ```sh

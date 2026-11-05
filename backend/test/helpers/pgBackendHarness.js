@@ -71,7 +71,8 @@ function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0, doctorDisp
       sendQueueCreatedNotification: (...args) => sms.push({ type: "created", args }),
       sendQueueCalledNotification: async (...args) => sms.push({ type: "called", args })
     },
-    "./settingsService": settings
+    "./settingsService": settings,
+    "./analyticsInsights": require("../../src/services/analyticsInsights")
   }, DateImpl);
   const auth = load("middleware/auth.js", { jsonwebtoken: jwt, "../config/env": env, "../services/presenceService": presence }, DateImpl);
   const handlers = new Map();

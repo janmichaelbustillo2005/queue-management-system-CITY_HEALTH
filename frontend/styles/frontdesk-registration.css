@@ -70,3 +70,21 @@
   .registration-actions-panel { padding: 1rem; }
   .registration-pass-frame { padding: .6rem; }
 }
+
+/* Front Desk search of permanent patient records, and the selected returning patient. */
+.patient-record-search .frontdesk-section-title { width: 100%; }
+.patient-record-results { margin-top: .6rem; }
+.patient-record-results:empty { margin-top: 0; }
+.patient-record-results-title { margin: .25rem 0 .4rem; color: var(--brand-forest); font-size: .85rem; font-weight: 700; }
+.patient-record-table { font-size: .85rem; background: var(--brand-surface); }
+.patient-record-table th { color: var(--brand-muted); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; white-space: nowrap; }
+.patient-record-table tr.is-selected td { background: var(--brand-subtle); }
+.patient-record-code { font-weight: 600; white-space: nowrap; }
+.patient-record-status { margin: .25rem 0 0; color: var(--brand-muted); font-size: .85rem; }
+.patient-record-error { margin: .25rem 0 0; padding: .5rem .75rem; border-radius: 8px; background: #fff0e8; color: #7c2d12; font-size: .85rem; }
+.patient-record-selected { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem; margin-bottom: .9rem; padding: .75rem .9rem; border-left: 3px solid var(--brand-primary); border-radius: 0 8px 8px 0; background: var(--brand-surface); }
+.patient-record-selected p { margin: 0; color: var(--brand-text); font-size: .85rem; }
+.patient-record-selected .patient-record-selected-name { color: var(--brand-forest); font-size: .95rem; font-weight: 700; }
+.patient-record-selected .patient-record-selected-note { margin-top: .25rem; color: var(--brand-muted); font-size: .8rem; }
+.frontdesk-form-card input[readonly] { background: var(--brand-background); }
+.frontdesk-card-header .registration-success-title .registration-patient-code { margin-top: .2rem; color: var(--brand-forest); font-weight: 600; }

@@ -44,6 +44,8 @@ const localData = {
   cancellationRequests: [],
   nextCancellationId: 1,
   nextPatientId: 1,
+  patientRecords: [],
+  nextPatientRecordId: 1,
   countersMap: { "Doctor 1": 1, "Doctor 2": 2, "Doctor 3": 3 },
   // Queue numbers are per service code, not per doctor.
   sequenceMap: {
@@ -581,7 +583,7 @@ function normalizeRegistrationPriority(vulnerabilityFlags, birthdate, now = new 
   return { flags: unique, birthdate };
 }
 
-async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate: rawBirthdate, sex, source = "admin", vulnerabilityFlags: rawFlags = [] }) {
+async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate: rawBirthdate, sex, source = "admin", vulnerabilityFlags: rawFlags = [], patientRecordId = null }) {
   const { flags: vulnerabilityFlags, birthdate } = normalizeRegistrationPriority(rawFlags, rawBirthdate);
   await ensureDoctorAvailableForService(serviceType);
 
@@ -616,7 +618,8 @@ async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, p
           consultation_started_at: null,
           completed_at: null,
           counter_id: null,
-          reason: null
+          reason: null,
+          ...(patientRecordId != null ? { patient_record_id: patientRecordId } : {})
         };
         localData.patients.push(patient);
         return patient;
@@ -634,7 +637,10 @@ async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, p
         priority_score: priorityScore,
         vulnerability_flags: vulnerabilityFlags,
         source: source,
-        status: "waiting"
+        status: "waiting",
+        // Only visits registered against a permanent patient record carry the link, so
+        // databases without the patient-records migration keep receiving the same insert.
+        ...(patientRecordId != null ? { patient_record_id: patientRecordId } : {})
       };
 
       const { data, error } = await supabase
@@ -667,7 +673,7 @@ async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, p
     } catch (err) {
       if (err.message?.includes("Supabase") || err.message?.includes("fetch failed")) {
         enableLocalFallback(err);
-        return createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate, sex, source, vulnerabilityFlags });
+        return createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate, sex, source, vulnerabilityFlags, patientRecordId });
       }
       
       lastError = err;
@@ -704,6 +710,295 @@ async function getPatientById(id) {
     enableLocalFallback(err);
     return getPatientById(id);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Permanent patient records (backend/scripts/20261103-patient-records.sql).
+// A record is the person; each "patients" row is one queue visit, which points to its record
+// through patient_record_id. Records are created once, read, and never overwritten or deleted
+// here: a returning patient's new visit copies the stored details instead of the form's.
+// Only a Superadmin or a Frontdesk account may search, read or register against them.
+// ---------------------------------------------------------------------------
+const PATIENT_RECORDS_UNAVAILABLE = "Patient search is not available until the patient records migration (backend/scripts/20261103-patient-records.sql) is installed. Register the patient as new.";
+const PATIENT_SEARCH_LIMIT = 20;
+// Search shows only what tells similar names apart; the full record is read on Select.
+const PATIENT_SEARCH_COLUMNS = ["id", "patient_code", "full_name", "birthdate", "sex"];
+const PATIENT_RECORD_COLUMNS = [...PATIENT_SEARCH_COLUMNS, "first_name", "middle_initial", "last_name",
+  "mobile_number", "residency", "philhealth_id", "created_at"];
+
+function patientRecordError(message, statusCode = 400, details = {}) {
+  return Object.assign(new Error(message), { statusCode }, details);
+}
+
+function isMissingPatientRecordsError(error) {
+  const message = String(error?.message || "");
+  return ["42P01", "PGRST205", "PGRST204", "42703"].includes(error?.code) ||
+    (/patient_record/i.test(message) && /does not exist|schema cache|could not find/i.test(message));
+}
+
+// Supabase errors are returned, not thrown: an unreachable database follows the queue's own
+// outage handling, a missing migration answers 503, anything else is a server error.
+function patientRecordsFailure(error, fallback) {
+  if (isMissingPatientRecordsError(error)) return patientRecordError(PATIENT_RECORDS_UNAVAILABLE, 503, { patientRecordsUnavailable: true });
+  if (/Supabase|fetch failed/i.test(String(error?.message || ""))) {
+    enableLocalFallback(error);
+    return null;
+  }
+  return Object.assign(formatError(error, fallback), { statusCode: 500 });
+}
+
+function assertPatientRecordsActor(actor) {
+  if (actor?.role === "superadmin") return;
+  if (actor?.role === "admin" && isFrontdeskAssignment(actor.doctor_name)) return;
+  throw patientRecordError("Only Front Desk staff and the Super Admin can search or register patient records.", 403);
+}
+
+function formatPatientCode(id) {
+  return `PAT-${id < 10000 ? String(id).padStart(4, "0") : id}`;
+}
+
+function cleanNamePart(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+// Lower-case name words without punctuation: "Juan D. Dela Cruz" -> ["juan", "d", "dela", "cruz"].
+function nameSearchWords(value) {
+  return String(value ?? "").normalize("NFC").toLowerCase()
+    .replace(/[^\p{L}\p{N}'\s-]/gu, " ").split(/\s+/).filter(Boolean);
+}
+
+function pickColumns(row, columns) {
+  return row ? Object.fromEntries(columns.map((key) => [key, row[key] ?? null])) : null;
+}
+
+// The same rules as the registration form, checked before anything is saved.
+function readNewPatientRecord(input = {}) {
+  const firstName = cleanNamePart(input.firstName);
+  const lastName = cleanNamePart(input.lastName);
+  const middleInitial = String(input.middleInitial ?? "").replace(/[^A-Za-z]/g, "").toUpperCase();
+  const mobileNumber = String(input.mobileNumber ?? "").trim();
+  const residency = cleanNamePart(input.residency);
+  const philhealthId = cleanNamePart(input.philhealthId);
+  if (!firstName) throw registrationError("First Name is required.");
+  if (!lastName) throw registrationError("Last Name is required.");
+  if (firstName.length > 50 || lastName.length > 50) throw registrationError("First and last names can have at most 50 characters.");
+  if (middleInitial.length > 2) throw registrationError("Middle Initial can have at most 2 letters.");
+  if (!["Male", "Female"].includes(input.sex)) throw registrationError("Select the patient's sex.");
+  if (!input.birthdate) throw registrationError("Birthdate is required.");
+  if (!residency) throw registrationError("Residency / Complete Address is required.");
+  if (residency.length > 500) throw registrationError("Residency can have at most 500 characters.");
+  if (mobileNumber && !/^\d{1,15}$/.test(mobileNumber)) throw registrationError("Mobile Number can contain digits only.");
+  if (philhealthId.length > 100) throw registrationError("PhilHealth / YAKAP ID can have at most 100 characters.");
+  const fullName = [firstName, middleInitial ? `${middleInitial}.` : "", lastName].filter(Boolean).join(" ");
+  return {
+    first_name: firstName,
+    middle_initial: middleInitial || null,
+    last_name: lastName,
+    full_name: fullName,
+    search_name: nameSearchWords(fullName).join(" "),
+    birthdate: String(input.birthdate),
+    sex: input.sex,
+    mobile_number: mobileNumber || null,
+    residency,
+    philhealth_id: philhealthId || null
+  };
+}
+
+async function searchPatientRecords(search, actor) {
+  assertPatientRecordsActor(actor);
+  const text = String(search ?? "").trim();
+  if (text.length < 2) throw registrationError("Enter at least 2 characters of the patient's name.");
+  if (text.length > 100) throw registrationError("Search can have at most 100 characters.");
+  // Every word must appear somewhere in the name, so "juan", "dela cruz", "Juan Dela Cruz"
+  // and "cruz juan" all find Juan D. Dela Cruz, regardless of case.
+  const words = nameSearchWords(text).slice(0, 6);
+  if (!words.length) throw registrationError("Search by the patient's name.");
+  const byName = (a, b) => String(a.last_name).localeCompare(String(b.last_name)) ||
+    String(a.first_name).localeCompare(String(b.first_name)) || a.id - b.id;
+
+  let rows;
+  if (useLocalFallback) {
+    rows = localData.patientRecords.filter((row) => words.every((word) => row.search_name.includes(word)))
+      .sort(byName).slice(0, PATIENT_SEARCH_LIMIT + 1);
+  } else {
+    let query = supabase.from("patient_records").select(PATIENT_SEARCH_COLUMNS.join(", "));
+    // nameSearchWords removed % and _, so each word matches literally.
+    for (const word of words) query = query.ilike("search_name", `%${word}%`);
+    const { data, error } = await query.order("last_name").order("first_name").order("id").limit(PATIENT_SEARCH_LIMIT + 1);
+    if (error) {
+      const failure = patientRecordsFailure(error, "Failed to search patient records");
+      if (failure) throw failure;
+      return searchPatientRecords(search, actor);
+    }
+    rows = data || [];
+  }
+  return {
+    patients: rows.slice(0, PATIENT_SEARCH_LIMIT).map((row) => pickColumns(row, PATIENT_SEARCH_COLUMNS)),
+    truncated: rows.length > PATIENT_SEARCH_LIMIT
+  };
+}
+
+function readPatientRecordId(value) {
+  const id = typeof value === "number" ? value : /^\d{1,15}$/.test(String(value ?? "")) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) throw registrationError("A valid patient record is required.");
+  return id;
+}
+
+// Server-side lookup of a record id the browser sent; the browser's copy is never trusted.
+async function loadPatientRecord(id) {
+  if (useLocalFallback) return localData.patientRecords.find((row) => row.id === id) || null;
+  const { data, error } = await supabase.from("patient_records").select(PATIENT_RECORD_COLUMNS.join(", ")).eq("id", id).maybeSingle();
+  if (error) {
+    const failure = patientRecordsFailure(error, "Failed to load the patient record");
+    if (failure) throw failure;
+    return loadPatientRecord(id);
+  }
+  return data;
+}
+
+async function getPatientRecord(value, actor) {
+  assertPatientRecordsActor(actor);
+  const record = await loadPatientRecord(readPatientRecordId(value));
+  if (!record) throw patientRecordError("Patient record not found. Search again.", 404);
+  return pickColumns(record, PATIENT_RECORD_COLUMNS);
+}
+
+// Same first and last name, sex and birthdate. Possibly the same person, never assumed to be.
+async function findSimilarPatientRecords(fields) {
+  const sameName = (row) => nameSearchWords(row.first_name).join(" ") === nameSearchWords(fields.first_name).join(" ") &&
+    nameSearchWords(row.last_name).join(" ") === nameSearchWords(fields.last_name).join(" ");
+  let rows;
+  if (useLocalFallback) {
+    rows = localData.patientRecords.filter((row) => row.birthdate === fields.birthdate && row.sex === fields.sex);
+  } else {
+    const { data, error } = await supabase.from("patient_records").select(PATIENT_RECORD_COLUMNS.join(", "))
+      .eq("birthdate", fields.birthdate).eq("sex", fields.sex).order("id").limit(200);
+    if (error) {
+      const failure = patientRecordsFailure(error, "Failed to check for an existing patient record");
+      if (failure?.patientRecordsUnavailable) return [];
+      if (failure) throw failure;
+      return findSimilarPatientRecords(fields);
+    }
+    rows = data || [];
+  }
+  return rows.filter(sameName).slice(0, 5).map((row) => pickColumns(row, PATIENT_SEARCH_COLUMNS));
+}
+
+async function insertPatientRecord(fields, actor) {
+  const createdBy = actor?.id_num ? String(actor.id_num) : null;
+  if (useLocalFallback) {
+    const id = localData.nextPatientRecordId++;
+    const record = { id, patient_code: formatPatientCode(id), ...fields, created_by: createdBy, created_at: new Date().toISOString() };
+    localData.patientRecords.push(record);
+    return record;
+  }
+  const { data, error } = await supabase.from("patient_records").insert({ ...fields, created_by: createdBy })
+    .select(PATIENT_RECORD_COLUMNS.join(", ")).single();
+  if (error) {
+    const failure = patientRecordsFailure(error, "Failed to save the patient record");
+    if (failure) throw failure;
+    return insertPatientRecord(fields, actor);
+  }
+  return data;
+}
+
+// The patient's waiting or serving visit registered today, if any.
+async function findActiveVisitForRecord(recordId) {
+  const { start, end } = getTodayRange();
+  if (useLocalFallback) {
+    return localData.patients.find((row) => row.patient_record_id === recordId &&
+      ["waiting", "serving"].includes(row.status) && isCreatedInRange(row, { start, end })) || null;
+  }
+  const { data, error } = await supabase.from("patients").select("id, queue_number, status")
+    .eq("patient_record_id", recordId).in("status", ["waiting", "serving"])
+    .gte("created_at", start).lt("created_at", end).order("created_at").limit(1);
+  if (error) {
+    const failure = patientRecordsFailure(error, "Failed to check the patient's active visits");
+    if (failure) throw failure;
+    return findActiveVisitForRecord(recordId);
+  }
+  return data?.[0] || null;
+}
+
+// Repeated clicks or requests for the same patient run one at a time, so the second sees the
+// first one's visit or record. The backend runs as a single process (see README).
+const patientRegistrationLocks = new Map();
+
+async function withPatientRegistrationLock(key, task) {
+  const previous = patientRegistrationLocks.get(key) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const current = previous.then(() => gate);
+  patientRegistrationLocks.set(key, current);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (patientRegistrationLocks.get(key) === current) patientRegistrationLocks.delete(key);
+  }
+}
+
+// Front Desk queue registration. With patientRecordId, a new visit for that existing record;
+// without it, a new permanent record and then its first visit. Either way the visit is a new
+// "patients" row numbered by the usual queue rules. Source stays "website", the value the
+// Frontdesk form has always recorded, so dashboard statistics are unchanged.
+async function registerPatientVisit(input = {}, actor) {
+  assertPatientRecordsActor(actor);
+  const serviceType = String(input.serviceType ?? "").trim();
+  if (!serviceType) throw registrationError("Please select a service.");
+  const vulnerabilityFlags = input.vulnerabilityFlags || [];
+
+  if (input.patientRecordId != null && input.patientRecordId !== "") {
+    const recordId = readPatientRecordId(input.patientRecordId);
+    return withPatientRegistrationLock(`record:${recordId}`, async () => {
+      const record = await loadPatientRecord(recordId);
+      if (!record) throw patientRecordError("Patient record not found. Search again.", 404);
+      const active = await findActiveVisitForRecord(record.id);
+      if (active) {
+        throw patientRecordError(`${record.full_name} (${record.patient_code}) already has an active queue visit today (${active.queue_number}). Complete or cancel that visit before registering another.`, 409);
+      }
+      const visit = await createQueueEntry({
+        idNum: record.full_name, serviceType, mobileNumber: record.mobile_number, residency: record.residency,
+        philhealthId: record.philhealth_id, birthdate: record.birthdate, sex: record.sex,
+        vulnerabilityFlags, source: "website", patientRecordId: record.id
+      });
+      return { visit, record: pickColumns(record, PATIENT_RECORD_COLUMNS), recordCreated: false };
+    });
+  }
+
+  const fields = readNewPatientRecord(input);
+  // Refuse an invalid priority or an offline doctor before a record is saved.
+  normalizeRegistrationPriority(vulnerabilityFlags, fields.birthdate);
+  await ensureDoctorAvailableForService(serviceType);
+  const key = `new:${fields.first_name}|${fields.last_name}|${fields.birthdate}|${fields.sex}`.toLowerCase();
+  return withPatientRegistrationLock(key, async () => {
+    if (input.confirmNewRecord !== true) {
+      const similar = await findSimilarPatientRecords(fields);
+      if (similar.length) {
+        throw patientRecordError("A patient record with the same name, sex and birthdate already exists. Select it if this is the same person, or confirm that this is a different person.", 409, { possibleDuplicates: similar });
+      }
+    }
+    let record = null;
+    try {
+      record = await insertPatientRecord(fields, actor);
+    } catch (error) {
+      // Before the migration, registration keeps working exactly as it did: an unlinked visit.
+      if (!error.patientRecordsUnavailable) throw error;
+    }
+    try {
+      const visit = await createQueueEntry({
+        idNum: fields.full_name, serviceType, mobileNumber: fields.mobile_number, residency: fields.residency,
+        philhealthId: fields.philhealth_id, birthdate: fields.birthdate, sex: fields.sex,
+        vulnerabilityFlags, source: "website", patientRecordId: record?.id ?? null
+      });
+      return { visit, record: pickColumns(record, PATIENT_RECORD_COLUMNS), recordCreated: Boolean(record) };
+    } catch (error) {
+      // The record is saved even though the visit was not; a retry registers against it.
+      if (record) error.patientRecord = pickColumns(record, PATIENT_RECORD_COLUMNS);
+      throw error;
+    }
+  });
 }
 
 async function clearCounterAssignment(patientId) {
@@ -2172,6 +2467,12 @@ function buildCsv(rows) {
   return [headers.join(","), ...lines].join("\n");
 }
 
+// Analytics export: the By Service table as before, then the additional Detailed Data sections.
+function buildAnalyticsCsv(analytics) {
+  const { buildInsightsCsv } = require("./analyticsInsights");
+  return [buildCsv(analytics.tableData), buildInsightsCsv(analytics.insights)].filter(Boolean).join("\n\n");
+}
+
 async function getFilteredPatients({ status = "", service = "", doctor = "", ...dateFilters } = {}) {
   const range = getDateFilterRange(dateFilters, new Date());
   let counters = [];
@@ -2628,7 +2929,76 @@ function getVisitDoctor(row, counterAliases) {
   return resolveDoctorCounter(raw, counterAliases)?.id_num || raw;
 }
 
-async function getAnalytics(startDate, endDate, filters = {}) {
+// Doctor sign-in sessions overlapping the range (Phase A staff_auth_sessions). Read-only; null in
+// local fallback, where no sessions are stored.
+async function loadDoctorSessions(range) {
+  if (useLocalFallback) return null;
+  const sessions = [];
+  for (let offset = 0; ;) {
+    let query = supabase.from("staff_auth_sessions").select("doctor_name, created_at, last_seen_at, revoked_at, expires_at");
+    if (range?.end) query = query.lt("created_at", range.end);
+    if (range?.start) query = query.gte("last_seen_at", range.start);
+    const { data, error } = await query.order("created_at", { ascending: true }).range(offset, offset + 999);
+    if (error) throw formatError(error, "Doctor sign-in sessions could not be read");
+    if (!data?.length) break;
+    sessions.push(...data);
+    offset += data.length;
+  }
+  return sessions.filter((session) => session.doctor_name);
+}
+
+// The additional Detailed Analytics sections. Each source is read on its own, so a missing table
+// or an unreachable live queue marks only its own section unavailable; the existing analytics
+// above never depend on it.
+async function loadAnalyticsInsights(rows, selection, range, counterAliases) {
+  const { buildAnalyticsInsights } = require("./analyticsInsights");
+  const now = Date.now();
+  const settle = async (load) => {
+    try {
+      return { value: await load() };
+    } catch (error) {
+      return { error: error?.message || "unavailable" };
+    }
+  };
+  // Utilization needs every visit a doctor called, whatever the status or service filter.
+  const [visits, sessions, live] = await Promise.all([
+    settle(() => (selection.status || selection.service ? getFilteredPatients({ ...selection, status: "", service: "" }) : rows)),
+    settle(() => loadDoctorSessions(range)),
+    settle(async () => ({ patients: await getTodayPatients(), counters: await getCounters() }))
+  ]);
+  const visitRows = visits.value || rows;
+  const visitAliases = visitRows === rows ? counterAliases : await loadCounterAliases(visitRows);
+  const aliasesFor = new Map([...visitRows.map((row) => [row, visitAliases]), ...rows.map((row) => [row, counterAliases])]);
+  return buildAnalyticsInsights({
+    rows,
+    visits: visitRows,
+    sessions: sessions.value ?? null,
+    sessionError: sessions.error,
+    live: live.value || null,
+    liveError: live.error,
+    range,
+    now,
+    slaTargetMinutes: Number(getQueueSettings().slaTargetWaitMinutes),
+    ctx: {
+      doctorOf: (row) => getVisitDoctor(row, aliasesFor.get(row) || counterAliases),
+      serviceDoctor: getDoctorForService,
+      waitMinutes: getWaitMinutes,
+      serviceMinutes: (row) => {
+        const seconds = getServiceDurationSeconds(row);
+        return seconds == null ? null : seconds / 60;
+      },
+      serviceOrder: ANALYTICS_SERVICE_ORDER,
+      configuredServices: CONFIGURED_SERVICES,
+      doctorNames: DOCTOR_NAMES,
+      shared: isSharedDispatch(),
+      statusFilter: selection.status,
+      serviceFilter: selection.service,
+      doctorFilter: selection.doctor
+    }
+  });
+}
+
+async function getAnalytics(startDate, endDate, filters = {}, { insights = true } = {}) {
   const selection = { ...filters, startDate, endDate };
   const rows = await getFilteredPatients(selection);
   const range = getDateFilterRange(selection, new Date());
@@ -2666,7 +3036,7 @@ async function getAnalytics(startDate, endDate, filters = {}) {
     .sort((a, b) => a.doctor.localeCompare(b.doctor, undefined, { numeric: true }));
 
   const completionCount = rows.filter((row) => row.status === "completed").length;
-  return {
+  const analytics = {
     metrics: {
       totalPatients: rows.length,
       avgWaitTime: waitSamples ? Number((totalWaitMinutes / waitSamples).toFixed(1)) : 0,
@@ -2687,6 +3057,15 @@ async function getAnalytics(startDate, endDate, filters = {}) {
     totals: summarizeVisits(rows),
     doctorTable
   };
+  if (insights) {
+    try {
+      analytics.insights = await loadAnalyticsInsights(rows, selection, range, counterAliases);
+    } catch (error) {
+      console.warn("Additional analytics could not be computed:", error?.message);
+      analytics.insights = { error: "The additional analytics could not be computed. The figures above are unaffected." };
+    }
+  }
+  return analytics;
 }
 
 async function seedCounters() {
@@ -3223,6 +3602,7 @@ async function processAccountCancellationRequest(id, { action, processed_by, adm
 
 module.exports = {
   buildCsv,
+  buildAnalyticsCsv,
   callPatient,
   cancelPatient,
   cancelHistoricalWaitingVisit,
@@ -3234,6 +3614,9 @@ module.exports = {
   startConsultation,
   getServingPatientForDoctor,
   createQueueEntry,
+  searchPatientRecords,
+  getPatientRecord,
+  registerPatientVisit,
   findActiveDuplicate,
   getAnalytics,
   getDashboardStats,

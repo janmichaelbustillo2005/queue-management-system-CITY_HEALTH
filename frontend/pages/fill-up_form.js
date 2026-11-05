@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import SiteFrame from "../components/SiteFrame";
 import DigitalQueuePass from "../components/DigitalQueuePass";
+import PatientRecordSearch, { formatRecordBirthdate } from "../components/PatientRecordSearch";
 import QueueTicketActions from "../components/QueueTicketActions";
 import QueueTicketDialog from "../components/QueueTicketDialog";
 import { request } from "../lib/api";
@@ -117,6 +118,34 @@ function validateName({ firstName, lastName }) {
   return "";
 }
 
+// FRS-01: Automatically compute age and validate senior citizen status (>= 60)
+function withSeniorFlag(form) {
+  if (!form.birthdate) return form;
+  const today = new Date();
+  const birthDate = new Date(form.birthdate);
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  const others = form.vulnerabilityFlags.filter(f => f !== "senior");
+  return { ...form, vulnerabilityFlags: age >= 60 ? [...others, "senior"] : others };
+}
+
+// The saved details of a selected patient record, in the form's own fields.
+function formFromRecord(record) {
+  return {
+    firstName: record.first_name || "",
+    middleInitial: record.middle_initial || "",
+    lastName: record.last_name || "",
+    mobileNumber: record.mobile_number || "",
+    residency: record.residency || "",
+    philhealthId: record.philhealth_id || "",
+    birthdate: record.birthdate || "",
+    sex: record.sex || ""
+  };
+}
+
 export default function FillUpFormPage() {
   const { user } = useAuth();
   const isFrontdesk = user?.id_num === "frontdesk";
@@ -138,6 +167,13 @@ export default function FillUpFormPage() {
   const ticketGenerationRef = useRef(0);
   const savedPatientIdRef = useRef(null);
   const canIssueTicket = isFrontdesk || user?.role === "superadmin";
+  // Staff registrations save a permanent patient record (or reuse a selected one); the API
+  // enforces the same Frontdesk/Superadmin rule. Others keep the original registration.
+  const canUsePatientRecords = isFrontdesk || user?.role === "superadmin";
+  const [selectedPatient, setSelectedPatient] = useState(null);
+  const [duplicateCandidates, setDuplicateCandidates] = useState(null);
+  const [recordLoading, setRecordLoading] = useState(false);
+  const recordRequestRef = useRef(0);
   const canIssueTicketRef = useRef(canIssueTicket);
   canIssueTicketRef.current = canIssueTicket;
   const [residencySuggestions, setResidencySuggestions] = useState([]);
@@ -225,31 +261,44 @@ export default function FillUpFormPage() {
 
   const handleBirthdateChange = (e) => {
     const birthdate = e.target.value;
-    setForm(prev => {
-      const newForm = { ...prev, birthdate };
-      
-      // FRS-01: Automatically compute age and validate senior citizen status (>= 60)
-      if (birthdate) {
-        const today = new Date();
-        const birthDate = new Date(birthdate);
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const m = today.getMonth() - birthDate.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-          age--;
-        }
-
-        if (age >= 60) {
-          if (!newForm.vulnerabilityFlags.includes("senior")) {
-            newForm.vulnerabilityFlags = [...newForm.vulnerabilityFlags, "senior"];
-          }
-        } else {
-          newForm.vulnerabilityFlags = newForm.vulnerabilityFlags.filter(f => f !== "senior");
-        }
-      }
-      
-      return newForm;
-    });
+    setForm(prev => withSeniorFlag({ ...prev, birthdate }));
   };
+
+  // Reads the selected record from the server by its id and fills the form with it. Reading
+  // changes nothing; the visit is only created when the form is submitted.
+  async function selectPatientRecord(row) {
+    if (submittingRef.current || !canUsePatientRecords) return;
+    const version = ++recordRequestRef.current;
+    setRecordLoading(true);
+    setMessage({ type: "", text: "", queue: "" });
+    let data;
+    try {
+      data = await request(`/patient-records/${encodeURIComponent(row.id)}`);
+    } catch (error) {
+      data = { error: error.message || "Unable to load the patient record. Please retry." };
+    }
+    if (version !== recordRequestRef.current) return;
+    setRecordLoading(false);
+    if (data?.error || !data?.patient) {
+      setMessage({ type: "danger", text: data?.error || "Unable to load the patient record. Please retry.", queue: "" });
+      return;
+    }
+    residencyRequestRef.current += 1;
+    setResidencySuggestions([]);
+    setShowSuggestions(false);
+    setDuplicateCandidates(null);
+    setSelectedPatient(data.patient);
+    setForm(prev => withSeniorFlag({ ...prev, ...formFromRecord(data.patient) }));
+  }
+
+  // Back to a new patient: the record's details leave the form; the visit choices stay.
+  function clearSelectedPatient() {
+    if (submittingRef.current) return;
+    recordRequestRef.current += 1;
+    setRecordLoading(false);
+    setSelectedPatient(null);
+    setForm(prev => ({ ...emptyForm, serviceType: prev.serviceType, vulnerabilityFlags: prev.vulnerabilityFlags.filter(f => f !== "senior") }));
+  }
 
   const handleResidencySearch = async (query) => {
     const requestVersion = ++residencyRequestRef.current;
@@ -284,9 +333,9 @@ export default function FillUpFormPage() {
     setShowSuggestions(false);
   };
 
-  async function handleSubmit(event) {
+  async function handleSubmit(event, { confirmNewRecord = false } = {}) {
     event.preventDefault();
-    if (submittingRef.current || registrationSavedRef.current || isSuccess) return;
+    if (submittingRef.current || registrationSavedRef.current || isSuccess || recordLoading) return;
 
     const nameError = validateName(form);
     if (nameError) {
@@ -313,7 +362,8 @@ export default function FillUpFormPage() {
         return;
       }
 
-      const payload = {
+      let route = "/queue/website";
+      let payload = {
         fullName: buildFullName(form),
         serviceType: form.serviceType,
         mobileNumber: form.mobileNumber,
@@ -323,14 +373,46 @@ export default function FillUpFormPage() {
         sex: form.sex,
         vulnerabilityFlags: form.vulnerabilityFlags
       };
+      if (canUsePatientRecords) {
+        route = "/patient-records/visits";
+        // A selected patient is identified by record id only; the server uses the stored
+        // details, so the permanent record is never overwritten from this form.
+        payload = selectedPatient
+          ? { patientRecordId: selectedPatient.id, serviceType: form.serviceType, vulnerabilityFlags: form.vulnerabilityFlags }
+          : {
+              firstName: cleanNamePart(form.firstName),
+              middleInitial: form.middleInitial,
+              lastName: cleanNamePart(form.lastName),
+              serviceType: form.serviceType,
+              mobileNumber: form.mobileNumber,
+              residency: form.residency,
+              philhealthId: form.philhealthId,
+              birthdate: form.birthdate,
+              sex: form.sex,
+              vulnerabilityFlags: form.vulnerabilityFlags,
+              ...(confirmNewRecord ? { confirmNewRecord: true } : {})
+            };
+      }
 
-      const data = await request("/queue/website", {
+      const data = await request(route, {
         method: "POST",
         body: JSON.stringify(payload)
       });
 
       if (data.error) {
-        setMessage({ type: "danger", text: data.error, queue: "" });
+        const details = data.details || {};
+        if (Array.isArray(details.possible_duplicates) && details.possible_duplicates.length) {
+          // Shown as its own choice below the form instead of a plain error.
+          setDuplicateCandidates(details.possible_duplicates);
+          setMessage({ type: "", text: "", queue: "" });
+        } else if (details.patient_record) {
+          // The new record was saved but its visit was not: retrying registers against it.
+          setSelectedPatient(details.patient_record);
+          setDuplicateCandidates(null);
+          setMessage({ type: "danger", text: `Patient record ${details.patient_record.patient_code} was saved, but no queue number was generated: ${data.error} Submit again to register this visit.`, queue: "" });
+        } else {
+          setMessage({ type: "danger", text: data.error, queue: "" });
+        }
         setIsLoading(false);
         return;
       }
@@ -342,10 +424,14 @@ export default function FillUpFormPage() {
         queue: data.queue_number,
         priorityScore: data.priority_score || 0,
         serviceType: form.serviceType,
-        doctorName
+        doctorName,
+        patientCode: data.patient_record?.patient_code || "",
+        recordCreated: Boolean(data.patient_record_created)
       });
       setIsSuccess(true);
       setForm(emptyForm);
+      setSelectedPatient(null);
+      setDuplicateCandidates(null);
       residencyRequestRef.current += 1;
       setResidencySuggestions([]);
       setShowSuggestions(false);
@@ -375,6 +461,10 @@ export default function FillUpFormPage() {
   const resetForm = () => {
     if (submittingRef.current || ticketLoadingRef.current) return;
     setForm(emptyForm);
+    recordRequestRef.current += 1;
+    setRecordLoading(false);
+    setSelectedPatient(null);
+    setDuplicateCandidates(null);
     setMessage({ type: "", text: "", queue: "" });
     setIsSuccess(false);
     ticketGenerationRef.current += 1;
@@ -412,6 +502,9 @@ export default function FillUpFormPage() {
                   <div>
                     <h2 ref={successHeadingRef} tabIndex={-1}>Patient registered successfully.</h2>
                     <p>Print the ticket, then register the next patient.</p>
+                    {message.patientCode ? (
+                      <p className="registration-patient-code">Patient ID {message.patientCode} · {message.recordCreated ? "new patient record saved" : "returning patient"}</p>
+                    ) : null}
                   </div>
                 </div>
               )}
@@ -424,18 +517,36 @@ export default function FillUpFormPage() {
                     <div role="alert" className={`alert alert-${message.type} text-center py-2 small`}>{message.text}</div>
                   ) : null}
 
+                  {canUsePatientRecords ? (
+                    <PatientRecordSearch onSelect={selectPatientRecord} disabled={isLoading || recordLoading} selectedId={selectedPatient?.id ?? null} />
+                  ) : null}
+
                   <form onSubmit={handleSubmit}>
                     <div className="frontdesk-demographics-panel brand-bg-subtle p-3 p-md-4 rounded-3 border brand-border mb-3">
                       <h2 className="frontdesk-section-title">
                         <i className="bi bi-person-lines-fill"></i>
                         Patient Information
                       </h2>
+                      {recordLoading ? <p className="patient-record-status" role="status">Loading the patient record…</p> : null}
+                      {selectedPatient ? (
+                        <div className="patient-record-selected" role="status">
+                          <div>
+                            <p className="patient-record-selected-name">Returning patient: {selectedPatient.full_name}</p>
+                            <p>Patient ID <strong>{selectedPatient.patient_code}</strong> · Born {formatRecordBirthdate(selectedPatient.birthdate)} · {selectedPatient.sex || "Sex not recorded"}</p>
+                            <p className="patient-record-selected-note">Saved details are filled in from the patient record and are not edited here. Verify the patient&apos;s identity, then choose this visit&apos;s service.</p>
+                          </div>
+                          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={clearSelectedPatient} disabled={isLoading}>
+                            Change Patient
+                          </button>
+                        </div>
+                      ) : null}
                       <div className="frontdesk-form-grid">
                       <div className="grid-full row g-2 mb-3">
                         <div className="col-12 col-md-5">
                           <label htmlFor="patient-first-name" className="brand-text form-label fw-semibold small">First Name <span className="text-danger">*</span></label>
                           <input
                             id="patient-first-name"
+                            readOnly={Boolean(selectedPatient)}
                             type="text"
                             className="brand-input form-control form-control-sm"
                             placeholder="e.g. Juan"
@@ -450,6 +561,7 @@ export default function FillUpFormPage() {
                           <label htmlFor="patient-middle-initial" className="brand-text form-label fw-semibold small">Middle Initial (Optional)</label>
                           <input
                             id="patient-middle-initial"
+                            readOnly={Boolean(selectedPatient)}
                             type="text"
                             className="brand-input form-control form-control-sm"
                             placeholder="e.g. D"
@@ -465,6 +577,7 @@ export default function FillUpFormPage() {
                           <label htmlFor="patient-last-name" className="brand-text form-label fw-semibold small">Last Name <span className="text-danger">*</span></label>
                           <input
                             id="patient-last-name"
+                            readOnly={Boolean(selectedPatient)}
                             type="text"
                             className="brand-input form-control form-control-sm"
                             placeholder="e.g. Dela Cruz"
@@ -483,6 +596,7 @@ export default function FillUpFormPage() {
                           <span className="input-group-text brand-border bg-white border-end-0">+63</span>
                           <input
                             id="patient-mobile"
+                            readOnly={Boolean(selectedPatient)}
                             type="text"
                             className="brand-input form-control border-start-0 ps-1"
                             placeholder="9123456789"
@@ -498,6 +612,7 @@ export default function FillUpFormPage() {
                         <label htmlFor="patient-philhealth" className="brand-text form-label fw-semibold small">PhilHealth / YAKAP ID (Optional)</label>
                         <input
                           id="patient-philhealth"
+                          readOnly={Boolean(selectedPatient)}
                           type="text"
                           className="brand-input form-control form-control-sm"
                           placeholder="PhilHealth or YAKAP ID No."
@@ -515,7 +630,7 @@ export default function FillUpFormPage() {
                           value={form.sex}
                           onChange={(e) => setForm({ ...form, sex: e.target.value })}
                           required
-                          disabled={isLoading}
+                          disabled={isLoading || Boolean(selectedPatient)}
                         >
                           <option value="">Select Sex</option>
                           <option value="Male">Male</option>
@@ -527,6 +642,7 @@ export default function FillUpFormPage() {
                         <label htmlFor="patient-birthdate" className="brand-text form-label fw-semibold small">Birthdate <span className="text-danger">*</span></label>
                         <input
                           id="patient-birthdate"
+                          readOnly={Boolean(selectedPatient)}
                           type="date"
                           className="brand-input form-control form-control-sm"
                           value={form.birthdate}
@@ -544,6 +660,7 @@ export default function FillUpFormPage() {
                           </span>
                           <input
                             id="patient-residency"
+                            readOnly={Boolean(selectedPatient)}
                             type="text"
                             className="brand-input form-control"
                             placeholder="Search and select barangay / city residency..."
@@ -635,9 +752,28 @@ export default function FillUpFormPage() {
 
                     <section className="registration-review" aria-labelledby="registration-review-title">
                       <h3 id="registration-review-title">Review and Submit</h3>
-                      <p>{buildFullName(form) || "Enter the patient information above."} · {serviceOptions.find((option) => option.value === form.serviceType)?.label || "Select a service"}{form.serviceType ? ` · ${sharedDispatch ? SHARED_DOCTOR_LABEL : getDoctorForService(form.serviceType)}` : ""}</p>
+                      <p>{buildFullName(form) || "Enter the patient information above."}{selectedPatient ? ` (${selectedPatient.patient_code})` : ""} · {serviceOptions.find((option) => option.value === form.serviceType)?.label || "Select a service"}{form.serviceType ? ` · ${sharedDispatch ? SHARED_DOCTOR_LABEL : getDoctorForService(form.serviceType)}` : ""}</p>
                       <p className="registration-review-note">Check the patient details and classification before generating one queue number.</p>
                     </section>
+                    {duplicateCandidates ? (
+                      <div role="alert" className="alert alert-warning small patient-record-duplicates">
+                        <p className="fw-semibold mb-1">A patient record with the same name, sex and birthdate already exists.</p>
+                        <p className="mb-2">If this is the same person, select the existing record. Register a new record only for a different person.</p>
+                        <ul className="list-unstyled mb-2">
+                          {duplicateCandidates.map((candidate) => (
+                            <li key={candidate.id} className="d-flex flex-wrap align-items-center gap-2 mb-1">
+                              <span>{candidate.full_name} · <strong>{candidate.patient_code}</strong> · Born {formatRecordBirthdate(candidate.birthdate)} · {candidate.sex || "Sex not recorded"}</span>
+                              <button type="button" className="btn btn-sm btn-csu-primary" onClick={() => selectPatientRecord(candidate)} disabled={isLoading || recordLoading}>
+                                Select {candidate.patient_code}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={(event) => handleSubmit(event, { confirmNewRecord: true })} disabled={isLoading || recordLoading}>
+                          Register as a Different Person
+                        </button>
+                      </div>
+                    ) : null}
                     <div className="d-flex gap-2 mt-3 mt-md-3 justify-content-end">
                       <button 
                         type="button"

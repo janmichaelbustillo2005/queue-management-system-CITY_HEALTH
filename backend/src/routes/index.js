@@ -12,6 +12,7 @@ const {
 } = require("../services/presenceService");
 const {
   buildCsv,
+  buildAnalyticsCsv,
   callPatient,
   cancelPatient,
   cancelHistoricalWaitingVisit,
@@ -27,6 +28,9 @@ const {
   startConsultation,
   getServingPatientForDoctor,
   createQueueEntry,
+  searchPatientRecords,
+  getPatientRecord,
+  registerPatientVisit,
   getAnalytics,
   getDashboardStats,
   getDisplayData,
@@ -225,6 +229,57 @@ router.post("/queue/website", async (req, res) => {
     });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+// Permanent patient records for Front Desk registration. The service admits only Frontdesk and
+// Superadmin accounts; search terms arrive as query values, which the request log redacts.
+router.get("/patient-records", authenticateToken, async (req, res) => {
+  try {
+    const result = await searchPatientRecords(req.query.search, req.user);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+router.get("/patient-records/:id", authenticateToken, async (req, res) => {
+  try {
+    const patient = await getPatientRecord(req.params.id, req.user);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, patient });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+// Registers a queue visit: for the selected existing record (patientRecordId), or for a new
+// patient, whose permanent record is saved first. Never edits an existing record.
+router.post("/patient-records/visits", authenticateToken, async (req, res) => {
+  try {
+    const {
+      patientRecordId, confirmNewRecord, firstName, middleInitial, lastName, serviceType,
+      mobileNumber, residency, philhealthId, birthdate, sex, vulnerabilityFlags
+    } = req.body || {};
+    const { visit, record, recordCreated } = await registerPatientVisit({
+      patientRecordId, confirmNewRecord, firstName, middleInitial, lastName, serviceType,
+      mobileNumber, residency, philhealthId, birthdate, sex, vulnerabilityFlags
+    }, req.user);
+    return res.json({
+      success: true,
+      queue_number: visit.queue_number,
+      priority_score: visit.priority_score,
+      patient_record: record,
+      patient_record_created: recordCreated
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message,
+      ...(error.possibleDuplicates ? { possible_duplicates: error.possibleDuplicates } : {}),
+      ...(error.patientRecord ? { patient_record: error.patientRecord } : {})
+    });
   }
 });
 
@@ -622,8 +677,9 @@ router.get("/analytics", authenticateToken, authorizeRole(["superadmin"]), async
 router.get("/analytics/export", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
     const filters = readAnalyticsFilters(req.query);
+    // The By Service table first, as before, then the additional Detailed Data sections.
     const data = await getAnalytics(filters.startDate, filters.endDate, filters);
-    const csv = buildCsv(data.tableData);
+    const csv = buildAnalyticsCsv(data);
 
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="analytics_${filters.startDate || filters.date || "all"}_${filters.endDate || filters.date || "dates"}.csv"`);

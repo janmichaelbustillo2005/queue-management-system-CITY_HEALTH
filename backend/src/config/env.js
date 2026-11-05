@@ -46,10 +46,30 @@ function readDoctorDispatchMode(value) {
   return mode;
 }
 
+// FRONTEND_URL may list several sites, separated by commas. Browsers send an Origin with no
+// trailing slash, so one pasted with a slash would otherwise never match.
+function readFrontendUrls(value) {
+  return String(value || "http://localhost:3000").split(",").map((url) => url.trim().replace(/\/+$/u, "")).filter(Boolean);
+}
+
+// Without Supabase the backend falls back to development memory, whose sample accounts have
+// published passwords. A hosted backend must stop instead of serving them.
+function requireDatabaseConfiguration(isProduction, supabaseUrl, supabaseServiceRoleKey) {
+  if (isProduction && (!supabaseUrl || !supabaseServiceRoleKey)) {
+    const error = new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required when NODE_ENV=production. The configured values are not shown.");
+    error.code = "MISSING_DATABASE_CONFIGURATION";
+    throw error;
+  }
+}
+
+const isProduction = process.env.NODE_ENV === "production";
+requireDatabaseConfiguration(isProduction, process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
 const env = {
   port: Number(process.env.PORT || 4000),
+  isProduction,
   doctorDispatchMode: readDoctorDispatchMode(process.env.DOCTOR_DISPATCH_MODE),
-  frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
+  frontendUrls: readFrontendUrls(process.env.FRONTEND_URL),
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   smsSenderName: process.env.SMS_SENDER_NAME || "Smart Queuing System",

@@ -1,0 +1,34 @@
+# Render Blueprint for the backend. The frontend stays on Vercel and the database stays on Supabase.
+# Values marked sync: false are typed into the Render dashboard and are never stored in this file.
+services:
+  - type: web
+    name: city-health-queue-backend
+    runtime: node
+    region: singapore
+    plan: 0.5c-512mb
+    rootDir: backend
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    # Queue settings, accept state and voice events live in files. A disk keeps them across
+    # restarts and deploys, and limits the service to one instance.
+    disk:
+      name: queue-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: VOICE_SERVICE_AUTOSTART
+        value: "0"
+      - key: FRONTEND_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false

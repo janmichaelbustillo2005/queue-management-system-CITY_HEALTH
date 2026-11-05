@@ -2,9 +2,14 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-const SETTINGS_PATH = path.join(__dirname, "../../data/queue-settings.json");
-const AWAITING_ACCEPT_PATH = path.join(__dirname, "../../data/awaiting-accept.json");
-const VOICE_ANNOUNCEMENTS_PATH = path.join(__dirname, "../../data/voice-announcements.json");
+// DATA_DIR points at a persistent disk on a hosted backend. The settings committed with the
+// code seed a new disk until a superadmin saves their own.
+const BUNDLED_SETTINGS_PATH = path.join(__dirname, "../../data/queue-settings.json");
+const configuredDataDir = globalThis.process?.env.DATA_DIR;
+const DATA_DIR = configuredDataDir ? path.resolve(configuredDataDir) : path.dirname(BUNDLED_SETTINGS_PATH);
+const SETTINGS_PATH = path.join(DATA_DIR, "queue-settings.json");
+const AWAITING_ACCEPT_PATH = path.join(DATA_DIR, "awaiting-accept.json");
+const VOICE_ANNOUNCEMENTS_PATH = path.join(DATA_DIR, "voice-announcements.json");
 const MAX_VOICE_ANNOUNCEMENTS = 100;
 
 const DEFAULT_QUEUE_SETTINGS = {
@@ -17,6 +22,8 @@ const DEFAULT_QUEUE_SETTINGS = {
   announceDoctorRoom: true,
   announceGapSeconds: 3,
   noShowWaitMinutes: 10,
+  // Analytics SLA: a patient called within this many minutes of registering counts as on time.
+  slaTargetWaitMinutes: 30,
   recallAttempts: 2,
   allowQueueReassignment: true,
   preventDuplicateRegistration: true,
@@ -50,10 +57,11 @@ function mergeSettings(raw = {}) {
 function readSettingsFromDisk() {
   try {
     ensureDataDir();
-    if (!fs.existsSync(SETTINGS_PATH)) {
+    const source = fs.existsSync(SETTINGS_PATH) ? SETTINGS_PATH : BUNDLED_SETTINGS_PATH;
+    if (!fs.existsSync(source)) {
       return { ...DEFAULT_QUEUE_SETTINGS };
     }
-    const raw = fs.readFileSync(SETTINGS_PATH, "utf8");
+    const raw = fs.readFileSync(source, "utf8");
     if (!raw.trim()) return { ...DEFAULT_QUEUE_SETTINGS };
     return mergeSettings(JSON.parse(raw));
   } catch (err) {
@@ -82,6 +90,8 @@ function saveQueueSettings(nextSettings = {}) {
   merged.announceGapSeconds = Number(merged.announceGapSeconds);
   if (!Number.isFinite(merged.announceGapSeconds)) merged.announceGapSeconds = 3;
   merged.noShowWaitMinutes = Number(merged.noShowWaitMinutes) || 10;
+  const slaTarget = Math.round(Number(merged.slaTargetWaitMinutes));
+  merged.slaTargetWaitMinutes = slaTarget >= 1 && slaTarget <= 240 ? slaTarget : 30;
   merged.recallAttempts = Number(merged.recallAttempts);
   if (!Number.isFinite(merged.recallAttempts)) merged.recallAttempts = 2;
 

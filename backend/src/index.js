@@ -5,6 +5,7 @@ const routes = require("./routes");
 const { seedCounters } = require("./services/queueService");
 const { startVoiceService } = require("./services/voiceServiceLauncher");
 const { redactQueryValues } = require("./lib/requestLog");
+const { loginLimiter, publicRegistrationLimiter } = require("./middleware/rateLimit");
 
 const app = express();
 
@@ -15,8 +16,16 @@ app.use(
         return callback(null, true);
       }
 
-      const allowed = [env.frontendUrl, "http://localhost:3000"];
-      if (allowed.includes(origin)) {
+      if (env.frontendUrls.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // A hosted backend accepts only the configured frontend sites.
+      if (env.isProduction) {
+        return callback(new Error("Not allowed by CORS"));
+      }
+
+      if (origin === "http://localhost:3000") {
         return callback(null, true);
       }
 
@@ -44,6 +53,9 @@ app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${redactQueryValues(req.url)}`);
   next();
 });
+
+app.use("/api/auth/login", loginLimiter);
+app.use("/api/queue/website", publicRegistrationLimiter);
 
 app.use("/api/records", require("./routes/records"));
 app.use("/api", routes);

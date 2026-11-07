@@ -147,7 +147,7 @@ describe("E2E-1 Test B: WPS priority selection (Regular registered first, Senior
 
     // 5. The backend refuses the lower-priority patient before any write...
     h.log.length = 0;
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: regular }), 400, PRIORITY_REFUSAL);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: regular }), 400, PRIORITY_REFUSAL);
     assert.deepEqual(h.log.filter((entry) => entry.kind !== "rpc" && entry.action !== "select"), [], "no table write");
     // ...and C1 itself refuses it too: a separate service_role connection calls the function
     // directly with the Regular's current revision, as a client that skipped the backend check would.
@@ -165,7 +165,7 @@ describe("E2E-1 Test B: WPS priority selection (Regular registered first, Senior
     await record("c1-refused-regular", ids);
 
     // 6-7. C1 calls the Senior on Doctor 1.
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: senior }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: senior }), 200);
     const s1 = await patient(db, senior);
     assert.equal(s1.status, "serving");
     assert.equal(s1.counter_id, "Doctor 1");
@@ -173,7 +173,7 @@ describe("E2E-1 Test B: WPS priority selection (Regular registered first, Senior
     assert.deepEqual(await pointers(db), { "Doctor 1": senior, "Doctor 2": null, "Doctor 3": null });
     assert.equal((await patient(db, regular)).status, "waiting");
     // While Doctor 1 is busy the Regular cannot be called either.
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: regular }), 400, /already serving/);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: regular }), 400, /already serving/);
     await record("senior-called", ids);
 
     // 8-9. Doctor 1 accepts, starts and completes; the counter is released.
@@ -191,7 +191,7 @@ describe("E2E-1 Test B: WPS priority selection (Regular registered first, Senior
     // The Regular is now the head in both views and is resolved through the same workflow.
     const after = renderTable((await h.request("GET", "/queue", { token: tokens.frontdesk })).body);
     assert.ok(after.find((row) => row.text.includes(r0.queue_number)).buttons.includes("Call Now"));
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: regular }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: regular }), 200);
     expectStatus(await post(h, tokens.admin1, "/queue/accept", { patient_id: regular }), 200);
     expectStatus(await post(h, tokens.admin1, "/queue/start", { patient_id: regular }), 200);
     expectStatus(await post(h, tokens.admin1, "/queue/complete", { patient_id: regular }), 200);

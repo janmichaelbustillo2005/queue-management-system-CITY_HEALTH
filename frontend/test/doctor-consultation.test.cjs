@@ -541,3 +541,108 @@ for (const number of [1, 2, 3]) {
     }
   });
 }
+
+function waiting(id, state = {}) {
+  return serving(id, { status: "waiting", counter_id: null, called_at: null, awaiting_accept: false, ...state });
+}
+const inQueue = (tree, id) => text(tree).includes(`Test patient ${id}`);
+
+test("a registered patient appears directly in the assigned doctor's queue, and in no other doctor's", async () => {
+  const rows = [waiting(1), waiting(2, { service_type: "prenatal" }), waiting(3, { service_type: "family_planning" }),
+    waiting(4, { counter_id: "Doctor 2" })];
+  const h = await harness(rows);
+  const tree = await h.flush();
+  assert.equal(inQueue(tree, 1), true);
+  for (const id of [2, 3, 4]) assert.equal(inQueue(tree, id), false, `patient ${id}`);
+  const second = await harness(rows, { props: { doctorId: 2, doctorName: "Doctor 2" }, user: { id_num: "admin2", role: "admin", doctor_name: "Doctor 2" } });
+  const secondTree = await second.flush();
+  assert.equal(inQueue(secondTree, 2), true);
+  assert.equal(inQueue(secondTree, 4), true, "a stored assignment wins over the service mapping");
+  assert.equal(inQueue(secondTree, 1), false);
+});
+
+test("Call belongs to the priority head only and sends the call the voice announcer follows", async () => {
+  const h = await harness([waiting(1), waiting(2, { priority_score: 4, created_at: "2026-10-10T01:05:00.000Z" })]);
+  const tree = await h.flush();
+  assert.equal(nodes(tree, (node) => node.type === "button" && text(node).trim() === "Call").length, 1);
+  assert.match(text(tree), /Waiting for turn/);
+  assert.equal(button(tree, "Confirm"), undefined, "the row has no Confirm");
+  assert.equal(nodes(tree, (node) => node.type === "button" && node.props["aria-label"] === "Cancel").length, 1, "Cancel sits beside Call");
+  await button(tree, "Call").props.onClick();
+  assert.deepEqual(h.actions, [{ route: "/queue/call", method: "POST", body: { patient_id: 2 } }]);
+  assert.ok(h.refreshes >= 1);
+});
+
+test("Cancel beside Call needs a reason and cancels the waiting patient against this doctor", async () => {
+  const h = await harness([waiting(1)]);
+  await button(await h.flush(), "Cancel").props.onClick();
+  await button(h.render(), "Confirm").props.onClick();
+  assert.equal(h.actions.length, 0, "the popup still requires a reason");
+  const reason = nodes(h.render(), (node) => node.type === "textarea")[0];
+  reason.props.onChange({ target: { value: "Patient left" } });
+  await button(h.render(), "Confirm").props.onClick();
+  assert.deepEqual(h.actions, [{ route: "/queue/cancel", method: "POST",
+    body: { patient_id: 1, reason: "Patient left", counter_id: "Doctor 1" } }]);
+});
+
+test("after the doctor's Call the row goes straight to Start Consultation, with no confirm step", async () => {
+  const h = await harness([serving(1, { awaiting_accept: false, accepted_at: acceptedAt })]);
+  const tree = await h.flush();
+  assert.equal(button(tree, "Accept patient"), undefined);
+  assert.ok(button(tree, "Start Consultation"));
+  assert.ok(button(tree, "Cancel"));
+  assert.equal(button(tree, "Re-Call").props.disabled, false);
+});
+
+test("a serving patient holds the queue: nobody waiting can be called until that visit ends", async () => {
+  const h = await harness([serving(1), waiting(2)]);
+  const tree = await h.flush();
+  assert.equal(button(tree, "Call"), undefined);
+  assert.match(text(tree), /Waiting for turn/);
+  assert.ok(button(tree, "Accept patient"), "Accept stays on the called patient");
+  assert.ok(button(tree, "Cancel"));
+});
+
+test("two quick clicks send one Call, and a backend refusal is shown", async () => {
+  const pending = [];
+  const h = await harness([waiting(1)], { request: () => new Promise((resolve) => pending.push(resolve)) });
+  const call = button(await h.flush(), "Call");
+  const first = call.props.onClick();
+  await call.props.onClick();
+  assert.equal(h.actions.length, 1);
+  assert.equal(button(h.render(), "Calling...").props.disabled, true);
+  pending[0]({ success: false, message: "Call the next eligible patient" });
+  await first;
+  assert.match(text(await h.flush()), /Call the next eligible patient/);
+  assert.equal(button(h.render(), "Call").props.disabled, false);
+});
+
+test("a disabled or occupied counter blocks Call and explains why", async () => {
+  for (const counters of [[{ ...doctor(1), is_online: false }, doctor(2), doctor(3)], [doctor(1, 99), doctor(2), doctor(3)]]) {
+    const h = await harness([waiting(1)], { counters });
+    const call = button(await h.flush(), "Call");
+    assert.equal(call.props.disabled, true);
+    assert.ok(call.props.title.length > 0);
+    await call.props.onClick();
+    assert.equal(h.actions.length, 0);
+  }
+});
+
+test("Super Admin viewing a doctor's queue sees waiting patients but does not call from it", async () => {
+  const h = await harness([waiting(1)], { user: { id_num: "superadmin", role: "superadmin" } });
+  const tree = await h.flush();
+  assert.equal(inQueue(tree, 1), true);
+  assert.equal(button(tree, "Call"), undefined);
+});
+
+test("shared dispatch: every doctor sees the unassigned queue, and a reservation stays with its doctor", async () => {
+  const rows = [waiting(1, { service_type: "family_planning" }), waiting(2, { counter_id: "Doctor 3" }), waiting(3, { service_type: "laboratory" })];
+  const h = await harness(rows, { queueResponse: (backend) => ({ ...clone(backend), dispatch_mode: "shared" }) });
+  const tree = await h.flush();
+  assert.equal(inQueue(tree, 1), true);
+  assert.equal(inQueue(tree, 2), false);
+  assert.equal(inQueue(tree, 3), false, "a service outside the shared queue cannot be called");
+  assert.equal(button(tree, "Cancel"), undefined, "an uncalled shared visit has no owning doctor to cancel it");
+  await button(tree, "Call").props.onClick();
+  assert.equal(h.actions[0].body.patient_id, 1);
+});

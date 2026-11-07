@@ -10,7 +10,7 @@ const vm = require("node:vm");
 const crypto = require("node:crypto");
 const { createHarness, createDatabase, clone } = require("./helpers/queueHarness");
 
-const FRONTDESK = { id_num: "frontdesk", role: "admin", doctor_name: null };
+const SUPERADMIN = { id_num: "superadmin", role: "superadmin", doctor_name: null };
 const C1_REQUIRED = /atomic C1 database function/;
 
 function loadEnv(values) {
@@ -52,7 +52,7 @@ for (const code of ["PGRST202", "PGRST204", "42883"]) {
     h.database.beforeRpc = (name) => name === "call_patient_visit"
       ? { data: null, error: { code, message: "Could not find the function public.call_patient_visit" } } : null;
     const before = { patients: clone(h.database.patients), counters: clone(h.database.counters) };
-    await assert.rejects(h.service.callPatient(patient.id, "Doctor 1", FRONTDESK), (error) => error.statusCode === 503 && C1_REQUIRED.test(error.message));
+    await assert.rejects(h.service.callPatient(patient.id, "Doctor 1", SUPERADMIN), (error) => error.statusCode === 503 && C1_REQUIRED.test(error.message));
     assertUnchanged(h, before, patient.id);
   });
 }
@@ -63,7 +63,7 @@ test("42703 from inside C1 is an error, not a missing function: even with the op
     h.database.beforeRpc = (name) => name === "call_patient_visit"
       ? { data: null, error: { code: "42703", message: "column \"x\" does not exist" } } : null;
     const before = { patients: clone(h.database.patients), counters: clone(h.database.counters) };
-    await assert.rejects(h.service.callPatient(patient.id, "Doctor 1", FRONTDESK), (error) => error.statusCode === 503 && !C1_REQUIRED.test(error.message), String(allowLegacyTwoStepCall));
+    await assert.rejects(h.service.callPatient(patient.id, "Doctor 1", SUPERADMIN), (error) => error.statusCode === 503 && !C1_REQUIRED.test(error.message), String(allowLegacyTwoStepCall));
     assertUnchanged(h, before, patient.id);
   }
 });
@@ -72,7 +72,7 @@ test("without the opt-in, a visit with no state revision (C1 cannot be used) is 
   const { h, patient } = await waitingVisit({ allowLegacyTwoStepCall: false });
   h.database.patients.find((row) => row.id === patient.id).visit_state_revision = null;
   const before = { patients: clone(h.database.patients), counters: clone(h.database.counters) };
-  await assert.rejects(h.service.callPatient(patient.id, "Doctor 1", FRONTDESK), (error) => error.statusCode === 503 && C1_REQUIRED.test(error.message));
+  await assert.rejects(h.service.callPatient(patient.id, "Doctor 1", SUPERADMIN), (error) => error.statusCode === 503 && C1_REQUIRED.test(error.message));
   assertUnchanged(h, before, patient.id);
 });
 
@@ -80,7 +80,7 @@ test("with C1 available the opt-in changes nothing: Call is atomic either way", 
   for (const allowLegacyTwoStepCall of [false, true]) {
     const { h, patient } = await waitingVisit({ allowLegacyTwoStepCall });
     h.database.callRpcInstalled = true;
-    await h.service.callPatient(patient.id, "Doctor 1", FRONTDESK);
+    await h.service.callPatient(patient.id, "Doctor 1", SUPERADMIN);
     const row = h.database.patients.find((entry) => entry.id === patient.id);
     assert.equal(row.status, "serving");
     assert.equal(h.database.counters[0].current_patient_id, patient.id);
@@ -90,7 +90,7 @@ test("with C1 available the opt-in changes nothing: Call is atomic either way", 
 
 test("with the opt-in and no C1, the revision-guarded two-step Call still works", async () => {
   const { h, patient } = await waitingVisit({ allowLegacyTwoStepCall: true });
-  await h.service.callPatient(patient.id, "Doctor 1", FRONTDESK);
+  await h.service.callPatient(patient.id, "Doctor 1", SUPERADMIN);
   assert.equal(h.database.patients.find((entry) => entry.id === patient.id).status, "serving");
   assert.equal(h.database.counters[0].current_patient_id, patient.id);
 });

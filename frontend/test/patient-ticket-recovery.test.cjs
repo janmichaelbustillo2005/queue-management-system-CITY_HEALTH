@@ -109,7 +109,7 @@ function harness(name, options = {}) {
   return { render, props, requests, retrievals, table, dialog };
 }
 
-test("ticket recovery is available for non-head waiting rows without relaxing Call Now priority", async () => {
+test("ticket recovery is available for non-head waiting rows without relaxing the queue head", async () => {
   const opened = [];
   const rows = [patient(1), patient(2, { priority_score: 4 })];
   const h = harness("table", { rows, props: { onViewTicket: row => opened.push(row.id) } });
@@ -117,7 +117,7 @@ test("ticket recovery is available for non-head waiting rows without relaxing Ca
   assert.equal(tickets.length, 2);
   await tickets[1].props.onClick();
   assert.deepEqual(opened, [1], "lower-priority patient can retrieve an existing ticket");
-  assert.equal(buttons(h.render(), "Call Now").length, 1);
+  assert.equal(buttons(h.render(), "Cancel").length, 1);
   assert.deepEqual(h.requests, [], "viewing does not submit queue mutations");
   assert.equal(rows[0].priority_score, 1);
   assert.equal(rows[0].queue_number, "GP-001");
@@ -133,23 +133,23 @@ test("completed, cancelled and no-show records expose ticket recovery independen
   }
 });
 
-test("all and active patient searches recover tickets beyond 20 rows without changing the callable head", async () => {
+test("all and active patient searches recover tickets beyond 20 rows without changing the queue head", async () => {
   const rows = Array.from({ length: 25 }, (_, index) => patient(index + 1));
   rows.push(patient(26, { status: "completed", counter_id: "Doctor 1" }));
   const opened = [];
   const h = harness("table", { rows, props: { statusFilter: "all", onViewTicket: row => opened.push(row.id) } });
   assert.equal(buttons(h.render(), "View Ticket").length, 26);
-  assert.equal(buttons(h.render(), "Call Now").length, 1, "existing queue head alone remains callable");
+  assert.equal(buttons(h.render(), "Cancel").length, 1, "existing queue head alone remains cancellable");
   h.props.search = "GP-025";
   const recovered = buttons(h.render(), "View Ticket");
   assert.equal(recovered.length, 1);
   await recovered[0].props.onClick();
   assert.deepEqual(opened, [25]);
-  assert.equal(buttons(h.render(), "Call Now").length, 0);
+  assert.equal(buttons(h.render(), "Cancel").length, 0);
   assert.deepEqual(h.requests, [], "recovery never registers or changes queue state");
   h.props.statusFilter = "active";
   assert.equal(buttons(h.render(), "View Ticket").length, 1, "active search includes matching patients beyond the first 20 rows");
-  assert.equal(buttons(h.render(), "Call Now").length, 0, "finding a lower-priority patient does not make them callable");
+  assert.equal(buttons(h.render(), "Cancel").length, 0, "finding a lower-priority patient does not make them the head");
 });
 
 test("ticket controls stay absent without a staff callback and show disabled loading state", () => {

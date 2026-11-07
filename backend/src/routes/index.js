@@ -61,7 +61,8 @@ const {
   markAccepted,
   clearAwaitingAccept,
   resetAcceptState,
-  recordVoiceAnnouncementEvent
+  recordVoiceAnnouncementEvent,
+  hasCallAnnouncement
 } = require("../services/settingsService");
 
 const router = express.Router();
@@ -321,7 +322,11 @@ router.post("/queue/accept", authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "This patient is not waiting to be accepted" });
     }
     const acceptedAt = markAccepted(patientId, patient.called_at);
-    const announcement = recordVoiceAnnouncementEvent({ patient, eventType: "accept", eventAt: acceptedAt });
+    // The Call already announced this visit, so the waiting room hears it once. A call with no
+    // announcement (lost response, or one made before this rule) is still announced here.
+    const announcement = hasCallAnnouncement(patient)
+      ? null
+      : recordVoiceAnnouncementEvent({ patient, eventType: "accept", eventAt: acceptedAt });
     console.info("[voice][accept]", {
       patient_id: patientId,
       queue_number: patient.queue_number,

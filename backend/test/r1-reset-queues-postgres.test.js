@@ -23,7 +23,7 @@ describe("R1: Reset Queues never clears a later valid call's counter", { skip: f
     const plain = await f.backend(db);
     const tokens = await f.signInAll(plain);
     const x = await register(plain, db, tokens.frontdesk, { name: "Synthetic R1 serving" });
-    expectStatus(await post(plain, tokens.frontdesk, "/queue/call", { patient_id: x }), 200);
+    expectStatus(await post(plain, tokens.superadmin, "/queue/call", { patient_id: x }), 200);
     const y = await register(plain, db, tokens.frontdesk, { name: "Synthetic R1 waiting", service: "prenatal" });
 
     let interleaved = false;
@@ -34,7 +34,7 @@ describe("R1: Reset Queues never clears a later valid call's counter", { skip: f
         interleaved = true;
         // Another Frontdesk tab, between Reset's steps: Requeue and Call the archived visit.
         expectStatus(await post(other, tokens.frontdesk, "/queue/requeue", { patient_id: x }), 200);
-        expectStatus(await post(other, tokens.frontdesk, "/queue/call", { patient_id: x }), 200);
+        expectStatus(await post(other, tokens.superadmin, "/queue/call", { patient_id: x }), 200);
       }
     });
     expectStatus(await post(resetting, tokens.superadmin, "/queue/clear", {}), 200);
@@ -53,11 +53,11 @@ describe("R1: Reset Queues never clears a later valid call's counter", { skip: f
     const tokens = await f.signInAll(h);
     const waiting = await register(h, db, tokens.frontdesk, { name: "Synthetic R1 a" });
     const serving = await register(h, db, tokens.frontdesk, { name: "Synthetic R1 b", service: "family_planning" });
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: serving }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: serving }), 200);
     expectStatus(await post(h, tokens.admin3, "/queue/accept", { patient_id: serving }), 200);
     expectStatus(await post(h, tokens.admin3, "/queue/start", { patient_id: serving }), 200);
     const done = await register(h, db, tokens.frontdesk, { name: "Synthetic R1 done", service: "prenatal" });
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: done }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: done }), 200);
     expectStatus(await post(h, tokens.admin2, "/queue/accept", { patient_id: done }), 200);
     expectStatus(await post(h, tokens.admin2, "/queue/start", { patient_id: done }), 200);
     expectStatus(await post(h, tokens.admin2, "/queue/complete", { patient_id: done }), 200);

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { request } from "../lib/api";
 
 export const DOCTORS = [
@@ -8,12 +8,11 @@ export const DOCTORS = [
 ];
 
 // D1 shared dispatch (the backend's dispatch_mode "shared", provisional): the three general
-// doctors serve every configured service, a waiting visit belongs to no doctor until it is
-// called, and Frontdesk selects an available doctor at Call Now.
+// doctors serve every configured service and a waiting visit belongs to no doctor until one
+// of them calls it.
 export const SHARED_DISPATCH = "shared";
 export const SHARED_ASSIGNMENT = "All services";
 const SHARED_LANE = "Shared queue";
-const CONFIGURED_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
 
 const SERVICE_TO_DOCTOR = {
   consultation: "Doctor 1",
@@ -68,16 +67,8 @@ function buildActiveQueue(queueRows, doctorName, shared = false) {
   return rows.slice().sort(compareQueue);
 }
 
-// The backend's shared-queue head for one doctor (getSharedQueueHead): every unassigned waiting
-// visit of a configured service, plus a legacy reservation for that doctor, by priority.
-function sharedHeadFor(queueRows, doctorName) {
-  return (queueRows ?? []).filter((row) => row.status === "waiting" && !row.isOptimistic &&
-    CONFIGURED_SERVICES.includes(row.service_type) && (isUnassigned(row) || row.counter_id === doctorName))
-    .sort(compareQueue)[0] || null;
-}
-
-// Unassigned waiting visits, plus cancellations/no-shows of visits nobody called, kept for Undo
-// until the next patient is called (the shared-lane equivalent of the doctor Undo window).
+// Unassigned waiting visits, plus cancellations/no-shows of visits nobody called, kept in view
+// until the next patient is called (the shared-lane equivalent of the doctor's active list).
 function buildSharedQueue(queueRows) {
   const rows = queueRows ?? [];
   const lastCall = Math.max(0, ...rows.map((row) => Date.parse(row.called_at) || 0));
@@ -112,49 +103,26 @@ export default function PatientQueueTable({
   dispatchMode = "service"
 }) {
   const shared = dispatchMode === SHARED_DISPATCH;
-  const pendingCallsRef = useRef(new Set());
-  const [callingDoctors, setCallingDoctors] = useState(() => new Set());
-  const [selectedDoctor, setSelectedDoctor] = useState("");
 
   const doctorStates = useMemo(() => {
     const states = {};
     for (const doctor of doctors) {
       const activeRows = buildActiveQueue(queueRows, doctor.name, shared);
       const serving = activeRows.find((row) => row.status === "serving");
-      const counter = (counters ?? []).find((item) => item.id_num === doctor.name);
-      const activePatientId = serving?.id ?? activeRows.find((row) => row.status === "waiting")?.id ?? null;
-      const online = isDoctorOnline(counters, queueSettings, doctor.name);
-      const callBlockedReason = !online
-        ? `${doctor.name} is offline.`
-        : counter?.current_patient_id != null && counter.current_patient_id !== activePatientId
-          ? `${doctor.name} is assigned to ${counter.current_patient_queue_number || "another patient"}.`
-          : "";
       states[doctor.name] = {
         activeRows,
         serving,
         // Only the head of each doctor's queue (serving first, else first waiting) may be acted on
-        activePatientId,
-        undoableIds: new Set(
-          activeRows.filter((row) => ["cancelled", "no-show"].includes(row.status)).map((row) => row.id)
-        ),
-        online,
-        callBlockedReason
+        activePatientId: serving?.id ?? activeRows.find((row) => row.status === "waiting")?.id ?? null,
+        online: isDoctorOnline(counters, queueSettings, doctor.name)
       };
     }
     return states;
   }, [doctors, queueRows, counters, queueSettings, shared]);
 
-  // Shared dispatch: one queue for every doctor. Its head may go to any doctor that is enabled,
-  // has no patient and whose own backend head is the same visit (no legacy reservation first).
+  // Shared dispatch: one queue for every doctor.
   const sharedQueue = useMemo(() => (shared ? buildSharedQueue(queueRows) : []), [shared, queueRows]);
   const sharedHead = sharedQueue.find((row) => row.status === "waiting" && !row.isOptimistic) || null;
-  const availableDoctors = shared && sharedHead ? DOCTORS.filter(({ name }) => {
-    const counter = (counters ?? []).find((item) => item.id_num === name);
-    const busy = (queueRows ?? []).some((row) => row.status === "serving" && row.counter_id === name);
-    return isDoctorOnline(counters, queueSettings, name) && counter?.current_patient_id == null && !busy &&
-      sharedHeadFor(queueRows, name)?.id === sharedHead.id;
-  }).map(({ name }) => name) : [];
-  const callDoctor = availableDoctors.includes(selectedDoctor) ? selectedDoctor : availableDoctors[0] || "";
 
   const visibleRows = useMemo(() => {
     const byId = new Map();
@@ -224,43 +192,9 @@ export default function PatientQueueTable({
     await onRefresh();
   }
 
-  async function runAction(doctorName, path, body, fallbackMessage) {
-    try {
-      await postAction(doctorName, path, body, fallbackMessage);
-    } catch (err) {
-      onNotify("error", `${doctorName}: ${err.message || "Action failed"}`);
-    }
-  }
-
   const isHead = (row, doctorName) => row?.id != null && row.id === doctorStates[doctorName]?.activePatientId;
 
-  async function handleSharedCall(row) {
-    if (pendingCallsRef.current.has(SHARED_LANE)) return;
-    if (row.id !== sharedHead?.id) {
-      onNotify("error", "You can only call the first patient in the shared queue.");
-      return;
-    }
-    const doctorName = callDoctor;
-    if (!doctorName) {
-      onNotify("error", "No doctor is available. Wait for a doctor to finish or ask Super Admin to enable a doctor.");
-      return;
-    }
-    // One shared call at a time from this screen; the backend serializes calls across screens.
-    pendingCallsRef.current.add(SHARED_LANE);
-    setCallingDoctors(new Set(pendingCallsRef.current));
-    try {
-      await postAction(doctorName, "/queue/call", { patient_id: row.id, counterId: doctorName }, "Patient called successfully");
-    } catch (err) {
-      onNotify("error", `${doctorName}: ${err.message || "Action failed"}`);
-      try { await onRefresh(); } catch (_) { /* Keep the call error visible. */ }
-    } finally {
-      pendingCallsRef.current.delete(SHARED_LANE);
-      setCallingDoctors(new Set(pendingCallsRef.current));
-    }
-  }
-
   function handleSharedCancel(row) {
-    if (pendingCallsRef.current.has(SHARED_LANE)) return;
     if (row.id !== sharedHead?.id) {
       onNotify("error", "You can only cancel the first patient in the shared queue.");
       return;
@@ -274,113 +208,24 @@ export default function PatientQueueTable({
     });
   }
 
+  // Calling belongs to the doctor's own queue; here a row can only be cancelled.
   function renderSharedActions(row) {
-    const calling = callingDoctors.has(SHARED_LANE);
-    if (row.status === "waiting") {
-      if (row.id !== sharedHead?.id) {
-        return <span className="text-[11px] brand-text-muted font-semibold italic px-1">Waiting for turn</span>;
-      }
-      return (
-        <>
-          <select
-            aria-label={`Doctor for ${row.queue_number}`}
-            value={callDoctor}
-            onChange={(event) => setSelectedDoctor(event.target.value)}
-            disabled={calling || !availableDoctors.length}
-            className="px-2 py-1.5 border brand-input rounded-lg text-xs bg-white"
-          >
-            {availableDoctors.length
-              ? availableDoctors.map((name) => <option key={name} value={name}>{name}</option>)
-              : <option value="">No doctor available</option>}
-          </select>
-          <button
-            type="button"
-            onClick={() => handleSharedCall(row)}
-            disabled={calling || !callDoctor}
-            title={callDoctor ? `Call this patient to ${callDoctor}` : "Every doctor is offline or serving a patient"}
-            aria-busy={calling}
-            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {calling ? "Calling..." : "Call Now"}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSharedCancel(row)}
-            disabled={calling}
-            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
-          >
-            Cancel
-          </button>
-        </>
-      );
+    if (row.status !== "waiting") return <span className="brand-text-muted text-xs">—</span>;
+    if (row.id !== sharedHead?.id) {
+      return <span className="text-[11px] brand-text-muted font-semibold italic px-1">Waiting for turn</span>;
     }
-    if (["cancelled", "no-show"].includes(row.status)) {
-      return (
-        <>
-          <button
-            type="button"
-            onClick={() => runAction(SHARED_LANE, "/queue/undo", { patient_id: row.id }, "Action undone successfully")}
-            className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors shadow-sm"
-          >
-            Undo
-          </button>
-          {queueSettings.allowQueueReassignment !== false ? (
-            <button
-              type="button"
-              onClick={() => handleRequeue(row, SHARED_LANE)}
-              className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              Re-queue
-            </button>
-          ) : null}
-        </>
-      );
-    }
-    return <span className="brand-text-muted text-xs">—</span>;
-  }
-
-  async function handleCall(row, doctorName) {
-    if (pendingCallsRef.current.has(doctorName)) return;
-    if (row.status !== "waiting") {
-      onNotify("error", "Only waiting patients can be called.");
-      return;
-    }
-    if (!isHead(row, doctorName)) {
-      onNotify("error", `You can only call the first patient in ${doctorName}'s queue.`);
-      return;
-    }
-    if (!doctorStates[doctorName].online) {
-      onNotify("error", `${doctorName} is marked offline in System Settings. Ask Super Admin to enable availability.`);
-      return;
-    }
-    const counter = (counters ?? []).find((item) => item.id_num === doctorName);
-    if (counter?.current_patient_id != null && counter.current_patient_id !== row.id) {
-      onNotify("error", `${doctorName} is already assigned to another patient.`);
-      return;
-    }
-
-    // The ref closes the interval before React renders the disabled button.
-    pendingCallsRef.current.add(doctorName);
-    setCallingDoctors(new Set(pendingCallsRef.current));
-    try {
-      await postAction(
-        doctorName,
-        "/queue/call",
-        { patient_id: row.id, counterId: doctorName },
-        "Patient called successfully"
-      );
-    } catch (err) {
-      onNotify("error", `${doctorName}: ${err.message || "Action failed"}`);
-      // Refresh stale priority/availability information after a rejected call.
-      try { await onRefresh(); } catch (_) { /* Keep the call error visible. */ }
-    } finally {
-      pendingCallsRef.current.delete(doctorName);
-      setCallingDoctors(new Set(pendingCallsRef.current));
-    }
+    return (
+      <button
+        type="button"
+        onClick={() => handleSharedCancel(row)}
+        className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
+      >
+        Cancel
+      </button>
+    );
   }
 
   function handleCancel(row, doctorName) {
-    if (pendingCallsRef.current.has(doctorName)) return;
     if (!isHead(row, doctorName)) {
       onNotify("error", `You can only cancel the first patient in ${doctorName}'s queue.`);
       return;
@@ -400,28 +245,8 @@ export default function PatientQueueTable({
     });
   }
 
-  function handleUndo(row, doctorName) {
-    runAction(doctorName, "/queue/undo", { patient_id: row.id }, "Action undone successfully");
-  }
-
-  function handleRequeue(row, doctorName) {
-    if (queueSettings.allowQueueReassignment === false) {
-      onNotify("error", "Queue reassignment is disabled in System Settings.");
-      return;
-    }
-    onConfirm({
-      title: "Re-queue Patient",
-      message: `Re-queue ${row.id_num} (${row.queue_number}) at the bottom of the list?`,
-      showReason: true,
-      requireReason: false,
-      onConfirm: (reason) =>
-        postAction(doctorName, "/queue/requeue", { patient_id: row.id, reason }, "Patient re-queued")
-    });
-  }
-
   function renderActions(row, doctorName) {
     if (doctorName == null) return renderSharedActions(row);
-    const calling = callingDoctors.has(doctorName);
     if (row.status === "waiting") {
       if (!isHead(row, doctorName)) {
         const serving = doctorStates[doctorName].serving;
@@ -430,26 +255,13 @@ export default function PatientQueueTable({
         </span>;
       }
       return (
-        <>
-          <button
-            type="button"
-            onClick={() => handleCall(row, doctorName)}
-            disabled={calling || !doctorStates[doctorName].online || (counters ?? []).some((counter) => counter.id_num === doctorName && counter.current_patient_id != null && counter.current_patient_id !== row.id)}
-            title={doctorStates[doctorName].callBlockedReason || "Call this patient"}
-            aria-busy={calling}
-            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {calling ? "Calling..." : "Call Now"}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleCancel(row, doctorName)}
-            disabled={calling}
-            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
-          >
-            Cancel
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={() => handleCancel(row, doctorName)}
+          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
+        >
+          Cancel
+        </button>
       );
     }
 
@@ -462,34 +274,10 @@ export default function PatientQueueTable({
           <button
             type="button"
             onClick={() => handleCancel(row, doctorName)}
-            disabled={calling}
             className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
           >
             Cancel
           </button>
-        </>
-      );
-    }
-
-    if (["cancelled", "no-show"].includes(row.status) && doctorStates[doctorName].undoableIds.has(row.id)) {
-      return (
-        <>
-          <button
-            type="button"
-            onClick={() => handleUndo(row, doctorName)}
-            className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors shadow-sm"
-          >
-            Undo
-          </button>
-          {queueSettings.allowQueueReassignment !== false ? (
-            <button
-              type="button"
-              onClick={() => handleRequeue(row, doctorName)}
-              className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              Re-queue
-            </button>
-          ) : null}
         </>
       );
     }

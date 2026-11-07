@@ -27,7 +27,7 @@ describe("I2 Finding 8: Call fails closed when C1 cannot be used", { skip: f.una
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic fail closed", mobile: "09170000008" });
     const before = await f.snapshot(db);
     h.log.length = 0;
-    const refused = await whileHidden(db, () => post(h, tokens.frontdesk, "/queue/call", { patient_id: id }));
+    const refused = await whileHidden(db, () => post(h, tokens.superadmin, "/queue/call", { patient_id: id }));
     expectStatus(refused, 503, /atomic C1 database function/);
     assert.ok(h.rpcs().includes("call_patient_visit"), "C1 was attempted");
     assert.equal(h.tableWrites("counters").length + h.tableWrites("patients").length, 0, "the two-statement path did not run");
@@ -37,7 +37,7 @@ describe("I2 Finding 8: Call fails closed when C1 cannot be used", { skip: f.una
 
     // Once the function resolves again the same request is called through C1.
     h.log.length = 0;
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     assert.equal(h.tableWrites("counters").length + h.tableWrites("patients").length, 0, "called by C1 alone");
     assert.equal((await patient(db, id)).status, "serving");
     assert.equal((await pointers(db))["Doctor 1"], id);
@@ -50,7 +50,7 @@ describe("I2 Finding 8: Call fails closed when C1 cannot be used", { skip: f.una
     const tokens = await f.signInAll(h);
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic opt-in" });
     h.log.length = 0;
-    expectStatus(await whileHidden(db, () => post(h, tokens.frontdesk, "/queue/call", { patient_id: id })), 200);
+    expectStatus(await whileHidden(db, () => post(h, tokens.superadmin, "/queue/call", { patient_id: id })), 200);
     assert.ok(h.tableWrites("counters").length >= 1 && h.tableWrites("patients").length >= 1, "two-statement path");
     assert.equal((await patient(db, id)).status, "serving");
     assert.equal((await pointers(db))["Doctor 1"], id);
@@ -73,7 +73,7 @@ describe("I2 Finding 8: Call fails closed when C1 cannot be used", { skip: f.una
         const id = await register(h, db, tokens.frontdesk, { name: `Synthetic drift ${Object.keys(envOverrides).length}` });
         const before = await f.snapshot(db);
         h.log.length = 0;
-        const response = await post(h, tokens.frontdesk, "/queue/call", { patient_id: id });
+        const response = await post(h, tokens.superadmin, "/queue/call", { patient_id: id });
         assert.equal(response.status, 503, response.body?.message);
         assert.equal(h.tableWrites("counters").length + h.tableWrites("patients").length, 0, "no fallback");
         assert.deepEqual(await f.snapshot(db), before);

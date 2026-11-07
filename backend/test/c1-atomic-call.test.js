@@ -112,18 +112,18 @@ test("atomic RPC: a successful Call commits one pair through call_patient_visit 
   const patient = await register(first, 2);
   const before = clone(row(first, patient.id));
   first.database.calls.length = 0;
-  const response = await first.request("POST", "/queue/call", { patient_id: patient.id, counter_id: "Doctor 2" }, FRONTDESK);
+  const response = await first.request("POST", "/queue/call", { patient_id: patient.id, counter_id: "Doctor 2" }, SUPERADMIN);
   assert.equal(response.status, 200, response.body.message);
   assertPair(first, patient.id, 2);
   const [rpc] = callRpcs(first);
   assert.deepEqual(rpc.args, {
-    p_patient_id: patient.id, p_doctor_name: "Doctor 2", p_user_id_num: "frontdesk",
+    p_patient_id: patient.id, p_doctor_name: "Doctor 2", p_user_id_num: "superadmin",
     p_expected_revision: before.visit_state_revision,
     p_queue_start: "2026-10-24T16:00:00.000Z", p_queue_end: "2026-10-25T16:00:00.000Z"
   });
   assert.equal(first.database.calls.filter((entry) => entry.action === "update").length, 0, "no separate patient or counter write");
   assert.equal(first.settings.isAwaitingAccept(patient.id), true);
-  assert.equal(first.settings.getVoiceAnnouncementEvents().length, 0, "calling waits for doctor acceptance before announcing");
+  assert.equal(first.settings.getVoiceAnnouncementEvents().length, 1, "the Call announces once");
   assert.equal(smsCount(first), 1);
 });
 
@@ -196,8 +196,15 @@ test("persisted account, not the token, authorizes Call: forged roles, doctors a
     assert.deepEqual(row(first, patient.id), before);
     assert.equal(pointer(first, 3), null);
     assertNoCallSideEffects(first, patient.id, "forged");
-    // Existing permissions remain: the owning doctor, Frontdesk (incl. legacy label) and Superadmin.
-    for (const user of [doctor(3), FRONTDESK, { ...FRONTDESK, doctor_name: "Front Desk" }, SUPERADMIN]) {
+    // The owning doctor and Superadmin may call; Frontdesk (incl. legacy label) may not.
+    for (const user of [FRONTDESK, { ...FRONTDESK, doctor_name: "Front Desk" }]) {
+      const { first: h } = shared({ installed });
+      const visit = await register(h, 3);
+      const response = await h.request("POST", "/queue/call", { patient_id: visit.id }, user);
+      assert.equal(response.status, 403, `${installed} ${JSON.stringify(user)}: ${response.body.message}`);
+      assert.equal(row(h, visit.id).status, "waiting");
+    }
+    for (const user of [doctor(3), SUPERADMIN]) {
       const { first: h } = shared({ installed });
       const visit = await register(h, 3);
       const response = await h.request("POST", "/queue/call", { patient_id: visit.id }, user);
@@ -218,7 +225,7 @@ test("atomic RPC: a lost response is never reported as success and never fabrica
       // Commit inside the emulated database, then lose the response.
       first.database.beforeRpc = null;
       const harness = createHarness({ database: first.database, clock: first.clock });
-      await harness.service.callPatient(patient.id, "Doctor 1", FRONTDESK);
+      await harness.service.callPatient(patient.id, "Doctor 1", SUPERADMIN);
       return { data: null, error: { message: "TypeError: fetch failed" } };
     };
     const response = await first.request("POST", "/queue/call", { patient_id: patient.id });

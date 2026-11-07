@@ -333,7 +333,7 @@ for (const localFallback of [false, true]) {
     assert.notEqual(waiting.visit_state_revision, cancelled.visit_state_revision);
     assert.deepEqual(await snapshot(h, [other], [1, 3]), otherBefore);
     h.advance();
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, FRONTDESK)).status, 200);
+    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
   });
 
   test(`${mode}: requeue - own doctor moves a cancelled patient to the end of its tier without touching other doctors`, async () => {
@@ -421,8 +421,8 @@ for (const localFallback of [false, true]) {
     const family = await waitingPatient(h, 3, "Family One");
     const order = (await h.request("GET", "/display", {}, null)).body.waiting_queue.map((entry) => entry.queue_number);
     assert.deepEqual(order, [senior, regular, family].map((patient) => patient.queue_number));
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: regular.id, counterId: "Doctor 1" }, FRONTDESK)).status, 400);
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: senior.id, counterId: "Doctor 1" }, FRONTDESK)).status, 200);
+    assert.equal((await h.request("POST", "/queue/call", { patient_id: regular.id, counterId: "Doctor 1" }, SUPERADMIN)).status, 400);
+    assert.equal((await h.request("POST", "/queue/call", { patient_id: senior.id, counterId: "Doctor 1" }, SUPERADMIN)).status, 200);
     h.advance();
     assert.equal((await h.request("POST", "/queue/accept", { patient_id: senior.id }, doctor(1))).status, 200);
     h.advance();
@@ -501,7 +501,7 @@ test("mock Supabase: a stale Requeue cannot overwrite a consultation completed a
     h.advance();
     assert.equal((await ACTIONS.undo.send(h, patient, FRONTDESK)).status, 200);
     h.advance();
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, FRONTDESK)).status, 200);
+    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
     h.advance();
     assert.equal((await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctor(2))).status, 200);
     h.advance();

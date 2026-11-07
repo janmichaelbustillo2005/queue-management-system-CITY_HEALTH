@@ -488,7 +488,11 @@ function createHarness(options = {}) {
     async initialize() {
       if (options.localFallback) await service.getDisplaySettings();
     },
-    async request(method, route, body = {}, user = { id_num: "frontdesk", role: "admin", doctor_name: null }, query = {}, params = {}) {
+    // Frontdesk is the default staff identity, but it no longer calls patients; Superadmin, which may
+    // still call to any doctor, is the default for setup steps that only need a called visit.
+    async request(method, route, body = {}, user = route === "/queue/call"
+      ? { id_num: "superadmin", role: "superadmin", doctor_name: null }
+      : { id_num: "frontdesk", role: "admin", doctor_name: null }, query = {}, params = {}) {
       const middleware = handlers.get(`${method.toUpperCase()} ${route}`);
       if (!middleware) throw new Error(`Missing route ${method} ${route}`);
       const response = {

@@ -63,8 +63,8 @@ describe("WPS-A: backend and database rank waiting visits the same way", { skip:
     assert.deepEqual([effective[regular], effective[indigenous]], [3, 2]);
 
     h.log.length = 0;
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: indigenous }), 400, /according to queue priority/);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: regular }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: indigenous }), 400, /according to queue priority/);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: regular }), 200);
     // The backend refuses the Indigenous call itself; the successful call goes through WPS-A, never C1.
     assert.deepEqual(h.rpcs().filter((name) => name.startsWith("call_patient_visit")), ["call_patient_visit_wps_a"]);
     assert.equal((await pointers(db))["Doctor 1"], regular);
@@ -78,8 +78,8 @@ describe("WPS-A: backend and database rank waiting visits the same way", { skip:
     const pwd = await insert(3, new Date(now - 1000).toISOString());         // 3, higher base
     const overview = (await h.request("GET", "/queue", { token: tokens.frontdesk })).body;
     assert.equal(overview.patients.find((row) => row.id === regular).effective_priority, 3);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: regular }), 400, /according to queue priority/);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: pwd }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: regular }), 400, /according to queue priority/);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: pwd }), 200);
   });
 
   test("randomized agreement at step edges: the database accepts exactly the backend's head", async () => {
@@ -152,14 +152,14 @@ describe("WPS-A enabled without its database function", { skip: f.unavailable },
     const tokens = await f.signInAll(aged);
     const id = await f.register(aged, db, tokens.frontdesk, { name: "Synthetic WPS-A missing" });
     const before = await f.snapshot(db);
-    const refused = await post(aged, tokens.frontdesk, "/queue/call", { patient_id: id });
+    const refused = await post(aged, tokens.superadmin, "/queue/call", { patient_id: id });
     assert.equal(refused.status, 503);
     assert.match(refused.body.message, /WPS with Aging is enabled/);
     const after = await f.snapshot(db);
     assert.deepEqual(after.patients, before.patients);
     assert.deepEqual(after.counters, before.counters);
     const plain = await f.backend(db);
-    expectStatus(await post(plain, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(plain, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
   });
 
   test("rollback script removes only the WPS-A function", async () => {

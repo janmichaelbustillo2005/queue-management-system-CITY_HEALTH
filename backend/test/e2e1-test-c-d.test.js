@@ -42,7 +42,7 @@ describe("E2E-1 Test C and Test D on the real backend", { skip: f.unavailable },
     const snap = async (step, id) => { const row = await patient(db, id); steps.push({ step, patient: pick(row), counters: await pointers(db) }); return row; };
     // A visit already serving on Doctor 2 must be untouched by everything below.
     const other = await register(h, db, tokens.frontdesk, { name: "E2E1C Bystander Prenatal", service: "prenatal" });
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: other }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: other }), 200);
     const bystander = await patient(db, other);
 
     const id = await register(h, db, tokens.frontdesk, { name: "E2E1C Requeue Test" });
@@ -75,7 +75,7 @@ describe("E2E-1 Test C and Test D on the real backend", { skip: f.unavailable },
     assert.ok(Date.parse(r1.created_at) > Date.parse(c1.created_at),
       "F5 also replaces the registration time (back of its tier), so the original arrival time is lost");
 
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     const k1 = await snap("called", id);
     assert.equal(k1.status, "serving");
     assert.equal(k1.counter_id, "Doctor 1");

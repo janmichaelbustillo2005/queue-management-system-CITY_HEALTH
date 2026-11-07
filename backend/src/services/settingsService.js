@@ -265,6 +265,24 @@ function recordVoiceAnnouncementEvent({ patient, eventType = "accept", eventAt =
   return event;
 }
 
+/**
+ * The announcement of one Call. `patient` is the called row: its called_at ties the event to this
+ * call cycle. As in markAccepted, the event is dated after called_at, because the database clock
+ * writes called_at and the display ignores an event older than the call.
+ */
+function recordCallAnnouncement(patient) {
+  const calledMs = Date.parse(patient?.called_at);
+  const eventAt = new Date(Number.isFinite(calledMs) ? Math.max(Date.now(), calledMs + 1) : Date.now()).toISOString();
+  return recordVoiceAnnouncementEvent({ patient, eventType: "call", eventAt });
+}
+
+function hasCallAnnouncement(patient) {
+  const calledMs = Date.parse(patient?.called_at);
+  return Number.isFinite(calledMs) && loadVoiceAnnouncementEvents().some((event) =>
+    event.event_type === "call" && Number(event.patient_id) === Number(patient.id) &&
+    Date.parse(event.called_at) === calledMs);
+}
+
 function getVoiceAnnouncementEvents() {
   return loadVoiceAnnouncementEvents()
     .slice()
@@ -291,6 +309,8 @@ module.exports = {
   resetAcceptState,
   clearAllAwaitingAccept,
   recordVoiceAnnouncementEvent,
+  recordCallAnnouncement,
+  hasCallAnnouncement,
   getVoiceAnnouncementEvents,
   clearAllVoiceAnnouncementEvents
 };

@@ -100,14 +100,15 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.request("POST", "/queue/requeue", { patient_id: patient.id }, doctorUser())).status, 200);
     h.advance();
     assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
-    assert.equal((await h.service.getDisplayData()).voice_announcements.length, 0,
-      "Calling alone must not expose announcements from the previous call cycle");
+    const called = (await h.service.getDisplayData()).voice_announcements;
+    assert.equal(called.length, 1, "Only the new call is exposed, not the previous call cycle");
+    assert.equal(called[0].event_type, "call");
     h.advance();
     const accepted = await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctorUser());
     assert.equal(accepted.status, 200);
     const announcements = (await h.service.getDisplayData()).voice_announcements;
     assert.equal(announcements.length, 1);
-    assert.equal(announcements[0].announcement_key, accepted.body.announcement_key);
+    assert.equal(announcements[0].announcement_key, called[0].announcement_key);
     assert.equal(h.settings.getVoiceAnnouncementEvents().length, 3, "Persisted audit events remain intact");
   });
 

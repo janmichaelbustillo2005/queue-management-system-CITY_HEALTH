@@ -28,8 +28,9 @@ function normalizeDoctorAssignment(value, counters = []) {
 }
 
 // D1 shared dispatch (provisional): the general doctors serve every configured service and a
-// waiting visit belongs to no doctor until Frontdesk calls it to one.
+// waiting visit belongs to no doctor until one of them calls it.
 const SHARED_DISPATCH = "shared";
+const SHARED_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
 
 function isAssignedToDoctor(row, doctorName, counters = []) {
   if (!row || !doctorName) return false;
@@ -270,8 +271,13 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     if (!Array.isArray(queueRows)) return [];
     
     return queueRows.filter(row => {
-      // Patients only reach the doctor once Front Desk Patient Management calls them
-      if (row.status === "waiting" || !row.called_at) return false;
+      // A registered patient waits directly in the assigned doctor's queue. The doctor is the
+      // stored assignment, else the service's doctor; a shared visit waits for any doctor.
+      if (row.status === "waiting") {
+        if (String(row.counter_id ?? "").trim()) return isAssignedToDoctor(row, doctorName, counters);
+        return sharedDispatch ? SHARED_SERVICES.includes(row.service_type) : matchesDoctor(row.service_type, doctorName);
+      }
+      if (!row.called_at) return false;
 
       // Show if the patient is already being served by THIS doctor
       if (isAssignedToDoctor(row, doctorName, counters)) return true;
@@ -349,6 +355,15 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   const isAccepted = (row) => !row?.awaiting_accept &&
     Boolean(row?.accepted_at || row?.consultation_started_at);
   const isActionPending = (patientId) => Boolean(pendingActions[String(patientId)]);
+  const canCallRow = (row) => canManageConsultation && Number(row.id) === Number(activePatientId);
+  // A shared visit nobody has called has no owning doctor yet, so the backend refuses its cancel.
+  const canCancelWaiting = (row) => canCallRow(row) && (!sharedDispatch || Boolean(String(row.counter_id ?? "").trim()));
+  // The counter can keep a patient reserved after Undo; only that patient may then be called.
+  const callBlockedReason = (row) => {
+    if (!doctorIsOnline) return "This doctor counter is disabled in System Settings.";
+    const reserved = currentCounter?.current_patient_id;
+    return reserved != null && Number(reserved) !== Number(row.id) ? "This doctor is already assigned to another patient." : "";
+  };
   const shownCount = (value) => (queueStatus === "ready" ? value : "—");
 
   function requireServingPatient(patientId) {
@@ -359,6 +374,14 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     if (!currentCounter || Number(currentCounter.current_patient_id) !== Number(patientId)) {
       throw new Error("The doctor counter no longer has this patient. Refresh the queue before continuing.");
     }
+    return row;
+  }
+
+  // The serving patient, or the waiting patient at the head of this doctor's queue.
+  function requireCancellablePatient(patientId) {
+    const row = queueRows.find((patient) => Number(patient.id) === Number(patientId));
+    if (row?.status !== "waiting") return requireServingPatient(patientId);
+    if (!canCancelWaiting(row)) throw new Error("You can only cancel the first patient in your queue.");
     return row;
   }
 
@@ -488,6 +511,20 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     }
   }
 
+  async function handleCall(row) {
+    if (pendingActionsRef.current.has(String(row.id))) return;
+    try {
+      if (!canManageConsultation) throw new Error("Only the assigned doctor can call this patient.");
+      if (row.status !== "waiting" || Number(row.id) !== Number(activePatientId)) {
+        throw new Error("You can only call the first patient in your queue.");
+      }
+      if (callBlockedReason(row)) throw new Error(callBlockedReason(row));
+      await performPatientAction(row.id, "call", "/queue/call", { patient_id: row.id }, "Patient called successfully");
+    } catch (err) {
+      showActionError(err, "Failed to call patient");
+    }
+  }
+
   async function handleStart(patientId) {
     if (pendingActionsRef.current.has(String(patientId))) return;
     try {
@@ -547,7 +584,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   async function handleCancel(patientId) {
     if (pendingActionsRef.current.has(String(patientId))) return;
     try {
-      requireServingPatient(patientId);
+      requireCancellablePatient(patientId);
     } catch (err) {
       showActionError(err, "Failed to cancel patient");
       return;
@@ -558,7 +595,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       showReason: true,
       requireReason: true,
       onConfirm: async (reason) => {
-        requireServingPatient(patientId);
+        requireCancellablePatient(patientId);
         await performPatientAction(patientId, "cancel", "/queue/cancel", {
           patient_id: patientId, reason, counter_id: doctorName
         }, "Patient cancelled successfully");
@@ -825,6 +862,38 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
+                          {row.status === "waiting" && (
+                            canCallRow(row) ? (
+                              <>
+                              <button
+                                type="button"
+                                onClick={() => handleCall(row)}
+                                title={callBlockedReason(row) || "Call this patient"}
+                                disabled={isActionPending(row.id) || Boolean(callBlockedReason(row))}
+                                aria-busy={pendingActions[String(row.id)] === "call"}
+                                className="inline-flex items-center gap-2 px-3 py-2 brand-button rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <i className={pendingActions[String(row.id)] === "call" ? "fas fa-spinner animate-spin" : "fas fa-bullhorn"} />
+                                {pendingActions[String(row.id)] === "call" ? "Calling..." : "Call"}
+                              </button>
+                              {canCancelWaiting(row) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancel(row.id)}
+                                  title="Cancel"
+                                  aria-label="Cancel"
+                                  disabled={isActionPending(row.id)}
+                                  className={`${iconButtonClass} self-center bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed`}
+                                >
+                                  <i className="fas fa-times" />
+                                </button>
+                              )}
+                              </>
+                            ) : (
+                              <span className="text-xs brand-text-muted italic">Waiting for turn</span>
+                            )
+                          )}
+                          {/* A doctor's own Call needs no Accept; this remains for a call made on the doctor's behalf. */}
                           {row.status === "serving" && canProcessPatient(row) && row.awaiting_accept && (
                             <>
                               {canManageConsultation && (

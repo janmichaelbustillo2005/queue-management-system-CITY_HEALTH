@@ -26,7 +26,7 @@ describe("Accept then Start when the backend clock differs from the database clo
       const h = await f.backend(db, { clockOffsetMs });
       const tokens = await f.signInAll(h);
       const id = await register(h, db, tokens.frontdesk, { name: "Synthetic skew" });
-      expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+      expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
       const called = await patient(db, id);
       const accept = await post(h, tokens.admin1, "/queue/accept", { patient_id: id });
       expectStatus(accept, 200);
@@ -43,12 +43,12 @@ describe("Accept then Start when the backend clock differs from the database clo
     const h = await f.backend(db, { clockOffsetMs: -30000 });
     const tokens = await f.signInAll(h);
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic recycled" });
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     expectStatus(await post(h, tokens.admin1, "/queue/accept", { patient_id: id }), 200);
     // Cancel (W1), Requeue (F5) and Call again (C1): a new call cycle.
     expectStatus(await post(h, tokens.frontdesk, "/queue/cancel", { patient_id: id, reason: "Synthetic" }), 200);
     expectStatus(await post(h, tokens.frontdesk, "/queue/requeue", { patient_id: id }), 200);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     const start = await post(h, tokens.admin1, "/queue/start", { patient_id: id });
     assert.equal(start.status, 400);
     assert.match(start.body.message, /Accept/);

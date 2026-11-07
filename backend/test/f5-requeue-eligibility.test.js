@@ -36,7 +36,7 @@ async function register(h, number = 1, name = `Synthetic D${number}`, flags = []
   h.advance();
   return patient;
 }
-async function ok(h, route, body, user = FRONTDESK) {
+async function ok(h, route, body, user = route === "/queue/call" ? SUPERADMIN : FRONTDESK) {
   const response = await h.request("POST", route, body, user);
   assert.equal(response.status, 200, `${route}: ${response.body?.message}`);
   h.advance();

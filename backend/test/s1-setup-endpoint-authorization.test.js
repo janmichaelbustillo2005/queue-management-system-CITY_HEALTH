@@ -144,8 +144,8 @@ test("rejected setup attempts leave service-to-doctor routing and WPS Call order
   }
   assert.deepEqual(h.database.patients.map((row) => row.service_type), ["consultation", "prenatal", "technical", "consultation"]);
 
-  const frontdesk = h.signIn("frontdesk").token;
-  const outOfOrder = await h.request("POST", "/queue/call", { token: frontdesk, body: { patient_id: 1 } });
+  const doctor1 = h.signIn("admin1").token;
+  const outOfOrder = await h.request("POST", "/queue/call", { token: doctor1, body: { patient_id: 1 } });
   assert.equal(outOfOrder.status, 400);
   assert.match(outOfOrder.body.message, /according to queue priority/);
 
@@ -153,7 +153,7 @@ test("rejected setup attempts leave service-to-doctor routing and WPS Call order
   assert.equal(wrongDoctor.status, 400);
   assert.match(wrongDoctor.body.message, /assigned to Doctor 1/);
 
-  const called = await h.request("POST", "/queue/call", { token: frontdesk, body: { patient_id: 4 } });
+  const called = await h.request("POST", "/queue/call", { token: doctor1, body: { patient_id: 4 } });
   assert.equal(called.status, 200, JSON.stringify(called.body));
   const row = h.database.patients.find((item) => item.id === 4);
   assert.equal(row.status, "serving");

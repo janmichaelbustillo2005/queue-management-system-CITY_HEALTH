@@ -37,7 +37,7 @@ export default function PatientManagementPage() {
   const router = useRouter();
   const [queueRows, setQueueRows] = useState([]);
   const [counters, setCounters] = useState([]);
-  // D1: "service" (fixed service doctors) or "shared" (one queue, doctor chosen at Call).
+  // D1: "service" (fixed service doctors) or "shared" (one queue, the calling doctor takes the visit).
   const [dispatchMode, setDispatchMode] = useState("service");
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
   const [loading, setLoading] = useState(false);
@@ -253,7 +253,7 @@ export default function PatientManagementPage() {
               <i className="fas fa-tasks brand-text-primary" />
               <div>
                 <h2 className="font-bold brand-text text-lg m-0">Patient Management</h2>
-                <p className="text-xs brand-text-muted m-0">Manage all doctors' patients in one table. Changes sync with the doctor accounts.</p>
+                <p className="text-xs brand-text-muted m-0">Monitor every registered patient in one table. Each doctor calls patients from their own queue; changes sync with the doctor accounts.</p>
                 {canIssueTicket ? <p className="text-xs brand-text-muted mt-1 mb-0">Lost ticket? Choose All registered patients to search today's registrations, then select View Ticket to photograph, download, or reprint the same queue number.</p> : null}
               </div>
             </div>

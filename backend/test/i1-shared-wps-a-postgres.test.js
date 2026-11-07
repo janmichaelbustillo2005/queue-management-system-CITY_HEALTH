@@ -119,9 +119,9 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
     assert.equal(await dbAccepts(ids[30], "Doctor 2", rankedAt), "called", "the longest-waiting capped visit is the head");
     for (const label of ["0", "9", "9:59", "10", "20"]) assert.equal(await dbAccepts(ids[label], "Doctor 2", rankedAt), "refused", label);
     // Three doctors take the three highest effective priorities, any service.
-    expectStatus(await call(h, tokens.frontdesk, ids[30], "Doctor 3"), 200);
-    expectStatus(await call(h, tokens.frontdesk, ids[20], "Doctor 1"), 200);
-    expectStatus(await call(h, tokens.frontdesk, ids[10], "Doctor 2"), 200);
+    expectStatus(await call(h, tokens.superadmin, ids[30], "Doctor 3"), 200);
+    expectStatus(await call(h, tokens.superadmin, ids[20], "Doctor 1"), 200);
+    expectStatus(await call(h, tokens.superadmin, ids[10], "Doctor 2"), 200);
     assert.deepEqual(callRpcs(h), Array(3).fill("call_patient_visit_shared_wps_a"));
     assert.deepEqual(await pointers(db), { "Doctor 1": ids[20], "Doctor 2": ids[10], "Doctor 3": ids[30] });
     evidence.agingSteps = effective;
@@ -150,8 +150,8 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
       const loser = ids[1 - item.winner];
       const rankedAt = Date.now();
       assert.deepEqual([await dbAccepts(winner, "Doctor 1", rankedAt), await dbAccepts(loser, "Doctor 1", rankedAt)], ["called", "refused"], item.name);
-      expectStatus(await call(h, tokens.frontdesk, loser, "Doctor 2"), 400, /next patient in the shared queue/);
-      expectStatus(await call(h, tokens.frontdesk, winner, "Doctor 2"), 200);
+      expectStatus(await call(h, tokens.superadmin, loser, "Doctor 2"), 400, /next patient in the shared queue/);
+      expectStatus(await call(h, tokens.superadmin, winner, "Doctor 2"), 200);
       results.push({ case: item.name, called_first: (await patient(db, winner)).priority_score });
       await assertConsistent(db);
     }
@@ -161,9 +161,9 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
   test("Regular and Senior registered in reverse-priority order: the Senior is called first", async () => {
     const regular = await register(h, db, tokens.frontdesk, { name: "I1 Regular first", service: "consultation" });
     const senior = await register(h, db, tokens.frontdesk, { name: "I1 Senior second", service: "prenatal", flags: ["senior"] });
-    expectStatus(await call(h, tokens.frontdesk, regular, "Doctor 1"), 400, /next patient in the shared queue/);
-    expectStatus(await call(h, tokens.frontdesk, senior, "Doctor 1"), 200);
-    expectStatus(await call(h, tokens.frontdesk, regular, "Doctor 2"), 200);
+    expectStatus(await call(h, tokens.superadmin, regular, "Doctor 1"), 400, /next patient in the shared queue/);
+    expectStatus(await call(h, tokens.superadmin, senior, "Doctor 1"), 200);
+    expectStatus(await call(h, tokens.superadmin, regular, "Doctor 2"), 200);
     assert.ok((await patient(db, senior)).called_at < (await patient(db, regular)).called_at);
   });
 
@@ -199,7 +199,7 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
       await insert(1, 0, "prenatal");
       const [a, b] = await Promise.all([
         call(backends[1], tokens.admin2, target),
-        call(backends[2], tokens.frontdesk, target, "Doctor 3")
+        call(backends[2], tokens.superadmin, target, "Doctor 3")
       ]);
       assert.deepEqual([a.status, b.status].filter((status) => status === 200).length, 1, `${a.body.message} / ${b.body.message}`);
       assert.equal(Object.values(await pointers(db)).filter((id) => id === target).length, 1);
@@ -213,7 +213,7 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
     for (const service of SERVICES) {
       for (const doctor of DOCTORS) {
         const id = await insert(1, 12 * MIN, service);
-        expectStatus(await call(h, tokens.frontdesk, id, doctor), 200);
+        expectStatus(await call(h, tokens.superadmin, id, doctor), 200);
         const token = docToken(tokens, doctor);
         expectStatus(await post(h, DOCTORS.filter((name) => name !== doctor).map((name) => docToken(tokens, name))[0], "/queue/accept", { patient_id: id }), 403);
         expectStatus(await post(h, token, "/queue/accept", { patient_id: id }), 200);
@@ -235,7 +235,7 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
   test("Cancel while the other doctors serve, then concurrent Cancel/Requeue requests, keep every counter correct", async () => {
     const ids = [await insert(3, 20 * MIN), await insert(2, 15 * MIN, "prenatal"), await insert(1, 5 * MIN, "family_planning")];
     const extra = await insert(1, 0, "checkup");
-    for (const [i, doctor] of DOCTORS.entries()) expectStatus(await call(h, tokens.frontdesk, ids[i], doctor), 200);
+    for (const [i, doctor] of DOCTORS.entries()) expectStatus(await call(h, tokens.superadmin, ids[i], doctor), 200);
     const before = { d1: await patient(db, ids[0]), d3: await patient(db, ids[2]) };
     expectStatus(await post(h, tokens.admin2, "/queue/cancel", { patient_id: ids[1], reason: "I1 referred", counter_id: "Doctor 2" }), 200);
     assert.deepEqual(await pointers(db), { "Doctor 1": ids[0], "Doctor 2": null, "Doctor 3": ids[2] });
@@ -264,7 +264,7 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
     const head = h.queue.getSharedQueueHead(
       (await db.observer.query("SELECT * FROM public.patients WHERE status = 'waiting'")).rows
         .map((r) => ({ ...r, id: Number(r.id), created_at: r.created_at.toISOString() })), "Doctor 2", Date.now());
-    expectStatus(await call(h, tokens.frontdesk, head.id, "Doctor 2"), 200);
+    expectStatus(await call(h, tokens.superadmin, head.id, "Doctor 2"), 200);
     assert.ok([ids[1], extra].includes(head.id));
     await assertConsistent(db);
   });
@@ -274,10 +274,10 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
     const before = await f.snapshot(db);
     expectStatus(await post(h, tokens.admin2, "/auth/logout", {}), 200);
     await db.observer.query("UPDATE public.staff_auth_sessions SET revoked_at = clock_timestamp() WHERE user_id_num = 'admin2' AND revoked_at IS NULL");
-    expectStatus(await call(h, tokens.frontdesk, id, "Doctor 2"), 409, /not signed in/);
+    expectStatus(await call(h, tokens.superadmin, id, "Doctor 2"), 409, /not signed in/);
     await db.observer.query("UPDATE public.counters SET is_online = false WHERE id_num = 'Doctor 3'");
-    expectStatus(await call(h, tokens.frontdesk, id, "Doctor 3"), 400, /offline/);
-    expectStatus(await call(h, tokens.frontdesk, id), 400, /Select an available doctor/);
+    expectStatus(await call(h, tokens.superadmin, id, "Doctor 3"), 400, /offline/);
+    expectStatus(await call(h, tokens.superadmin, id), 400, /Select an available doctor/);
     const after = await f.snapshot(db);
     assert.deepEqual([after.patients, after.counters.map((c) => c.current_patient_id)], [before.patients, before.counters.map((c) => c.current_patient_id)]);
     assert.deepEqual(effects(h, id), { sms: 0, awaiting: false, voice: 0 });
@@ -291,7 +291,7 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
     const history = (await db.observer.query("SELECT * FROM public.patients WHERE queue_number LIKE 'I1-H%' ORDER BY id")).rows;
     const treated = await insert(1, 25 * MIN, "prenatal");
     const uncalled = await insert(1, 0, "prenatal");
-    expectStatus(await call(h, tokens.frontdesk, treated, "Doctor 3"), 200);
+    expectStatus(await call(h, tokens.superadmin, treated, "Doctor 3"), 200);
     expectStatus(await post(h, tokens.frontdesk, "/queue/cancel", { patient_id: uncalled, reason: "I1 left" }), 200);
     const records = async (filters) => (await db.observer.query("SELECT public.get_central_records('patients', $1::jsonb, 1, 50) AS r", [JSON.stringify(filters)])).rows[0].r;
     const shared = await records({ search: "Synthetic I1", dispatch: "shared" });
@@ -305,7 +305,7 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
     assert.equal(byDoctor["Doctor 3"], 1);
     assert.equal(byDoctor["Doctor 2"], undefined);
     // The earlier-day waiting visit is outside today's shared queue even with the highest priority.
-    expectStatus(await call(h, tokens.frontdesk, history[1].id, "Doctor 1"), 400);
+    expectStatus(await call(h, tokens.superadmin, history[1].id, "Doctor 1"), 400);
     assert.deepEqual((await db.observer.query("SELECT * FROM public.patients WHERE queue_number LIKE 'I1-H%' ORDER BY id")).rows, history);
     await assertConsistent(db);
   });
@@ -363,7 +363,7 @@ describe("Shared WPS-A through the real backend", { skip: f.unavailable }, () =>
       const t = await f.signInAll(backend);
       const id = await insert(1, 11 * MIN, "maternity");
       backend.log.length = 0;
-      expectStatus(await call(backend, t.frontdesk, id, mode === "shared" ? "Doctor 1" : null), 200);
+      expectStatus(await call(backend, t.superadmin, id, mode === "shared" ? "Doctor 1" : null), 200);
       assert.deepEqual(callRpcs(backend), [rpc], `${mode} aging=${aging}`);
       assert.equal((await patient(db, id)).counter_id, mode === "shared" ? "Doctor 1" : "Doctor 2");
       paths.push({ mode, aging, rpc });
@@ -379,12 +379,12 @@ describe("Shared dispatch with aging but without D1-A", { skip: f.unavailable },
     const tokens = await f.signInAll(aged);
     const id = await register(aged, db, tokens.frontdesk, { name: "I1 missing D1-A" });
     const before = await f.snapshot(db);
-    const refused = await call(aged, tokens.frontdesk, id, "Doctor 1");
+    const refused = await call(aged, tokens.superadmin, id, "Doctor 1");
     assert.equal(refused.status, 503);
     assert.match(refused.body.message, /20261029-d1a-shared-wps-a-call\.sql/);
     const after = await f.snapshot(db);
     assert.deepEqual([after.patients, after.counters], [before.patients, before.counters]);
     const plain = await f.backend(db, { doctorDispatchMode: "shared" });
-    expectStatus(await call(plain, tokens.frontdesk, id, "Doctor 1"), 200);
+    expectStatus(await call(plain, tokens.superadmin, id, "Doctor 1"), 200);
   });
 });

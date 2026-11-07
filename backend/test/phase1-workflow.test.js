@@ -43,7 +43,7 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.service.createQueueEntry(registration("Regular"))).priority_score, 1);
   });
 
-  test(`${mode}: frontdesk call -> doctor acceptance -> persistent display event, without completion`, async () => {
+  test(`${mode}: call -> persistent display event -> doctor acceptance, without completion`, async () => {
     const h = await setup(localFallback);
     const patient = await h.service.createQueueEntry(registration("Alice"));
     const called = await h.request("POST", "/queue/call", { patient_id: patient.id, counterId: "Doctor 1" });
@@ -66,13 +66,17 @@ for (const localFallback of [false, true]) {
     assert.equal(display.all_serving[0].queue_number, patient.queue_number);
     assert.equal(display.all_serving[0].counter_id, 1);
     assert.equal(display.all_serving[0].counter_name, "Doctor 1");
-    assert.equal(display.recent_accepted.length, 0, "Frontdesk call must not create a voice event");
-    assert.equal(display.voice_announcements.length, 0);
+    assert.equal(display.recent_accepted.length, 0, "A call is not an acceptance");
+    assert.equal(display.voice_announcements.length, 1, "The call itself is announced");
+    assert.equal(display.voice_announcements[0].event_type, "call");
+    assert.equal(display.voice_announcements[0].queue_number, patient.queue_number);
+    assert.equal(display.voice_announcements[0].counter_name, "Doctor 1");
+    const callKey = display.voice_announcements[0].announcement_key;
 
     const wrongDoctor = await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctorUser("Doctor 2"));
     assert.equal(wrongDoctor.status, 403);
     assert.equal(h.settings.isAwaitingAccept(patient.id), true);
-    assert.equal(h.settings.getVoiceAnnouncementEvents().length, 0, "Wrong doctor cannot create a voice event");
+    assert.equal(h.settings.getVoiceAnnouncementEvents().length, 1, "Wrong doctor cannot create a voice event");
     h.advance();
     const accepted = await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctorUser("Doctor 1"));
     assert.equal(accepted.status, 200, accepted.body.message);
@@ -88,10 +92,10 @@ for (const localFallback of [false, true]) {
     assert.equal(display.recent_accepted.length, 1);
     assert.equal(display.recent_accepted[0].accepted_at, acceptedAt);
     assert.equal(display.recent_accepted[0].counter_name, "Doctor 1");
-    assert.equal(display.voice_announcements.length, 1);
-    assert.equal(display.voice_announcements[0].announcement_key, accepted.body.announcement_key);
-    assert.equal(display.voice_announcements[0].announcement_at, acceptedAt);
-    assert.equal(display.voice_announcements[0].event_type, "accept");
+    assert.equal(display.voice_announcements.length, 1, "Accept does not repeat the announcement of its call");
+    assert.equal(display.voice_announcements[0].announcement_key, callKey);
+    assert.equal(accepted.body.announcement_key, undefined);
+    assert.equal(display.voice_announcements[0].event_type, "call");
     assert.equal(display.voice_announcements[0].counter_name, "Doctor 1");
     assert.equal(JSON.stringify(h.loadSettings().getVoiceAnnouncementEvents()), JSON.stringify(h.settings.getVoiceAnnouncementEvents()), "Voice event survives settings-module restart in virtual storage");
     const duplicateAccept = await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctorUser("Doctor 1"));
@@ -192,7 +196,7 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.service.getDisplayData()).all_serving.length, 3);
   });
 
-  test(`${mode}: the legacy Front Desk account label can call each service's assigned doctor`, async () => {
+  test(`${mode}: Frontdesk accounts, legacy label included, cannot call any doctor's patient`, async () => {
     for (const label of ["Front Desk", " front desk ", "FRONTDESK"]) {
       const h = await setup(localFallback);
       const frontdesk = { id_num: "frontdesk", role: "admin", doctor_name: label };
@@ -201,18 +205,15 @@ for (const localFallback of [false, true]) {
         const doctor = `Doctor ${index + 1}`;
         const field = index % 2 === 0 ? "counterId" : "counter_id";
         const response = await h.request("POST", "/queue/call", { patient_id: patient.id, [field]: doctor }, frontdesk);
-        assert.equal(response.status, 200, response.body.message);
+        assert.equal(response.status, 403, response.body.message);
         const current = await h.service.getPatientById(patient.id);
-        assert.equal(current.status, "serving");
-        assert.equal(current.counter_id, doctor);
-        assert.ok(current.called_at);
-        assert.equal(current.consultation_started_at, null);
-        assert.equal(current.completed_at, null);
-        assert.equal(h.settings.isAwaitingAccept(patient.id), true);
+        assert.equal(current.status, "waiting");
+        assert.equal(current.called_at, null);
+        assert.equal(h.settings.isAwaitingAccept(patient.id), false);
         const counters = (await h.service.getQueueOverview()).counters;
-        assert.equal(counters[index].current_patient_id, patient.id);
+        assert.equal(counters[index].current_patient_id, null);
       }
-      assert.equal(h.settings.getVoiceAnnouncementEvents().length, 0, "Frontdesk calling still waits for doctor acceptance before announcing");
+      assert.equal(h.settings.getVoiceAnnouncementEvents().length, 0, "A refused call announces nothing");
     }
   });
 
@@ -374,7 +375,7 @@ for (const localFallback of [false, true]) {
     assert.equal(h.settings.getAcceptedAt(patient.id), acceptedAt, "Re-Call preserves the original doctor acceptance time");
     const events = (await h.service.getDisplayData()).voice_announcements;
     assert.equal(events.length, 2);
-    assert.equal(events[0].event_type, "accept");
+    assert.equal(events[0].event_type, "call");
     assert.equal(events[1].event_type, "recall");
     assert.equal(events[1].announcement_key, recalled.body.announcement_key);
     assert.notEqual(events[0].announcement_key, events[1].announcement_key);

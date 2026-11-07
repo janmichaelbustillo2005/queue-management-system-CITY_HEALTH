@@ -16,7 +16,9 @@ const {
   isAwaitingAccept,
   getAcceptedAt,
   getVoiceAnnouncementEvents,
-  markAwaitingAccept
+  markAwaitingAccept,
+  markAccepted,
+  recordCallAnnouncement
 } = require("./settingsService");
 
 // Local in-memory fallback data for development when Supabase is unreachable
@@ -1078,7 +1080,7 @@ function getCallRpcName(shared, aging) {
   return CALL_RPCS[shared ? "shared" : "service"][aging ? "aging" : "plain"];
 }
 
-// D1: the doctor Frontdesk or Superadmin selected (or the calling doctor itself). Any doctor
+// D1: the calling doctor itself, or the doctor Superadmin selected. Any doctor
 // may take any configured service; the choice is stored on the visit by the Call.
 function resolveSharedCallDoctor(patient, counterId, counters) {
   if (!CONFIGURED_SERVICES.includes(patient.service_type)) {
@@ -1097,7 +1099,7 @@ function resolveSharedCallDoctor(patient, counterId, counters) {
   return selected.id_num;
 }
 
-// D1: Frontdesk may assign a visit only to a doctor whose authenticated session is live
+// D1: Superadmin may assign a visit only to a doctor whose authenticated session is live
 // (Phase A presence, 75-second window). Counter availability is checked separately.
 async function assertDoctorSignedIn(doctorName) {
   let result;
@@ -1160,6 +1162,10 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
   const { patient, counters: accountCounters, user, local: localCall } = await loadCancellationContext(patientId, actor);
   // R2: identify the caller from the persisted account; token and body claims are never authority.
   const who = resolveCancelActor(actor, user, accountCounters);
+  // Registration puts a visit straight into its doctor's queue, and that doctor calls it.
+  if (who.kind === "frontdesk") {
+    throw consultationError("Only the assigned doctor can call a patient. Frontdesk monitors the queue from Patient Management.", 403);
+  }
   if (who.kind === "doctor") {
     if (counterId != null && resolveDoctorCounter(counterId, accountCounters)?.id !== who.counter.id) {
       throw consultationError("You can only call patients assigned to your doctor.", 403);
@@ -1334,8 +1340,13 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
       }
     }
 
-    // Acceptance, not calling, continues to drive the public voice announcement.
-    markAwaitingAccept(patientId);
+    const calledVisit = atomicCall || { ...patient, status: "serving", counter_id: doctorName, called_at: calledAt };
+    // A doctor's own Call already takes the patient, so it needs no separate Accept. A call made
+    // on the doctor's behalf still waits for the doctor to accept it.
+    if (who.kind === "doctor") markAccepted(patientId, calledVisit.called_at);
+    else markAwaitingAccept(patientId);
+    // The Call drives the public voice announcement, from the row as this call left it.
+    recordCallAnnouncement(calledVisit);
     if (patient.mobile_number) {
       try {
         await sendQueueCalledNotification(patient.mobile_number, patient.queue_number, doctorName);
@@ -2651,7 +2662,7 @@ async function getDisplayData() {
       return toPublicRecentCalledEntry(patient, assignedCounter);
     });
 
-  // Voice announcer source: patients the doctor has accepted, oldest acceptance first
+  // Legacy voice source for a display without voice_announcements: accepted patients, oldest first
   const recentAccepted = patients
     .map((patient) => ({ patient, acceptedAt: getAcceptedAt(patient.id) }))
     .filter((entry) => entry.acceptedAt)

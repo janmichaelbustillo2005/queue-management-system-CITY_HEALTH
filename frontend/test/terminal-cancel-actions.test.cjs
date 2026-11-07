@@ -45,19 +45,13 @@ test("Doctor dashboard offers Cancel only on active rows and Undo/Re-queue on ca
   assert.match(terminalBranch, /handleUndo\(row\.id\)/);
   assert.match(terminalBranch, /handleRequeue\(row\.id\)/);
   assert.ok(!/handleCancel/.test(terminalBranch), "no Cancel on terminal rows");
-  const activeStart = doctorAdmin.indexOf('row.status === "serving" && canProcessPatient(row)');
+  const activeStart = doctorAdmin.indexOf('{row.status === "waiting" && (');
   const cancels = [...doctorAdmin.matchAll(/handleCancel\(row\.id\)/g)].map((match) => match.index);
   assert.ok(cancels.length >= 1);
   for (const position of cancels) assert.ok(position > activeStart && position < terminal, "every Cancel is inside the active-row branches");
 });
 
-test("Per-doctor queue table offers Cancel only to waiting or serving head rows and Undo/Re-queue to recoverable rows", () => {
-  const terminal = queueTable.indexOf('["cancelled", "no-show"].includes(row.status) && doctorStates[doctorName].undoableIds.has(row.id)');
-  assert.ok(terminal > 0);
-  const end = queueTable.indexOf("return <span", terminal);
-  const terminalBranch = queueTable.slice(terminal, end);
-  assert.match(terminalBranch, /handleUndo\(row, doctorName\)/);
-  assert.match(terminalBranch, /handleRequeue\(row, doctorName\)/);
-  assert.ok(!/handleCancel/.test(terminalBranch), "no Cancel on cancelled or no-show rows");
+test("Per-doctor queue table offers Cancel only to waiting or serving head rows and no recovery actions", () => {
+  assert.doesNotMatch(queueTable, /\/queue\/undo|\/queue\/requeue|\/queue\/call|\/queue\/re-call/);
   assert.match(queueTable, /You can only cancel the first patient in/);
 });

@@ -67,12 +67,11 @@ for (const localFallback of [false, true]) {
       assert.equal(after.counters.find(counter => counter.id_num === `Doctor ${number}`).current_patient_id, patient.id);
 
       const events = clone(h.settings.getVoiceAnnouncementEvents());
-      assert.equal(events.length, 1);
-      assert.equal(events[0].event_id, response.body.announcement_key);
+      assert.equal(events.length, 1, "The Call was announced; Accept does not repeat it");
+      assert.equal(response.body.announcement_key, undefined);
       assert.equal(events[0].patient_id, patient.id);
       assert.equal(events[0].counter_name, `Doctor ${number}`);
-      assert.equal(events[0].event_type, "accept");
-      assert.equal(events[0].event_at, response.body.accepted_at);
+      assert.equal(events[0].event_type, "call");
       assert.deepEqual(clone(h.loadSettings().getVoiceAnnouncementEvents()), events);
     });
 
@@ -94,7 +93,7 @@ for (const localFallback of [false, true]) {
         h.advance();
         assert.equal((await h.request("POST", "/queue/accept", { patient_id: acceptedPatient.id }, doctor(otherNumber))).status, 200);
         const before = await snapshot(h);
-        assert.equal(before.voiceEvents.length, 1);
+        assert.equal(before.voiceEvents.length, 2);
         assert.equal(h.settings.isAwaitingAccept(patient.id), true);
         assert.equal(h.settings.getAcceptedAt(patient.id), null);
         h.advance();

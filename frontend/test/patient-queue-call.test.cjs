@@ -82,74 +82,33 @@ function text(tree) {
 }
 const buttons = (tree, label) => nodes(tree, node => node.type === "button" && text(node) === label);
 
-test("Call Now sends selected patient and camel-case doctor payload to call, refreshes without completing", async () => {
-  const h = harness([patient(1)]);
-  await buttons(h.render(), "Call Now")[0].props.onClick();
-  assert.deepEqual(h.calls, [{ route: "/queue/call", method: "POST", body: { patient_id: 1, counterId: "Doctor 1" } }]);
-  assert.equal(h.refreshes, 1);
-  assert.match(h.notices[0][1], /called successfully/);
-  assert.equal(h.props.queueRows[0].completed_at, null);
-  assert.equal(h.props.queueRows[0].status, "waiting", "frontend leaves the actual transition to the backend");
-});
-
-test("two immediate clicks issue one request and show Calling/disabled until refresh finishes", async () => {
-  let finish;
-  const h = harness([patient(1)], { request: () => new Promise(resolve => { finish = resolve; }) });
-  const button = buttons(h.render(), "Call Now")[0];
-  const first = button.props.onClick();
-  await button.props.onClick();
-  assert.equal(h.calls.length, 1);
-  const loading = buttons(h.render(), "Calling...")[0];
-  assert.equal(loading.props.disabled, true);
-  assert.equal(loading.props["aria-busy"], true);
-  assert.equal(buttons(h.render(), "Cancel")[0].props.disabled, true);
-  finish({ success: true });
-  await first;
-  assert.equal(buttons(h.render(), "Call Now")[0].props.disabled, false);
-});
-
-test("weighted priority and registration-time ties restrict Call Now to the eligible doctor head", async () => {
-  const h = harness([patient(1, "consultation", 1), patient(2, "checkup", 4, "2026-10-10T01:02:00Z"), patient(3, "consultation", 4)]);
-  const callButtons = buttons(h.render(), "Call Now");
-  assert.equal(callButtons.length, 1);
-  await callButtons[0].props.onClick();
-  assert.equal(h.calls[0].body.patient_id, 3);
-});
-
-test("offline and occupied doctor disable calls and handlers reject stale direct clicks", async () => {
-  for (const state of [{ is_online: false }, { current_patient_id: 99 }]) {
-    const h = harness([patient(1)]);
-    Object.assign(h.props.counters[0], state);
-    const button = buttons(h.render(), "Call Now")[0];
-    assert.equal(button.props.disabled, true);
-    await button.props.onClick();
-    assert.equal(h.calls.length, 0);
-    assert.equal(h.notices[0][0], "error");
+test("Patient Management offers Cancel as its only queue action: no Call, Re-Call, Undo or Re-queue", () => {
+  const rows = [patient(1), patient(2),
+    { ...patient(3, "prenatal"), status: "serving", counter_id: "Doctor 2", called_at: "2026-10-10T01:01:00Z", accepted_at: "2026-10-10T01:02:00Z" },
+    { ...patient(4, "family_planning"), status: "cancelled", counter_id: "Doctor 3", completed_at: "2026-10-10T01:03:00Z" },
+    { ...patient(5, "family_planning"), status: "no-show", counter_id: "Doctor 3", completed_at: "2026-10-10T01:04:00Z" }];
+  const h = harness(rows);
+  const tree = h.render();
+  for (const label of ["Call", "Call Now", "Calling...", "Re-Call", "Undo", "Re-queue", "Accept", "Complete"]) {
+    assert.equal(buttons(tree, label).length, 0, label);
   }
+  assert.equal(nodes(tree, node => node.type === "select").length, 0, "no doctor selection for a call");
+  assert.equal(buttons(tree, "Cancel").length, 2, "the Doctor 1 head and the serving patient");
+  assert.deepEqual(rows.filter(row => text(tree).includes(row.id_num)).length, 5, "every registered patient stays visible");
+  assert.deepEqual(h.calls, []);
 });
 
-test("backend rejection refreshes eligibility and releases the call lock", async () => {
-  const h = harness([patient(1)], { request: async () => ({ error: "Call the highest-priority patient first" }) });
-  await buttons(h.render(), "Call Now")[0].props.onClick();
-  assert.equal(h.refreshes, 1);
-  assert.equal(h.notices[0][0], "error");
-  assert.equal(buttons(h.render(), "Call Now")[0].props.disabled, false);
-});
-
-test("a pending Doctor 1 call leaves Doctor 2 and Doctor 3 independently callable", async () => {
-  const releases = [];
-  const h = harness([patient(1), patient(2, "prenatal"), patient(3, "family_planning")], {
-    request: () => new Promise(resolve => releases.push(resolve))
+test("weighted priority and registration-time ties keep the same doctor head for Cancel", async () => {
+  let confirmation;
+  const h = harness([patient(1, "consultation", 1), patient(2, "checkup", 4, "2026-10-10T01:02:00Z"), patient(3, "consultation", 4)], {
+    confirm: value => { confirmation = value; }
   });
-  const first = buttons(h.render(), "Call Now")[0].props.onClick();
-  const otherButtons = buttons(h.render(), "Call Now");
-  assert.equal(otherButtons.length, 2);
-  assert.equal(otherButtons[0].props.disabled, false);
-  const second = otherButtons[0].props.onClick();
-  const third = buttons(h.render(), "Call Now")[0].props.onClick();
-  assert.deepEqual(h.calls.map(call => call.body.counterId), ["Doctor 1", "Doctor 2", "Doctor 3"]);
-  releases.forEach(resolve => resolve({ success: true }));
-  await Promise.all([first, second, third]);
+  const cancelButtons = buttons(h.render(), "Cancel");
+  assert.equal(cancelButtons.length, 1);
+  cancelButtons[0].props.onClick();
+  await confirmation.onConfirm("Left the clinic");
+  assert.equal(h.calls[0].route, "/queue/cancel");
+  assert.equal(h.calls[0].body.patient_id, 3);
 });
 
 test("a doctor's completion refresh hides the active row and retains consultation timestamps in completed records", async () => {
@@ -238,16 +197,7 @@ test("active search finds patients beyond the first 20 without letting them bypa
   assert.equal(buttons(h.render(), "Call Now").length, 0);
 });
 
-test("a disabled Call Now explains the doctor's occupied counter", () => {
-  const h = harness([patient(1)]);
-  h.props.counters[0].current_patient_id = 99;
-  h.props.counters[0].current_patient_queue_number = "GP-099";
-  const button = buttons(h.render(), "Call Now")[0];
-  assert.equal(button.props.disabled, true);
-  assert.match(button.props.title, /GP-099/);
-});
-
-test("frontdesk cancellation of a carryover visit enables today's Call Now through the real route and service", async () => {
+test("frontdesk cancellation of a carryover visit frees the doctor to call today's patient through the real route and service", async () => {
   const { createHarness } = require("../../backend/test/helpers/queueHarness");
   const backend = createHarness();
   const previous = await backend.service.createQueueEntry({ idNum: "Previous visit", serviceType: "checkup", vulnerabilityFlags: [] });
@@ -275,9 +225,11 @@ test("frontdesk cancellation of a carryover visit enables today's Call Now throu
   assert.equal(buttons(h.render(), "Call Now").length, 0);
   buttons(h.render(), "Cancel")[0].props.onClick();
   await confirmation.onConfirm("Previous visit did not proceed");
-  const call = buttons(h.render(), "Call Now")[0];
-  assert.equal(call.props.disabled, false);
-  await call.props.onClick();
+  assert.equal(buttons(h.render(), "Call Now").length, 0);
+  const frontdesk = await backend.request("POST", "/queue/call", { patient_id: next.id }, { id_num: "frontdesk", role: "admin", doctor_name: null });
+  assert.equal(frontdesk.status, 403);
+  const called = await backend.request("POST", "/queue/call", { patient_id: next.id }, { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" });
+  assert.equal(called.status, 200, called.body.message);
   assert.equal((await backend.service.getPatientById(next.id)).status, "serving");
   assert.equal((await backend.service.getQueueOverview()).counters[0].current_patient_id, next.id);
   assert.equal(h.notices.some(([type]) => type === "error"), false);

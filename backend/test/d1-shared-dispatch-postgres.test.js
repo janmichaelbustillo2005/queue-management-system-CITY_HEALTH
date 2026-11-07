@@ -104,7 +104,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
         const registered = await patient(db, id);
         assert.equal(registered.counter_id, null, "registration assigns no doctor");
         h.log.length = 0;
-        const called = await call(h, tokens.frontdesk, id, doctor);
+        const called = await call(h, tokens.superadmin, id, doctor);
         expectStatus(called, 200);
         assert.equal(called.body.doctor, doctor);
         assert.ok(h.rpcs().includes("call_patient_visit_shared") && !h.rpcs().includes("call_patient_visit"), "D1 performed the Call");
@@ -140,12 +140,12 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     const regular = await register(h, db, tokens.frontdesk, { name: "D1 Regular consultation", service: "consultation" });
     const senior = await register(h, db, tokens.frontdesk, { name: "D1 Senior family planning", service: "family_planning", flags: ["senior"] });
     const pregnant = await register(h, db, tokens.frontdesk, { name: "D1 Pregnant prenatal", service: "prenatal", flags: ["pregnant"] });
-    expectStatus(await call(h, tokens.frontdesk, regular, "Doctor 1"), 400, /next patient in the shared queue/);
-    expectStatus(await call(h, tokens.frontdesk, pregnant, "Doctor 2"), 400, /next patient in the shared queue/);
+    expectStatus(await call(h, tokens.superadmin, regular, "Doctor 1"), 400, /next patient in the shared queue/);
+    expectStatus(await call(h, tokens.superadmin, pregnant, "Doctor 2"), 400, /next patient in the shared queue/);
     assert.equal((await queueHead(h, tokens.frontdesk)).id, senior);
-    expectStatus(await call(h, tokens.frontdesk, senior, "Doctor 1"), 200); // the consultation doctor takes family planning
-    expectStatus(await call(h, tokens.frontdesk, pregnant, "Doctor 3"), 200);
-    expectStatus(await call(h, tokens.frontdesk, regular, "Doctor 2"), 200);
+    expectStatus(await call(h, tokens.superadmin, senior, "Doctor 1"), 200); // the consultation doctor takes family planning
+    expectStatus(await call(h, tokens.superadmin, pregnant, "Doctor 3"), 200);
+    expectStatus(await call(h, tokens.superadmin, regular, "Doctor 2"), 200);
     const order = [senior, pregnant, regular].map(async (id) => [(await patient(db, id)).counter_id, (await patient(db, id)).called_at]);
     const rows = await Promise.all(order);
     assert.deepEqual(rows.map(([doctor]) => doctor), ["Doctor 1", "Doctor 3", "Doctor 2"]);
@@ -162,7 +162,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
       const backends = [h, await shared(db)];
       const [a, b] = await Promise.all([
         call(backends[0], tokens.admin1, first),           // doctor-initiated pickup
-        call(backends[1], tokens.frontdesk, first, "Doctor 2") // Frontdesk selects Doctor 2 for the same visit
+        call(backends[1], tokens.superadmin, first, "Doctor 2") // Superadmin selects Doctor 2 for the same visit
       ]);
       const statuses = [a.status, b.status].sort();
       assert.equal(statuses[0], 200, `${a.body?.message} / ${b.body?.message}`);
@@ -196,7 +196,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     assert.deepEqual(DOCTORS.map((doctor) => ptr[doctor]), picked);
     for (const [i, doctor] of DOCTORS.entries()) assert.equal((await patient(db, picked[i])).counter_id, doctor);
     // A busy doctor cannot take a fourth patient.
-    expectStatus(await call(h, tokens.frontdesk, ids[3], "Doctor 1"), 400, /already serving/);
+    expectStatus(await call(h, tokens.superadmin, ids[3], "Doctor 1"), 400, /already serving/);
     for (const [i, doctor] of DOCTORS.entries()) {
       expectStatus(await post(h, docToken(tokens, doctor), "/queue/accept", { patient_id: picked[i] }), 200);
       expectStatus(await post(h, docToken(tokens, doctor), "/queue/start", { patient_id: picked[i] }), 200);
@@ -206,7 +206,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     assert.deepEqual(await pointers(db), { "Doctor 1": picked[0], "Doctor 2": null, "Doctor 3": picked[2] });
     assert.deepEqual(await patient(db, picked[0]), busy.d1, "Doctor 1's consultation is unchanged");
     assert.deepEqual(await patient(db, picked[2]), busy.d3, "Doctor 3's consultation is unchanged");
-    expectStatus(await call(h, tokens.frontdesk, ids[3], "Doctor 2"), 200);
+    expectStatus(await call(h, tokens.superadmin, ids[3], "Doctor 2"), 200);
     assert.equal((await patient(db, ids[3])).counter_id, "Doctor 2");
     await assertConsistent(db);
     evidence.threeDoctors = { picked, afterComplete: await pointers(db) };
@@ -217,9 +217,9 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     const b = await register(h, db, tokens.frontdesk, { name: "D1 cancel B prenatal", service: "prenatal" });
     const c = await register(h, db, tokens.frontdesk, { name: "D1 cancel C family planning", service: "family_planning" });
     const w = await register(h, db, tokens.frontdesk, { name: "D1 cancel W waiting consultation" });
-    expectStatus(await call(h, tokens.frontdesk, a, "Doctor 3"), 200); // consultation on Doctor 3
-    expectStatus(await call(h, tokens.frontdesk, b, "Doctor 1"), 200); // prenatal on Doctor 1
-    expectStatus(await call(h, tokens.frontdesk, c, "Doctor 2"), 200); // family planning on Doctor 2
+    expectStatus(await call(h, tokens.superadmin, a, "Doctor 3"), 200); // consultation on Doctor 3
+    expectStatus(await call(h, tokens.superadmin, b, "Doctor 1"), 200); // prenatal on Doctor 1
+    expectStatus(await call(h, tokens.superadmin, c, "Doctor 2"), 200); // family planning on Doctor 2
     const bystanders = { b: await patient(db, b), c: await patient(db, c) };
 
     // The old service doctor of consultation (Doctor 1) does not own a consultation served by Doctor 3.
@@ -250,7 +250,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     const requeued = await patient(db, a);
     assert.deepEqual([requeued.status, requeued.counter_id, requeued.called_at], ["waiting", null, null]);
     assert.deepEqual(await pointers(db), { "Doctor 1": b, "Doctor 2": c, "Doctor 3": null });
-    expectStatus(await call(h, tokens.frontdesk, a, "Doctor 3"), 200);
+    expectStatus(await call(h, tokens.superadmin, a, "Doctor 3"), 200);
     expectStatus(await post(h, tokens.admin2, "/queue/complete", { patient_id: c }), 400, /Accept/);
     await assertConsistent(db);
     evidence.cancelRequeue = { cancelled: { status: cancelled.status, counter_id: cancelled.counter_id }, pointers: await pointers(db) };
@@ -259,16 +259,16 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
   test("offline, signed-out and unselected doctors are refused with nothing changed", async () => {
     const id = await register(h, db, tokens.frontdesk, { name: "D1 availability", service: "prenatal" });
     const before = await f.snapshot(db);
-    expectStatus(await call(h, tokens.frontdesk, id), 400, /Select an available doctor/);
-    expectStatus(await call(h, tokens.frontdesk, id, "Doctor 9"), 400, /not a valid doctor/);
+    expectStatus(await call(h, tokens.superadmin, id), 400, /Select an available doctor/);
+    expectStatus(await call(h, tokens.superadmin, id, "Doctor 9"), 400, /not a valid doctor/);
     expectStatus(await call(h, tokens.admin1, id, "Doctor 2"), 403, /assigned to your doctor/);
     await db.observer.query("UPDATE public.counters SET is_online = false WHERE id_num = 'Doctor 2'");
-    expectStatus(await call(h, tokens.frontdesk, id, "Doctor 2"), 400, /offline/);
+    expectStatus(await call(h, tokens.superadmin, id, "Doctor 2"), 400, /offline/);
     await db.observer.query("UPDATE public.counters SET is_online = true WHERE id_num = 'Doctor 2'");
     // Doctor 3 signs out; earlier tests' sessions for the same synthetic account are revoked too.
     expectStatus(await post(h, tokens.admin3, "/auth/logout", {}), 200);
     await db.observer.query("UPDATE public.staff_auth_sessions SET revoked_at = clock_timestamp() WHERE user_id_num = 'admin3' AND revoked_at IS NULL");
-    expectStatus(await call(h, tokens.frontdesk, id, "Doctor 3"), 409, /not signed in/);
+    expectStatus(await call(h, tokens.superadmin, id, "Doctor 3"), 409, /not signed in/);
     const after = await f.snapshot(db);
     assert.deepEqual(after.patients, before.patients);
     assert.deepEqual(after.counters, before.counters);
@@ -281,7 +281,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     expectStatus(await post(h, tokens.frontdesk, "/queue", { fullName: "D1 nobody on duty", service_type: "consultation" }), 400, /No doctor is currently available/);
     expectStatus(await post(h, tokens.frontdesk, "/queue", { fullName: "D1 unknown service", service_type: "dental" }), 400, /offered services/);
     await db.observer.query("UPDATE public.counters SET is_online = true");
-    expectStatus(await call(h, tokens.frontdesk, id, "Doctor 1"), 200);
+    expectStatus(await call(h, tokens.superadmin, id, "Doctor 1"), 200);
     await assertConsistent(db);
   });
 
@@ -339,7 +339,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     const historyBefore = (await db.observer.query("SELECT * FROM public.patients WHERE queue_number IN ('GP-901', 'OB-902') ORDER BY id")).rows;
 
     const served = await register(h, db, tokens.frontdesk, { name: "D1 analytics prenatal on Doctor 3", service: "prenatal" });
-    expectStatus(await call(h, tokens.frontdesk, served, "Doctor 3"), 200);
+    expectStatus(await call(h, tokens.superadmin, served, "Doctor 3"), 200);
     expectStatus(await post(h, tokens.admin3, "/queue/accept", { patient_id: served }), 200);
     expectStatus(await post(h, tokens.admin3, "/queue/start", { patient_id: served }), 200);
     expectStatus(await post(h, tokens.admin3, "/queue/complete", { patient_id: served }), 200);
@@ -364,7 +364,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
       [["OB-902", "prenatal", null, "unassigned"]]);
     // The shared queue never reaches into the backlog: today's window only.
     const today = await register(h, db, tokens.frontdesk, { name: "D1 today after backlog", service: "consultation" });
-    expectStatus(await call(h, tokens.frontdesk, today, "Doctor 2"), 200);
+    expectStatus(await call(h, tokens.superadmin, today, "Doctor 2"), 200);
     assert.deepEqual((await db.observer.query("SELECT * FROM public.patients WHERE queue_number IN ('GP-901', 'OB-902') ORDER BY id")).rows,
       historyBefore, "historical rows are unchanged");
     evidence.recordsAnalytics = { doctorTable: analytics.doctorTable.map(({ doctor, total_patients, completed }) => ({ doctor, total_patients, completed })), backlog: backlog.rows };
@@ -373,9 +373,9 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
   test("service mode is unchanged with D1 installed, and shared mode refuses to run without D1", async () => {
     const service = await f.backend(db);
     const id = await register(service, db, tokens.frontdesk, { name: "D1 service-mode prenatal", service: "prenatal" });
-    expectStatus(await call(service, tokens.frontdesk, id, "Doctor 1"), 400, /assigned to Doctor 2/);
+    expectStatus(await call(service, tokens.superadmin, id, "Doctor 1"), 400, /assigned to Doctor 2/);
     service.log.length = 0;
-    expectStatus(await call(service, tokens.frontdesk, id, "Doctor 2"), 200);
+    expectStatus(await call(service, tokens.superadmin, id, "Doctor 2"), 200);
     assert.ok(service.rpcs().includes("call_patient_visit") && !service.rpcs().includes("call_patient_visit_shared"));
     assert.equal((await service.request("GET", "/queue", { token: tokens.frontdesk })).body.dispatch_mode, "service");
 
@@ -384,7 +384,7 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     const tb = await f.signInAll(hb);
     const waiting = await register(hb, bare, tb.frontdesk, { name: "D1 without migration" });
     const before = await f.snapshot(bare);
-    expectStatus(await call(hb, tb.frontdesk, waiting, "Doctor 1"), 503, /D1 database migration/);
+    expectStatus(await call(hb, tb.superadmin, waiting, "Doctor 1"), 503, /D1 database migration/);
     const after = await f.snapshot(bare);
     assert.deepEqual(after.patients, before.patients);
     assert.deepEqual(after.counters, before.counters);

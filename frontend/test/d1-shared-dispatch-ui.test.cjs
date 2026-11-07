@@ -82,51 +82,24 @@ function text(tree) {
   return tree == null || typeof tree === "boolean" ? "" : String(tree);
 }
 const buttons = (tree, label) => nodes(tree, (node) => node.type === "button" && text(node) === label);
-const doctorSelect = (tree) => nodes(tree, (node) => node.type === "select")[0];
 const rowsOf = (tree) => nodes(tree, (node) => node.type === "tr" && node.props.className?.includes("brand-hover-subtle"));
 
-test("one shared queue: only its priority head can be called, and Frontdesk chooses among free doctors", async () => {
+test("one shared queue: Frontdesk cannot call or choose a doctor, and only its priority head can be cancelled", async () => {
   const rows = [
     patient(1, "consultation"),
     patient(2, "family_planning", { priority_score: 4 }),          // Senior registered later: head
     patient(3, "prenatal", { status: "serving", counter_id: "Doctor 2", called_at: "2026-10-29T01:05:00Z" })
   ];
-  const counters = [
-    { id_num: "Doctor 1", is_online: true, current_patient_id: null },
-    { id_num: "Doctor 2", is_online: true, current_patient_id: 3 },
-    { id_num: "Doctor 3", is_online: true, current_patient_id: null }
-  ];
-  const h = table(rows, { counters });
-  let tree = h.render();
-  assert.equal(buttons(tree, "Call Now").length, 1, "one Call Now for the whole queue");
-  const select = doctorSelect(tree);
-  assert.deepEqual(nodes(select, (node) => node.type === "option").map((option) => option.props.value), ["Doctor 1", "Doctor 3"],
-    "Doctor 2 is serving, so it is not offered");
-  assert.equal(select.props.value, "Doctor 1");
-  select.props.onChange({ target: { value: "Doctor 3" } });
-  tree = h.render();
-  await buttons(tree, "Call Now")[0].props.onClick();
-  assert.deepEqual(h.calls, [{ route: "/queue/call", body: { patient_id: 2, counterId: "Doctor 3" } }],
-    "the family planning head is called to the selected doctor");
+  const h = table(rows);
+  const tree = h.render();
+  assert.equal(buttons(tree, "Call Now").length, 0);
+  assert.equal(nodes(tree, (node) => node.type === "select").length, 0, "no doctor to choose");
   const labels = rowsOf(tree).map((row) => text(row.props.children[2]).trim());
   assert.deepEqual(labels, ["Doctor 2", "Next available", "Next available"], "a serving visit shows its actual doctor");
   assert.match(text(tree), /Waiting for turn/);
-});
-
-test("offline or busy doctors leave nobody to call; a stale click sends nothing", async () => {
-  const counters = [
-    { id_num: "Doctor 1", is_online: false, current_patient_id: null },
-    { id_num: "Doctor 2", is_online: true, current_patient_id: 8 },
-    { id_num: "Doctor 3", is_online: false, current_patient_id: null }
-  ];
-  const h = table([patient(1, "prenatal")], { counters });
-  const tree = h.render();
-  const call = buttons(tree, "Call Now")[0];
-  assert.equal(call.props.disabled, true);
-  assert.equal(text(doctorSelect(tree)), "No doctor available");
-  await call.props.onClick();
-  assert.equal(h.calls.length, 0);
-  assert.equal(h.notices[0][0], "error");
+  buttons(tree, "Cancel").forEach((button) => button.props.onClick());
+  assert.ok(h.confirms.some((options) => options.message.includes("(Q-2)")), "the priority head");
+  assert.equal(h.confirms.some((options) => options.message.includes("(Q-1)")), false);
 });
 
 test("cancelling the shared head names no doctor; a served visit is cancelled against its actual doctor", async () => {
@@ -145,16 +118,18 @@ test("cancelling the shared head names no doctor; a served visit is cancelled ag
   assert.ok(bodies.some((body) => body.patient_id === 2 && body.counter_id === "Doctor 3"));
 });
 
-test("an uncalled cancellation stays in the shared lane for Undo/Re-queue until the next call", () => {
+test("an uncalled cancellation stays in view without queue actions until the next call", () => {
   const rows = [
     patient(1, "consultation", { status: "cancelled", completed_at: "2026-10-29T01:10:00Z" }),
     patient(2, "prenatal", { status: "serving", counter_id: "Doctor 1", called_at: "2026-10-29T01:05:00Z" })
   ];
   let tree = table(rows).render();
-  assert.equal(buttons(tree, "Undo").length, 1);
+  assert.match(text(tree), /Q-1/);
+  assert.equal(buttons(tree, "Undo").length, 0);
+  assert.equal(buttons(tree, "Re-queue").length, 0);
   rows[1].called_at = "2026-10-29T01:20:00Z";
   tree = table(rows).render();
-  assert.equal(buttons(tree, "Undo").length, 0, "hidden once a later patient is called");
+  assert.doesNotMatch(text(tree), /Q-1/, "hidden once a later patient is called");
 });
 
 function ticketHelpers() {
@@ -190,19 +165,20 @@ test("tickets: patients ahead counts the whole shared queue, not only the same s
   assert.equal(t.getPatientsAheadSnapshot(rows, rows[2]), 0, "service mode counts only the prenatal doctor's queue");
 });
 
-test("I1 shared queue with WPS-A: the head follows effective_priority, and a protected category wins a tie", async () => {
+test("I1 shared queue with WPS-A: the head follows effective_priority, and a protected category wins a tie", () => {
   const rows = [
     patient(1, "consultation", { priority_score: 1, effective_priority: 3, created_at: "2026-10-29T01:00:00Z" }), // Regular aged +2
     patient(2, "prenatal", { priority_score: 3, effective_priority: 3, created_at: "2026-10-29T01:25:00Z" }),     // Pregnant, new
     patient(3, "family_planning", { priority_score: 2, effective_priority: 2, created_at: "2026-10-29T01:20:00Z" })
   ];
-  const h = table(rows);
-  await buttons(h.render(), "Call Now")[0].props.onClick();
-  assert.equal(h.calls[0].body.patient_id, 2, "the tie at 3 goes to the higher base priority");
+  const headQueue = () => {
+    const h = table(rows);
+    buttons(h.render(), "Cancel")[0].props.onClick();
+    return h.confirms[0].message;
+  };
+  assert.match(headQueue(), /\(Q-2\)/, "the tie at 3 goes to the higher base priority");
   rows[1].status = "completed";
-  const next = table(rows);
-  await buttons(next.render(), "Call Now")[0].props.onClick();
-  assert.equal(next.calls[0].body.patient_id, 1, "then the aged Regular before the newer Indigenous visit");
+  assert.match(headQueue(), /\(Q-1\)/, "then the aged Regular before the newer Indigenous visit");
 });
 
 test("I1 tickets: patients ahead in the shared queue use the aged rank", () => {

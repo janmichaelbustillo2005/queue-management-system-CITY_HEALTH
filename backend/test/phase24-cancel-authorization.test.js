@@ -371,8 +371,8 @@ for (const localFallback of [false, true]) {
     const waitingBefore = (await h.request("GET", "/display", {}, null)).body.waiting_queue.map((entry) => entry.queue_number);
     assert.deepEqual(waitingBefore, [senior, regular, other].map((patient) => patient.queue_number), "priority DESC then arrival");
     // Lower priority cannot jump the senior; the head is called for its mapped doctor.
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: regular.id, counterId: "Doctor 1" }, FRONTDESK)).status, 400);
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: senior.id, counterId: "Doctor 1" }, FRONTDESK)).status, 200);
+    assert.equal((await h.request("POST", "/queue/call", { patient_id: regular.id, counterId: "Doctor 1" }, SUPERADMIN)).status, 400);
+    assert.equal((await h.request("POST", "/queue/call", { patient_id: senior.id, counterId: "Doctor 1" }, SUPERADMIN)).status, 200);
     h.advance();
     assert.equal((await h.request("POST", "/queue/accept", { patient_id: senior.id }, doctor(1))).status, 200);
     h.advance();
@@ -478,7 +478,7 @@ test("mock Supabase: Cancel committed while Requeue is in flight makes the stale
     h.advance();
     assert.equal((await h.request("POST", "/queue/undo", { patient_id: patient.id }, FRONTDESK)).status, 200);
     h.advance();
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, FRONTDESK)).status, 200);
+    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
     h.advance();
     assert.equal((await cancel(h, patient, doctor(1))).status, 200);
   };

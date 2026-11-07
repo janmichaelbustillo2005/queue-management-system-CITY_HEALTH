@@ -23,7 +23,7 @@ const STALE = /changed|no longer eligible/i;
 // Called (serving, awaiting acceptance) on its doctor.
 async function called(h, db, tokens, details) {
   const id = await register(h, db, tokens.frontdesk, details);
-  expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+  expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
   return id;
 }
 // Accepted and in consultation on its doctor.
@@ -60,7 +60,7 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
     assert.equal(waiting.status, "waiting");
 
     h.log.length = 0;
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     assert.ok(h.rpcs().includes("call_patient_visit"));
     assert.deepEqual(h.tableWrites("counters"), [], "the installed C1 function writes the counter, not the backend");
     const serving = await patient(db, id);
@@ -91,9 +91,9 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
   test("Weighted-Priority order and service mapping hold for Call", async () => {
     const regular = await register(h, db, tokens.frontdesk, { name: "Synthetic regular" });
     const senior = await register(h, db, tokens.frontdesk, { name: "Synthetic senior", flags: ["senior"] });
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: regular }), 400, PRIORITY_REFUSAL);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: regular }), 400, PRIORITY_REFUSAL);
     assert.equal((await patient(db, regular)).status, "waiting");
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: senior }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: senior }), 200);
 
     const prenatal = await register(h, db, tokens.frontdesk, { name: "Synthetic prenatal", service: "prenatal" });
     const fp = await register(h, db, tokens.frontdesk, { name: "Synthetic FP", service: "family_planning" });
@@ -106,7 +106,7 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
     assert.equal((await patient(db, fp)).counter_id, "Doctor 3");
     // A doctor busy with a patient cannot call the next one.
     const next = await register(h, db, tokens.frontdesk, { name: "Synthetic next GP" });
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: next }), 400, /already serving/);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: next }), 400, /already serving/);
     await assertConsistent(db);
   });
 
@@ -159,10 +159,10 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
     assert.ok(Date.parse(requeued.created_at) > Date.parse(cancelled.created_at));
     assert.deepEqual(effects(h, id), { sms: 0, awaiting: false, voice: 0 });
     // Same tier, later registration: the patient registered meanwhile is called first.
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 400, PRIORITY_REFUSAL);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: behind }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 400, PRIORITY_REFUSAL);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: behind }), 200);
     expectStatus(await post(h, tokens.admin1, "/queue/cancel", { patient_id: behind, reason: "x" }), 200);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     await assertConsistent(db);
     // Active visits are never re-queued.
     expectStatus(await post(h, tokens.frontdesk, "/queue/requeue", { patient_id: id }), 409, /being served/);
@@ -179,8 +179,8 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
   test("Duplicate requests across two backend instances: one transition, one set of side effects", async () => {
     const other = await f.backend(db);
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic dup", mobile: "09170000003" });
-    const calls = await Promise.all([post(h, tokens.frontdesk, "/queue/call", { patient_id: id }),
-      post(other, tokens.frontdesk, "/queue/call", { patient_id: id })]);
+    const calls = await Promise.all([post(h, tokens.superadmin, "/queue/call", { patient_id: id }),
+      post(other, tokens.superadmin, "/queue/call", { patient_id: id })]);
     assert.equal(calls.filter((r) => r.status === 200).length, 1, JSON.stringify(calls.map((r) => [r.status, r.body.message])));
     assert.ok([400, 409].includes(calls.find((r) => r.status !== 200).status));
     assert.equal(effects(h, id).sms + effects(other, id).sms, 1, "exactly one call SMS");
@@ -260,12 +260,12 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
   test("Counter availability: an offline doctor cannot be called or receive registrations", async () => {
     const fp = await register(h, db, tokens.frontdesk, { name: "Synthetic FP", service: "family_planning" });
     expectStatus(await post(h, tokens.superadmin, "/counters/availability", { doctors: { "Doctor 3": false } }), 200);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: fp }), 400, /offline/);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: fp }), 400, /offline/);
     expectStatus(await post(h, tokens.frontdesk, "/queue", { fullName: "Synthetic late", service_type: "family_planning" }), 400, /offline|unavailable/i);
     assert.equal((await patient(db, fp)).status, "waiting");
     assert.deepEqual(effects(h, fp), { sms: 0, awaiting: false, voice: 0 });
     expectStatus(await post(h, tokens.superadmin, "/counters/availability", { doctors: { "Doctor 3": true } }), 200);
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: fp }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: fp }), 200);
   });
 
   // ---- Races on real locks -------------------------------------------------------------
@@ -289,7 +289,7 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
       const caller = await f.backend(db);
       const canceller = await f.backend(db);
       const id = await register(h, db, tokens.frontdesk, { name: "Synthetic race", mobile: "09170000004" });
-      const call = () => post(caller, tokens.frontdesk, "/queue/call", { patient_id: id });
+      const call = () => post(caller, tokens.superadmin, "/queue/call", { patient_id: id });
       const cancel = () => post(canceller, tokens.admin1, "/queue/cancel", { patient_id: id, reason: "Race" });
       const [callResult, cancelResult] = order === "Call first"
         ? await race(call, cancel)
@@ -364,7 +364,7 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
       const regular = await register(h, db, tokens.frontdesk, { name: "Synthetic regular head" });
       const caller = await f.backend(db);
       const requeuer = await f.backend(db);
-      const call = () => post(caller, tokens.frontdesk, "/queue/call", { patient_id: regular });
+      const call = () => post(caller, tokens.superadmin, "/queue/call", { patient_id: regular });
       const requeue = () => post(requeuer, tokens.superadmin, "/queue/requeue", { patient_id: seniorId });
       const [callResult, requeueResult] = order === "Call first"
         ? await race(call, requeue)
@@ -428,7 +428,7 @@ describe("B. none installed (a database that never had C1/F5/W1): fallbacks fail
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic GP", mobile: "09170000004" });
     const strict = await f.backend(db);
     const before = await f.snapshot(db);
-    expectStatus(await post(strict, tokens.frontdesk, "/queue/call", { patient_id: id }), 503, /atomic C1 database function/);
+    expectStatus(await post(strict, tokens.superadmin, "/queue/call", { patient_id: id }), 503, /atomic C1 database function/);
     assert.ok(strict.rpcs().includes("call_patient_visit"), "C1 was tried");
     assert.equal(strict.tableWrites("counters").length + strict.tableWrites("patients").length, 0, "no two-step write");
     assert.deepEqual(await f.snapshot(db), before);
@@ -439,7 +439,7 @@ describe("B. none installed (a database that never had C1/F5/W1): fallbacks fail
   test("Call with the opt-in falls back to the revision-guarded two-step and works", async () => {
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic GP", mobile: "09170000005" });
     h.log.length = 0;
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     assert.ok(h.rpcs().includes("call_patient_visit"), "the backend tries C1 first");
     assert.equal(h.tableWrites("counters").length, 1, "then claims the counter itself");
     assert.equal((await pointers(db))["Doctor 1"], id);
@@ -461,7 +461,7 @@ describe("B. none installed (a database that never had C1/F5/W1): fallbacks fail
         }
       }
     });
-    expectStatus(await post(racing, tokens.frontdesk, "/queue/call", { patient_id: id }), 400, /no longer eligible/);
+    expectStatus(await post(racing, tokens.superadmin, "/queue/call", { patient_id: id }), 400, /no longer eligible/);
     assert.equal((await patient(db, id)).status, "waiting");
     assert.equal((await pointers(db))["Doctor 1"], null, "the fallback released its own claim");
     assert.deepEqual(effects(racing, id), { sms: 0, awaiting: false, voice: 0 });
@@ -507,7 +507,7 @@ describe("B. none installed (a database that never had C1/F5/W1): fallbacks fail
     const invalid = [
       await post(h, tokens.frontdesk, "/queue/requeue", { patient_id: waiting }),
       await post(h, tokens.frontdesk, "/queue/requeue", { patient_id: servingId }),
-      await post(h, tokens.frontdesk, "/queue/call", { patient_id: servingId })
+      await post(h, tokens.superadmin, "/queue/call", { patient_id: servingId })
     ];
     assert.deepEqual(invalid.map((r) => r.status), [409, 409, 400]);
     for (const r of invalid) assert.doesNotMatch(r.body.message, /migration/i);
@@ -521,7 +521,7 @@ describe("C. partial states during installation", { skip: f.unavailable }, () =>
     const tokens = await f.signInAll(h);
     const id = await register(h, db, tokens.frontdesk, { name: "Synthetic GP" });
     h.log.length = 0;
-    expectStatus(await post(h, tokens.frontdesk, "/queue/call", { patient_id: id }), 200);
+    expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: id }), 200);
     assert.deepEqual(h.tableWrites("counters"), []);
     expectStatus(await post(h, tokens.frontdesk, "/queue/cancel", { patient_id: id, reason: "x" }), 503, CANCEL_MIGRATION_REQUIRED);
     const stale = await staleCancelled(db);

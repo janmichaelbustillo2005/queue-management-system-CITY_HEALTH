@@ -28,7 +28,7 @@ async function register(h, number = 1, name = `Synthetic W1 D${number}`) {
 }
 async function called(h, number = 1, name) {
   const patient = await register(h, number, name);
-  const response = await h.request("POST", "/queue/call", { patient_id: patient.id }, FRONTDESK);
+  const response = await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN);
   assert.equal(response.status, 200, response.body.message);
   h.advance();
   return patient;
@@ -230,7 +230,7 @@ test("installed (W1 with F5 and C1): a delayed Cancel loses to Cancel + Requeue 
       const recovered = await h.request("POST", requeue ? "/queue/requeue" : "/queue/undo", { patient_id: patient.id }, FRONTDESK);
       assert.equal(recovered.status, 200, recovered.body.message);
       h.advance();
-      assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, FRONTDESK)).status, 200);
+      assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
       return undefined;
     };
     const late = await cancel(h, patient, doctor(3), { reason: "Delayed" });

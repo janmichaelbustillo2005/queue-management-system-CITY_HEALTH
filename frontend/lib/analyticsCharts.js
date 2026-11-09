@@ -9,7 +9,19 @@ export const SERVICE_LABELS = {
   checkup: "Medical Check-up",
   prenatal: "Prenatal",
   maternity: "Maternity",
-  family_planning: "Family Planning"
+  family_planning: "Family Planning",
+  medical_consultation: "Medical Consultation",
+  maternal_healthcare: "Maternal Healthcare",
+  child_healthcare: "Child Healthcare",
+  dental_healthcare: "Dental Healthcare",
+  nutrition: "Nutrition",
+  diagnostic_imaging: "Diagnostic Imaging",
+  womens_health: "Women's Health",
+  mental_healthcare: "Mental Healthcare",
+  medical_documentation: "Medical Documentation",
+  marriage_preparation: "Marriage Preparation",
+  environmental_health: "Environmental Health",
+  food_safety: "Food Safety"
 };
 
 export const STATUS_LABELS = {

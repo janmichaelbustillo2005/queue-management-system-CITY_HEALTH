@@ -122,7 +122,9 @@ test("the filter options map to the exact values the Records RPC compares", () =
   const values = (category, key) => [...RECORD_FILTERS[category].primary, ...RECORD_FILTERS[category].advanced]
     .find(field => field.key === key).options.map(option => option.value);
   deepEqual(values("patients", "status"), ["waiting", "serving", "completed", "cancelled", "no-show"]);
-  deepEqual(values("patients", "service"), ["consultation", "checkup", "prenatal", "maternity", "family_planning"]);
+  deepEqual(values("patients", "service"), ["consultation", "checkup", "prenatal", "maternity", "family_planning",
+    "medical_consultation", "maternal_healthcare", "child_healthcare", "dental_healthcare", "nutrition", "diagnostic_imaging",
+    "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety"]);
   deepEqual(values("patients", "doctor"), ["Doctor 1", "Doctor 2", "Doctor 3"]);
   for (const category of ["staff", "accounts"]) {
     deepEqual(values(category, "position"), ["Super Admin", "Doctor", "Frontdesk"], "server-derived positions only (Phase B.2)");
@@ -482,8 +484,8 @@ test("the fields and the Reset/Apply pair share one row, with each field sized f
   assert.ok(hasClass("buttons")(pair), "Reset and Apply are the last item of the field row");
   assert.deepEqual(nodes(pair, node => node.type === "button").map(node => text(node)), ["Reset", "Apply filters"]);
   const minimums = nodes(row, hasClass("field")).map(field => [field.props.className.split(" ")[1], field.props.style["--field-min"]]);
-  assert.deepEqual(minimums, [["searchField", "200px"], ["dateField", "140px"], ["selectField", "184px"],
-    ["selectField", "121px"], ["selectField", "128px"]], "General Consultation needs the widest dropdown");
+  assert.deepEqual(minimums, [["searchField", "200px"], ["dateField", "140px"], ["selectField", "191px"],
+    ["selectField", "121px"], ["selectField", "128px"]], "Medical Documentation needs the widest dropdown");
   const actions = nodes(tree, hasClass("actions"))[0];
   assert.ok(hasClass("actionsEmpty")(actions), "no empty second row for Patient Records");
   assert.equal(nodes(actions, node => node.props.role === "status").length, 1, "the status line stays mounted for screen readers");

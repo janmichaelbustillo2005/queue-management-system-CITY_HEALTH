@@ -7,7 +7,19 @@ const SERVICE_OPTIONS = [
   { value: "checkup", label: "Medical Check-up" },
   { value: "prenatal", label: "Prenatal" },
   { value: "maternity", label: "Maternity" },
-  { value: "family_planning", label: "Family Planning" }
+  { value: "family_planning", label: "Family Planning" },
+  { value: "medical_consultation", label: "Medical Consultation" },
+  { value: "maternal_healthcare", label: "Maternal Healthcare" },
+  { value: "child_healthcare", label: "Child Healthcare" },
+  { value: "dental_healthcare", label: "Dental Healthcare" },
+  { value: "nutrition", label: "Nutrition" },
+  { value: "diagnostic_imaging", label: "Diagnostic Imaging" },
+  { value: "womens_health", label: "Women's Health" },
+  { value: "mental_healthcare", label: "Mental Healthcare" },
+  { value: "medical_documentation", label: "Medical Documentation" },
+  { value: "marriage_preparation", label: "Marriage Preparation" },
+  { value: "environmental_health", label: "Environmental Health" },
+  { value: "food_safety", label: "Food Safety" }
 ];
 
 const STATUS_OPTIONS = [

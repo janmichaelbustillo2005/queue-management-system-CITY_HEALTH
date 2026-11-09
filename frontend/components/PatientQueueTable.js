@@ -29,7 +29,8 @@ const STATUS_RANK = { serving: 0, waiting: 1, cancelled: 2, "no-show": 2, comple
 
 function matchesDoctor(serviceType, doctorName) {
   if (!serviceType || !doctorName) return false;
-  return SERVICE_TO_DOCTOR[serviceType] === doctorName;
+  // Any other service follows the backend's existing default route (getDoctorForService): Doctor 1.
+  return (SERVICE_TO_DOCTOR[serviceType] || "Doctor 1") === doctorName;
 }
 
 function belongsToDoctor(row, doctorName, shared = false) {

@@ -766,7 +766,8 @@ export default function QueueDisplayPage() {
       family_planning: "FP"
     };
 
-    const patientCategory = serviceToCategory[serviceType];
+    // Any other service uses the backend's default route: GP tickets, served by Doctor 1.
+    const patientCategory = serviceToCategory[serviceType] || "GP";
     const doctorCategories = assignedServices.map(s => serviceToCategory[s]).filter(Boolean);
 
     return patientCategory && doctorCategories.includes(patientCategory);

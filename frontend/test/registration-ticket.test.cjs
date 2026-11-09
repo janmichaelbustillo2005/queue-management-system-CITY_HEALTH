@@ -415,3 +415,46 @@ test("a record that cannot be read shows the error and selects nothing", async (
   assert.doesNotMatch(text(h.render()), /Returning patient/);
   assert.equal(h.field("patient-first-name").props.readOnly, false);
 });
+
+// RR1 round-robin dispatch: the service never chooses the doctor; the backend assigns one.
+const roundRobinDisplay = { dispatch_mode: "shared", dispatch_strategy: "round_robin",
+  approved_services: ["consultation", "checkup", "prenatal", "maternity", "family_planning"],
+  counters: [1, 2, 3].map(n => ({ id_num: `Doctor ${n}`, is_online: false })) };
+
+test("RR1: the review names no doctor for the service, and unapproved services cannot be chosen", async () => {
+  const h = harness({ request: route => route === "/display" ? roundRobinDisplay
+    : route === REGISTRATION ? { error: "Temporary failure" } : undefined });
+  h.fill(); await h.submit();
+  const review = nodes(h.render(), node => node.type === "section" && node.props.className === "registration-review")[0];
+  const shown = text(review);
+  assert.match(shown, /Service: Prenatal/);
+  assert.match(shown, /Doctor assignment: Any available doctor — automatically assigned/);
+  assert.match(shown, /Assignment method: Automatic round robin/);
+  assert.doesNotMatch(shown, /Doctor [123]/);
+  const options = nodes(nodes(h.render(), node => node.props.id === "patient-service")[0], node => node.type === "option" && node.props.value);
+  const disabled = options.filter(node => node.props.disabled).map(node => node.props.value);
+  assert.deepEqual(options.filter(node => !node.props.disabled).map(node => node.props.value),
+    ["consultation", "checkup", "prenatal", "maternity", "family_planning"]);
+  assert.equal(disabled.length, 12);
+  assert.ok(disabled.every(value => /not yet approved for general doctors/.test(text(options.find(node => node.props.value === value))))); 
+});
+
+test("RR1: registration is not blocked while every doctor is offline, and the ticket promises no doctor", async () => {
+  const waitingAssigned = { ...savedPatient, counter_id: "Doctor 2" };
+  const h = harness({ request: route => route === "/display" ? roundRobinDisplay
+    : route === "/queue" ? { dispatch_mode: "shared", dispatch_strategy: "round_robin", patients: [waitingAssigned] } : undefined });
+  h.fill(); await h.submit();
+  assert.match(text(h.render()), /Patient registered successfully\./);
+  assert.equal(h.calls.filter(call => call.method === "POST").length, 1);
+  assert.equal(nodes(h.render(), node => node.type === "DigitalQueuePass")[0].props.ticket.doctorName, "Next available doctor",
+    "a provisional round-robin assignment is not printed: it can still change");
+});
+
+test("service dispatch keeps the existing routed-doctor review and offers every listed service", async () => {
+  const h = harness({ request: route => route === REGISTRATION ? { error: "Temporary failure" } : undefined });
+  h.fill(); await h.submit();
+  const review = nodes(h.render(), node => node.type === "section" && node.props.className === "registration-review")[0];
+  assert.match(text(review), /Prenatal · Doctor 2/);
+  const options = nodes(nodes(h.render(), node => node.props.id === "patient-service")[0], node => node.type === "option" && node.props.value);
+  assert.equal(options.filter(node => node.props.disabled).length, 0);
+});

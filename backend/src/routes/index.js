@@ -14,6 +14,8 @@ const {
   buildCsv,
   buildAnalyticsCsv,
   callPatient,
+  requestDispatch,
+  transferConsultation,
   cancelPatient,
   cancelHistoricalWaitingVisit,
   getHistoricalBacklog,
@@ -66,6 +68,22 @@ const {
 } = require("../services/settingsService");
 
 const router = express.Router();
+
+// RR1 (DOCTOR_DISPATCH_MODE=round_robin): re-run the dispatcher after any change that adds a
+// visit, frees or occupies a doctor, or changes who is signed in or enabled. It never fails the
+// request: a visit that cannot be assigned simply waits in the shared queue. No-op otherwise.
+const roundRobinDispatch = () => env.doctorDispatchMode === "round_robin";
+
+async function afterQueueChange() {
+  return roundRobinDispatch() ? requestDispatch() : null;
+}
+
+// The doctor the dispatcher just gave this visit, for the registration confirmation.
+function assignedDoctorFor(dispatch, visitId) {
+  if (!roundRobinDispatch()) return {};
+  const entry = (dispatch?.assigned || []).find((item) => Number(item.patient_id) === Number(visitId));
+  return { assigned_doctor: entry?.doctor ?? null };
+}
 
 function readRecordFilters(query, defaultDateFilter = "") {
   return {
@@ -125,6 +143,7 @@ router.post("/auth/login", async (req, res) => {
       { algorithm: "HS256" }
     );
 
+    await afterQueueChange();
     res.setHeader("Cache-Control", "no-store");
     res.json({ success: true, token, user });
   } catch (error) {
@@ -145,6 +164,7 @@ router.post("/auth/heartbeat", authenticateToken, async (req, res) => {
 router.post("/auth/logout", authenticateToken, async (req, res) => {
   try {
     await revokeAuthSession(req.user);
+    await afterQueueChange();
     res.setHeader("Cache-Control", "no-store");
     res.json({ success: true, message: "Session logged out" });
   } catch (error) {
@@ -191,11 +211,13 @@ router.post("/queue", authenticateToken, async (req, res) => {
       vulnerabilityFlags: vulnerabilityFlags || [],
       source: "admin"
     });
+    const dispatch = await afterQueueChange();
 
     return res.json({
       success: true,
       queue_number: row.queue_number,
       priority_score: row.priority_score,
+      ...assignedDoctorFor(dispatch, row.id),
       message: "Patient added successfully"
     });
   } catch (error) {
@@ -222,6 +244,7 @@ router.post("/queue/website", async (req, res) => {
       vulnerabilityFlags: vulnerabilityFlags || [],
       source: "website"
     });
+    await afterQueueChange();
 
     return res.json({
       success: true,
@@ -267,10 +290,12 @@ router.post("/patient-records/visits", authenticateToken, async (req, res) => {
       patientRecordId, confirmNewRecord, firstName, middleInitial, lastName, serviceType,
       mobileNumber, residency, philhealthId, birthdate, sex, vulnerabilityFlags
     }, req.user);
+    const dispatch = await afterQueueChange();
     return res.json({
       success: true,
       queue_number: visit.queue_number,
       priority_score: visit.priority_score,
+      ...assignedDoctorFor(dispatch, visit.id),
       patient_record: record,
       patient_record_created: recordCreated
     });
@@ -417,6 +442,7 @@ router.post("/queue/complete", authenticateToken, async (req, res) => {
     }
     const patient = await completePatient(Number(patient_id), reason, counter_id ?? counterId ?? null, req.user);
     clearAwaitingAccept(patient_id);
+    await afterQueueChange();
     res.json({ success: true, patient, storage_mode: getQueueStorageMode(), message: "Consultation completed successfully" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
@@ -445,6 +471,7 @@ router.post("/queue/cancel", authenticateToken, async (req, res) => {
       return res.json({ success: true, already_cancelled: true, message: "Patient was already cancelled; no changes were made" });
     }
     clearAwaitingAccept(patient_id);
+    await afterQueueChange();
     res.json({ success: true, message: "Patient cancelled successfully" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
@@ -475,6 +502,19 @@ router.get("/queue/backlog/:id", authenticateToken, authorizeRole(["superadmin"]
   }
 });
 
+// RR1 intervention: Frontdesk or Superadmin move a serving visit whose doctor signed out to a
+// signed-in, free doctor. Authority is the persisted account (checked again in the database).
+router.post("/queue/transfer", authenticateToken, async (req, res) => {
+  try {
+    const { patient_id, doctor } = req.body || {};
+    const patient = await transferConsultation(Number(patient_id), doctor, req.user);
+    await afterQueueChange();
+    res.json({ success: true, patient, message: `Consultation transferred to ${patient.counter_id}` });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
+  }
+});
+
 router.post("/queue/backlog/:id/cancel", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
     const patientId = Number(req.params.id);
@@ -499,6 +539,7 @@ router.post("/queue/no-show", authenticateToken, async (req, res) => {
     if (result?.already_no_show) {
       return res.json({ success: true, already_no_show: true, message: "Patient was already marked no-show; no changes were made" });
     }
+    await afterQueueChange();
     res.json({ success: true, message: "Patient marked as no-show" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
@@ -524,6 +565,7 @@ router.post("/queue/requeue", authenticateToken, async (req, res) => {
     const { patient_id, reason } = req.body;
     await requeuePatient(Number(patient_id), reason, req.user);
     resetAcceptState(patient_id);
+    await afterQueueChange();
     res.json({ success: true, message: "Patient re-queued successfully" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
@@ -535,6 +577,7 @@ router.post("/queue/undo", authenticateToken, async (req, res) => {
     const { patient_id } = req.body;
     await undoPatientAction(Number(patient_id), req.user);
     resetAcceptState(patient_id);
+    await afterQueueChange();
     res.json({ success: true, message: "Action undone successfully" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
@@ -577,6 +620,7 @@ router.post("/counters/availability", authenticateToken, authorizeRole(["superad
       const row = await setCounterOnline(idNum, isOnline);
       results.push(row);
     }
+    await afterQueueChange();
     res.json({ success: true, counters: results, message: "Doctor availability updated" });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });

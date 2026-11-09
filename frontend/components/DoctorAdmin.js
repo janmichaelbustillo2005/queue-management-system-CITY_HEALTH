@@ -56,6 +56,9 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   const [storageMode, setStorageMode] = useState(null);
   const [dispatchMode, setDispatchMode] = useState("service");
   const sharedDispatch = dispatchMode === SHARED_DISPATCH;
+  // RR1 round-robin dispatch: the backend assigns each waiting visit to one doctor, so this
+  // dashboard lists only the visit assigned to this doctor (never the whole shared queue).
+  const [roundRobin, setRoundRobin] = useState(false);
   const [recallCooldown, setRecallCooldown] = useState(false);
   const [pendingActions, setPendingActions] = useState({});
   const pendingActionsRef = useRef(new Set());
@@ -264,7 +267,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       family_planning: "Doctor 3"
     };
 
-    return serviceToDoctor[serviceType] === doctorNameParam;
+    // Any other service follows the backend's existing default route (getDoctorForService): Doctor 1.
+    return (serviceToDoctor[serviceType] || "Doctor 1") === doctorNameParam;
   };
 
   const doctorQueue = useMemo(() => {
@@ -275,6 +279,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       // stored assignment, else the service's doctor; a shared visit waits for any doctor.
       if (row.status === "waiting") {
         if (String(row.counter_id ?? "").trim()) return isAssignedToDoctor(row, doctorName, counters);
+        if (roundRobin) return false;
         return sharedDispatch ? SHARED_SERVICES.includes(row.service_type) : matchesDoctor(row.service_type, doctorName);
       }
       if (!row.called_at) return false;
@@ -288,7 +293,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       
       return false;
     });
-  }, [queueRows, doctorName, counters, sharedDispatch]);
+  }, [queueRows, doctorName, counters, sharedDispatch, roundRobin]);
 
   const filteredRows = useMemo(() => {
     const queue = doctorQueue ?? [];
@@ -470,6 +475,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       setStorageMode(data.storage_mode ?? null);
       const shared = data.dispatch_mode === SHARED_DISPATCH;
       setDispatchMode(shared ? SHARED_DISPATCH : "service");
+      const assignedByRotation = data.dispatch_strategy === "round_robin";
+      setRoundRobin(assignedByRotation);
       if (data.queue_settings) {
         setQueueSettings(mergeQueueSettings(data.queue_settings));
       }
@@ -480,7 +487,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     const myServed = patients.filter(q => isAssignedToDoctor(q, doctorName, data.counters ?? []));
     const matchingWaiting = patients.filter(q => 
       // Shared dispatch: every waiting patient may come to this doctor.
-      q.status === "waiting" && (shared || matchesDoctor(q.service_type, doctorName))
+      q.status === "waiting" && (assignedByRotation ? isAssignedToDoctor(q, doctorName, data.counters ?? [])
+        : shared || matchesDoctor(q.service_type, doctorName))
     );
 
       setStats({
@@ -655,7 +663,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
             </div>
             <div>
               <div className="text-sm font-bold brand-text">
-                {sharedDispatch ? "All services (general doctor)" :
+                {roundRobin ? "Assigned by rotation (general doctor)" : sharedDispatch ? "All services (general doctor)" :
                  doctorName === "Doctor 1" ? "Consultation, Check-up" :
                  doctorName === "Doctor 2" ? "Prenatal, Maternity" : 
                  doctorName === "Doctor 3" ? "Family Planning" : "No assignments"}

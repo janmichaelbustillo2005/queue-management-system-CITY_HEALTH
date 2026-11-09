@@ -7,6 +7,18 @@ const SERVICE_LABELS = {
   prenatal: "Prenatal",
   maternity: "Maternity",
   family_planning: "Family Planning",
+  medical_consultation: "Medical Consultation",
+  maternal_healthcare: "Maternal Healthcare",
+  child_healthcare: "Child Healthcare",
+  dental_healthcare: "Dental Healthcare",
+  nutrition: "Nutrition",
+  diagnostic_imaging: "Diagnostic Imaging",
+  womens_health: "Women's Health",
+  mental_healthcare: "Mental Healthcare",
+  medical_documentation: "Medical Documentation",
+  marriage_preparation: "Marriage Preparation",
+  environmental_health: "Environmental Health",
+  food_safety: "Food Safety",
   laboratory: "Laboratory",
   dental: "Dental",
   obgyne: "Obstetrics and Gynecology"
@@ -46,7 +58,10 @@ export function createQueueTicket(patient, { dispatchMode } = {}) {
   const validDate = patient.created_at && Number.isFinite(registeredAt.getTime());
   const knownStatus = Object.prototype.hasOwnProperty.call(STATUS_LABELS, patient.status);
   // The stored doctor once called; before that the service's doctor, or none in shared dispatch.
-  const assignedDoctor = ["Doctor 1", "Doctor 2", "Doctor 3"].includes(patient.counter_id)
+  // In shared dispatch a waiting visit's stored doctor is provisional (RR1 round robin may still
+  // reassign it if that doctor goes offline), so a ticket never promises one before the call.
+  const provisional = dispatchMode === SHARED_DISPATCH && patient.status === "waiting";
+  const assignedDoctor = !provisional && ["Doctor 1", "Doctor 2", "Doctor 3"].includes(patient.counter_id)
     ? patient.counter_id : dispatchMode === SHARED_DISPATCH ? NEXT_AVAILABLE_DOCTOR : doctorForService(patient.service_type);
   return {
     patientId: patient.id,

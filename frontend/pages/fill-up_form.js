@@ -14,7 +14,19 @@ const serviceOptions = [
   { value: "checkup", label: "Medical Check-up" },
   { value: "prenatal", label: "Prenatal" },
   { value: "maternity", label: "Maternity" },
-  { value: "family_planning", label: "Family Planning" }
+  { value: "family_planning", label: "Family Planning" },
+  { value: "medical_consultation", label: "Medical Consultation" },
+  { value: "maternal_healthcare", label: "Maternal Healthcare" },
+  { value: "child_healthcare", label: "Child Healthcare" },
+  { value: "dental_healthcare", label: "Dental Healthcare" },
+  { value: "nutrition", label: "Nutrition" },
+  { value: "diagnostic_imaging", label: "Diagnostic Imaging" },
+  { value: "womens_health", label: "Women's Health" },
+  { value: "mental_healthcare", label: "Mental Healthcare" },
+  { value: "medical_documentation", label: "Medical Documentation" },
+  { value: "marriage_preparation", label: "Marriage Preparation" },
+  { value: "environmental_health", label: "Environmental Health" },
+  { value: "food_safety", label: "Food Safety" }
 ];
 
 const SERVICE_TO_DOCTOR = {
@@ -62,6 +74,10 @@ function isDoctorAvailableInSettings(settings, doctorName) {
 // D1 shared dispatch: registration assigns no doctor, so any enabled doctor counter is enough.
 const SHARED_DISPATCH = "shared";
 const SHARED_DOCTOR_LABEL = "Next available doctor";
+// RR1 round-robin dispatch: the backend assigns the doctor; the service never chooses it.
+const ROUND_ROBIN = "round_robin";
+const ROUND_ROBIN_DOCTOR_LABEL = "Any available doctor — automatically assigned";
+const ROUND_ROBIN_METHOD_LABEL = "Automatic round robin";
 const NO_DOCTOR_AVAILABLE = "No doctor is currently available. Ask Super Admin to enable a doctor counter before registering patients.";
 
 async function fetchDoctorAvailability(doctorName, onDispatchMode = () => {}) {
@@ -70,11 +86,15 @@ async function fetchDoctorAvailability(doctorName, onDispatchMode = () => {}) {
     ? displayData.counters.find((item) => item.id_num === doctorName || item.name === doctorName)
     : null;
   const shared = !displayData?.error && displayData?.dispatch_mode === SHARED_DISPATCH;
+  if (!displayData?.error && displayData?.dispatch_strategy === ROUND_ROBIN) {
+    onDispatchMode(SHARED_DISPATCH, displayData);
+    return { available: true, shared: true };
+  }
 
   if (counter && !shared) {
     return { available: counter.is_online !== false, shared: false };
   }
-  if (!displayData?.error) onDispatchMode(shared ? SHARED_DISPATCH : "service");
+  if (!displayData?.error) onDispatchMode(shared ? SHARED_DISPATCH : "service", displayData);
   if (shared && Array.isArray(displayData.counters)) {
     return { available: displayData.counters.some((item) => item.is_online !== false), shared: true };
   }
@@ -179,13 +199,25 @@ export default function FillUpFormPage() {
   const [residencySuggestions, setResidencySuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [currentDate, setCurrentDate] = useState("");
-  const [dispatchMode, setDispatchMode] = useState("service");
+  const [dispatchMode, setDispatchModeState] = useState("service");
   const sharedDispatch = dispatchMode === SHARED_DISPATCH;
+  // RR1: who assigns, and the services the general doctors are approved to take (null = no limit
+  // reported, as in service mode, where the backend keeps its existing routing).
+  const [roundRobin, setRoundRobin] = useState(false);
+  const [approvedServices, setApprovedServices] = useState(null);
+  const setDispatchMode = (mode, data) => {
+    setDispatchModeState(mode);
+    if (data) {
+      setRoundRobin(data.dispatch_strategy === ROUND_ROBIN);
+      setApprovedServices(Array.isArray(data.approved_services) ? data.approved_services : null);
+    }
+  };
+  const serviceApproved = (value) => !approvedServices || approvedServices.includes(value);
 
   useEffect(() => {
     // The review line names the routed doctor only when services still have fixed doctors.
     request("/display").then((data) => {
-      if (!data?.error) setDispatchMode(data?.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
+      if (!data?.error) setDispatchMode(data?.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service", data);
     }).catch(() => {});
   }, []);
 
@@ -710,7 +742,9 @@ export default function FillUpFormPage() {
                           >
                             <option value="" disabled>-- Select Service --</option>
                             {serviceOptions.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
+                              <option key={option.value} value={option.value} disabled={!serviceApproved(option.value)}>
+                                {option.label}{serviceApproved(option.value) ? "" : " (not yet approved for general doctors)"}
+                              </option>
                             ))}
                           </select>
                           <div className="form-text brand-text-muted mt-1 small" style={{fontSize: '0.78rem'}}>
@@ -752,7 +786,16 @@ export default function FillUpFormPage() {
 
                     <section className="registration-review" aria-labelledby="registration-review-title">
                       <h3 id="registration-review-title">Review and Submit</h3>
-                      <p>{buildFullName(form) || "Enter the patient information above."}{selectedPatient ? ` (${selectedPatient.patient_code})` : ""} · {serviceOptions.find((option) => option.value === form.serviceType)?.label || "Select a service"}{form.serviceType ? ` · ${sharedDispatch ? SHARED_DOCTOR_LABEL : getDoctorForService(form.serviceType)}` : ""}</p>
+                      {roundRobin ? (
+                        <>
+                          <p>{buildFullName(form) || "Enter the patient information above."}{selectedPatient ? ` (${selectedPatient.patient_code})` : ""}</p>
+                          <p data-review-service>Service: {serviceOptions.find((option) => option.value === form.serviceType)?.label || "Select a service"}</p>
+                          <p data-review-doctor>Doctor assignment: {ROUND_ROBIN_DOCTOR_LABEL}</p>
+                          <p data-review-method>Assignment method: {ROUND_ROBIN_METHOD_LABEL}</p>
+                        </>
+                      ) : (
+                        <p>{buildFullName(form) || "Enter the patient information above."}{selectedPatient ? ` (${selectedPatient.patient_code})` : ""} · {serviceOptions.find((option) => option.value === form.serviceType)?.label || "Select a service"}{form.serviceType ? ` · ${sharedDispatch ? SHARED_DOCTOR_LABEL : getDoctorForService(form.serviceType)}` : ""}</p>
+                      )}
                       <p className="registration-review-note">Check the patient details and classification before generating one queue number.</p>
                     </section>
                     {duplicateCandidates ? (

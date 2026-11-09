@@ -33,8 +33,23 @@ function readJwtSecret(value) {
 // D1: how a waiting visit reaches a doctor. "service" (the default, unchanged behavior) routes
 // each service to its fixed doctor. "shared" (Model A, provisional, pending administrator and
 // adviser approval) keeps one Weighted-Priority queue and stores the doctor chosen at Call; it
-// needs backend/scripts/20261029-d1-shared-call.sql. Any other value stops the backend.
-const DOCTOR_DISPATCH_MODES = ["service", "shared"];
+// needs backend/scripts/20261029-d1-shared-call.sql. "round_robin" (RR1, provisional) keeps the
+// same shared queue but the backend assigns the next WPS/WPS-A patient to signed-in, free doctors
+// in turn and releases a signed-out doctor's pending patients; it needs
+// backend/scripts/20261109-rr1-round-robin-dispatch.sql. Any other value stops the backend.
+const DOCTOR_DISPATCH_MODES = ["service", "shared", "round_robin"];
+
+// RR1: how often the backend re-runs the dispatcher, so a doctor whose heartbeat stopped loses
+// its pending patients without anyone acting. 5-60 seconds; 15 by default.
+function readDispatchSweepSeconds(value) {
+  const seconds = Number(String(value ?? "").trim() || 15);
+  if (!Number.isInteger(seconds) || seconds < 5 || seconds > 60) {
+    const error = new Error("Invalid DISPATCH_SWEEP_SECONDS in backend/.env: use a whole number from 5 to 60.");
+    error.code = "INVALID_DISPATCH_SWEEP_SECONDS";
+    throw error;
+  }
+  return seconds;
+}
 
 function readDoctorDispatchMode(value) {
   const mode = String(value ?? "").trim().toLowerCase() || "service";
@@ -69,6 +84,7 @@ const env = {
   port: Number(process.env.PORT || 4000),
   isProduction,
   doctorDispatchMode: readDoctorDispatchMode(process.env.DOCTOR_DISPATCH_MODE),
+  dispatchSweepSeconds: readDispatchSweepSeconds(process.env.DISPATCH_SWEEP_SECONDS),
   frontendUrls: readFrontendUrls(process.env.FRONTEND_URL),
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",

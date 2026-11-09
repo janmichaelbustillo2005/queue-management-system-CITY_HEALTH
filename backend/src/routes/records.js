@@ -54,7 +54,7 @@ router.get('/:category', async (req, res) => {
   // D1 shared dispatch: the D1-R function (20261029-d1r-records-shared.sql) reports never-called
   // visits as unassigned and keeps them out of a doctor filter. Phase B.2 refuses the extra key
   // (22023), so the request is repeated without it and the rows are relabelled below.
-  const shared = category === 'patients' && env.doctorDispatchMode === 'shared';
+  const shared = category === 'patients' && ['shared', 'round_robin'].includes(env.doctorDispatchMode);
   const read = (extra) => supabase.rpc('get_central_records', { p_category: category, p_filters: { ...filters, ...extra }, p_page: page, p_limit: limit });
   let result;
   try {

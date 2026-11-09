@@ -26,8 +26,9 @@ const registration = (name, service = "consultation", flags = []) => ({
 });
 
 // Contract: the exact keys each public collection may contain. dispatch_mode (D1) is the
-// configured "service"/"shared" policy, not patient data.
-const TOP_KEYS = ["all_serving", "counters", "dispatch_mode", "next_in_line", "now_serving", "queue_settings", "recent_accepted",
+// configured "service"/"shared" policy, not patient data; so are RR1's dispatch_strategy and
+// approved_services (the service keys the general doctors may take).
+const TOP_KEYS = ["all_serving", "approved_services", "counters", "dispatch_mode", "dispatch_strategy", "next_in_line", "now_serving", "queue_settings", "recent_accepted",
   "recent_called", "serving_count", "settings", "storage_mode", "voice_announcements", "waiting_count", "waiting_queue"];
 const WAITING_KEYS = ["completed_at", "counter_id", "id", "queue_number", "service_type", "status"];
 const WAITING_REQUIRED = ["id", "queue_number", "service_type", "status"];

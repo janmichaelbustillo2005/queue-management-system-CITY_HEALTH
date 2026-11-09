@@ -393,10 +393,15 @@ async function getQueueOverview() {
   const patients = Array.from(patientsById.values());
   const settings = getQueueSettings();
   const rankedAt = Date.now();
+  const dispatch = isRoundRobin() ? await getRoundRobinStatus() : null;
 
   return {
     storage_mode: getQueueStorageMode(),
-    dispatch_mode: getDispatchMode(),
+    dispatch_mode: publicDispatchMode(),
+    dispatch_strategy: isRoundRobin() ? DISPATCH_ROUND_ROBIN : null,
+    approved_services: isSharedDispatch() ? [...APPROVED_GENERAL_SERVICES] : null,
+    // RR1: doctor states, open interventions and assignment history, read from the database.
+    ...(dispatch ? { dispatch } : {}),
     // effective_priority is the WPS rank key at read time (equal to priority_score without aging).
     wps: { aging: wpsAging() },
     patients: patients.map((p) => ({
@@ -420,8 +425,13 @@ const SERVICE_CODE_MAP = {
   family_planning: "FP"
 };
 
-// Every service the three general doctors may serve (D1: the administrator's stated scope).
-const CONFIGURED_SERVICES = Object.keys(SERVICE_CODE_MAP);
+// Every service the three general doctors may serve from the shared queue: the City Health
+// administrator's confirmation of 2026-10-29 (docs/d1-flexible-doctor-assignment-20261029.md).
+// In shared and round-robin dispatch this list, and nothing else, decides which services may be
+// registered and dispatched; the service never decides the doctor. It must match the database's
+// qms_rr_approved_services() (a test compares them). Add a service only after CHO approval.
+const APPROVED_GENERAL_SERVICES = Object.freeze(["consultation", "checkup", "prenatal", "maternity", "family_planning"]);
+const CONFIGURED_SERVICES = APPROVED_GENERAL_SERVICES;
 const DOCTOR_NAMES = ["Doctor 1", "Doctor 2", "Doctor 3"];
 const DISPATCH_SHARED = "shared";
 const UNASSIGNED_DOCTOR = "Unassigned";
@@ -429,12 +439,26 @@ const UNASSIGNED_DOCTOR = "Unassigned";
 // D1: "service" (default) routes a waiting visit to its service's doctor, as before. "shared"
 // (Model A, provisional) keeps one Weighted-Priority queue; the doctor is chosen at Call and
 // stored on the visit, so a visit that was never called belongs to no doctor.
+// RR1: "round_robin" is the same shared queue, but the backend's dispatcher (not the Call) gives
+// the next WPS/WPS-A visit to a signed-in, free doctor in turn. It reports dispatch_mode "shared"
+// to the screens (every shared-queue rule applies) plus dispatch_strategy "round_robin".
+const DISPATCH_ROUND_ROBIN = "round_robin";
+
 function getDispatchMode() {
-  return env.doctorDispatchMode === DISPATCH_SHARED ? DISPATCH_SHARED : "service";
+  return [DISPATCH_SHARED, DISPATCH_ROUND_ROBIN].includes(env.doctorDispatchMode) ? env.doctorDispatchMode : "service";
 }
 
 function isSharedDispatch() {
-  return getDispatchMode() === DISPATCH_SHARED;
+  return getDispatchMode() !== "service";
+}
+
+function isRoundRobin() {
+  return getDispatchMode() === DISPATCH_ROUND_ROBIN;
+}
+
+// What the screens receive: the queue model ("service" or "shared") and, separately, who assigns.
+function publicDispatchMode() {
+  return isSharedDispatch() ? DISPATCH_SHARED : "service";
 }
 
 // The legacy service-to-doctor routing. Shared dispatch uses it for nothing but a legacy serving
@@ -466,6 +490,9 @@ async function ensureDoctorAvailableForService(serviceType) {
   if (isSharedDispatch()) {
     // Registration assigns no doctor: any enabled doctor may take the visit when it is called.
     if (!CONFIGURED_SERVICES.includes(serviceType)) throw registrationError("Select one of the offered services.");
+    // RR1: with every doctor signed out the visit still joins the shared queue and waits; the
+    // dispatcher assigns it once a doctor is available, and Frontdesk sees the notice meanwhile.
+    if (isRoundRobin()) return null;
     const counters = await getCounters();
     if (!counters.some((c) => DOCTOR_NAMES.includes(c.id_num) && c.is_online !== false)) {
       throw registrationError("No doctor is currently available. Ask Super Admin to enable a doctor counter before registering patients.");
@@ -1059,6 +1086,7 @@ function getSharedQueueHead(waitingPatients, doctorName, rankedAt = Date.now()) 
 const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
 const SHARED_CALL_MIGRATION_REQUIRED = "Shared doctor dispatch needs the D1 database migration (backend/scripts/20261029-d1-shared-call.sql). Nothing was changed.";
 const SHARED_WPS_A_REQUIRED = "Shared doctor dispatch with WPS Aging needs its database function (backend/scripts/20261029-d1a-shared-wps-a-call.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
+const RR_REQUIRED = "Round-robin dispatch needs its database functions (backend/scripts/20261109-rr1-round-robin-dispatch.sql). Nothing was changed.";
 const C1_CALL_REQUIRED = "Call needs the atomic C1 database function (backend/scripts/20261025-c1-atomic-call.sql), and it could not be used. Nothing was changed. Refresh and retry; if this continues, ask the administrator to check the function.";
 
 // The atomic Call for the configured dispatch and aging. Each re-ranks under the same locks as
@@ -1073,11 +1101,29 @@ const CALL_RPC_REQUIRED = {
   call_patient_visit: C1_CALL_REQUIRED,
   call_patient_visit_wps_a: WPS_A_REQUIRED,
   call_patient_visit_shared: SHARED_CALL_MIGRATION_REQUIRED,
-  call_patient_visit_shared_wps_a: SHARED_WPS_A_REQUIRED
+  call_patient_visit_shared_wps_a: SHARED_WPS_A_REQUIRED,
+  call_patient_visit_rr: RR_REQUIRED
 };
 
 function getCallRpcName(shared, aging) {
+  // RR1: the dispatcher already ranked (WPS or WPS-A) when it assigned the visit.
+  if (isRoundRobin()) return "call_patient_visit_rr";
   return CALL_RPCS[shared ? "shared" : "service"][aging ? "aging" : "plain"];
+}
+
+// RR1: only the assigned doctor's own account calls, and only the visit the dispatcher gave it.
+// That Call is the doctor's acceptance, so no pending acceptance is ever left for another account.
+function resolveRoundRobinCallDoctor(patient, who) {
+  if (who.kind !== "doctor") {
+    throw consultationError("In round-robin dispatch only the assigned doctor calls a patient.", 403);
+  }
+  if (!CONFIGURED_SERVICES.includes(patient.service_type)) {
+    throw consultationError("This visit's service is not configured for doctor assignment", 400);
+  }
+  if (patient.counter_id !== who.counter.id_num) {
+    throw consultationError(`This patient is not assigned to ${who.counter.id_num}. Refresh the queue.`, 403);
+  }
+  return who.counter.id_num;
 }
 
 // D1: the calling doctor itself, or the doctor Superadmin selected. Any doctor
@@ -1124,11 +1170,14 @@ async function assertDoctorSignedIn(doctorName) {
 // The aging functions rank at `rankedAt`, the instant the backend ranked.
 async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, rankedAt, rpcName = "call_patient_visit") {
   const aging = rpcName.endsWith("_wps_a");
+  // RR1's Call takes no queue window: it does not rank (the dispatcher did).
+  const ranked = rpcName !== "call_patient_visit_rr";
   let result;
   try {
     result = await supabase.rpc(rpcName, {
       p_patient_id: patient.id, p_doctor_name: doctorName, p_user_id_num: actor?.id_num ?? null,
-      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end,
+      p_expected_revision: patient.visit_state_revision,
+      ...(ranked ? { p_queue_start: start, p_queue_end: end } : {}),
       ...(aging ? { p_ranked_at: new Date(rankedAt).toISOString() } : {})
     });
   } catch {
@@ -1177,8 +1226,13 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     throw new Error("Only a waiting patient without a completion timestamp can be called");
   }
   const shared = isSharedDispatch();
+  const roundRobin = isRoundRobin();
+  // RR1 needs its atomic database functions; development memory has none, so it fails closed.
+  if (roundRobin && localCall) throw consultationError(RR_REQUIRED, 503);
   let doctorName;
-  if (shared) {
+  if (roundRobin) {
+    doctorName = resolveRoundRobinCallDoctor(patient, who);
+  } else if (shared) {
     doctorName = resolveSharedCallDoctor(patient, counterId, accountCounters);
   } else {
     doctorName = getDoctorForService(patient.service_type);
@@ -1249,7 +1303,8 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     }
     // One ranking instant for Node and the database, so aging is computed the same way in both.
     const rankedAt = Date.now();
-    const nextPatient = shared
+    // RR1: the visit is the one the dispatcher assigned to this doctor (ranked when assigned).
+    const nextPatient = roundRobin ? patient : shared
       ? getSharedQueueHead(waitingPatients, doctorName, rankedAt)
       : waitingPatients.filter((p) => getDoctorForService(p.service_type) === doctorName).sort(compareWaitingPriority(rankedAt))[0];
     if (!nextPatient || Number(nextPatient.id) !== patientId) {
@@ -1466,6 +1521,116 @@ async function consultationRpc(name, params) {
   }
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.id) throw consultationError("Could not confirm the consultation update. Refresh the queue before retrying.", 503);
+  return parsePatientPriority(row);
+}
+
+// ---------------------------------------------------------------------------
+// RR1 round-robin dispatch (DOCTOR_DISPATCH_MODE=round_robin)
+//
+// WPS / WPS-A decides WHO is next; round robin decides WHICH signed-in, free doctor receives that
+// visit. Everything happens in dispatch_round_robin, under its locks: releasing the pending
+// visits of doctors that signed out, timed out or were disabled (waiting time and priority
+// untouched), flagging serving visits whose doctor signed out, and assigning. The backend only
+// triggers it: after queue changes, sign-in/out, availability changes and on a timer.
+// Without the database functions nothing is assigned and the visits simply wait (fail closed).
+// ---------------------------------------------------------------------------
+let dispatchInFlight = null;
+let dispatchQueued = false;
+let lastDispatch = null;
+
+function rpcFailure(error, fallbackMessage) {
+  if (MISSING_RPC_CODES.includes(error.code)) return consultationError(RR_REQUIRED, 503);
+  const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
+    ["P0001", "22023"].includes(error.code) ? 400 : error.code === "55P03" ? 409 : 503;
+  return consultationError(error.message || fallbackMessage, status);
+}
+
+async function runRoundRobinDispatch() {
+  if (useLocalFallback) throw consultationError(RR_REQUIRED, 503);
+  const { start, end } = getTodayRange();
+  let result;
+  try {
+    result = await supabase.rpc("dispatch_round_robin", {
+      p_queue_start: start, p_queue_end: end, p_ranked_at: new Date().toISOString(), p_aging: wpsAging()
+    });
+  } catch (error) {
+    throw consultationError(error.message || "Doctor dispatch is unavailable", 503);
+  }
+  if (result?.error) throw rpcFailure(result.error, "Doctor dispatch failed");
+  if (!result?.data || !Array.isArray(result.data.assigned)) throw consultationError("Doctor dispatch returned no result", 503);
+  return result.data;
+}
+
+// Single flight per backend: a request that arrives while a pass runs gets one more pass after
+// it, so its own change is always seen. Across backends the database lock serializes passes.
+// Never throws; returns the last result, or null when round robin is off or unavailable.
+function requestDispatch() {
+  if (!isRoundRobin()) return Promise.resolve(null);
+  if (dispatchInFlight) {
+    dispatchQueued = true;
+    return dispatchInFlight;
+  }
+  dispatchInFlight = (async () => {
+    let result = null;
+    do {
+      dispatchQueued = false;
+      try {
+        result = await runRoundRobinDispatch();
+        lastDispatch = { at: new Date().toISOString(), error: null };
+      } catch (error) {
+        lastDispatch = { at: new Date().toISOString(), error: error.message };
+        console.warn("Round-robin dispatch failed:", error.message);
+        result = null;
+      }
+    } while (dispatchQueued);
+    return result;
+  })().finally(() => { dispatchInFlight = null; });
+  return dispatchInFlight;
+}
+
+async function getRoundRobinStatus() {
+  if (useLocalFallback) return { available: false, error: RR_REQUIRED };
+  const { start, end } = getTodayRange();
+  try {
+    const { data, error } = await supabase.rpc("get_round_robin_dispatch_status", { p_queue_start: start, p_queue_end: end });
+    if (error) return { available: false, error: rpcFailure(error, "Dispatch status is unavailable").message };
+    return { available: true, ...data, last_dispatch: lastDispatch };
+  } catch (error) {
+    return { available: false, error: error.message || "Dispatch status is unavailable" };
+  }
+}
+
+// Staff (Frontdesk or Superadmin) hand a serving visit whose doctor signed out to a signed-in,
+// free doctor. Its call/consultation timestamps and acceptance stay; nothing is announced again.
+async function transferConsultation(patientId, newDoctor, actor) {
+  if (!isRoundRobin()) throw consultationError("Consultation transfer is available only in round-robin dispatch.", 400);
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
+  const { patient, counters, user, local } = await loadCancellationContext(patientId, actor);
+  if (local) throw consultationError(RR_REQUIRED, 503);
+  const who = resolveCancelActor(actor, user, counters);
+  if (who.kind === "doctor") throw consultationError("Only Frontdesk or Super Admin can transfer a consultation.", 403);
+  if (!patient) throw consultationError("Patient not found", 404);
+  const target = resolveDoctorCounter(newDoctor, counters);
+  if (!target || !DOCTOR_NAMES.includes(target.id_num)) throw consultationError("Select a valid doctor.", 400);
+  const { start, end } = getTodayRange();
+  let result;
+  try {
+    result = await supabase.rpc("transfer_active_consultation", {
+      p_patient_id: patientId, p_new_doctor: target.id_num, p_user_id_num: actor.id_num,
+      p_expected_revision: patient.visit_state_revision, p_queue_start: start, p_queue_end: end
+    });
+  } catch (error) {
+    throw consultationError("Could not confirm the transfer. Refresh the queue before retrying.", 503);
+  }
+  if (result?.error) throw rpcFailure(result.error, "Failed to transfer the consultation");
+  const row = Array.isArray(result?.data) ? result.data[0] : result?.data;
+  if (!row || Number(row.id) !== patientId || row.counter_id !== target.id_num || row.status !== "serving") {
+    throw consultationError("Could not confirm the transfer. Refresh the queue before retrying.", 503);
+  }
+  // Called but not started: the previous doctor's acceptance does not carry over. The new doctor
+  // must Accept before Start (the previous doctor is already refused: it no longer owns the
+  // visit). A consultation already in progress keeps its record and continues as accepted.
+  if (!row.consultation_started_at) markAwaitingAccept(patientId);
   return parsePatientPriority(row);
 }
 
@@ -1838,7 +2003,8 @@ const BACKLOG_COLUMNS = "id, id_num, queue_number, service_type, status, counter
 // The backlog is filtered in this process (doctor ownership needs the counters). Beyond this
 // many rows the response says it is truncated rather than silently dropping visits.
 const BACKLOG_FETCH_LIMIT = 500;
-const BACKLOG_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
+const BACKLOG_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning",
+  "medical_consultation", "maternal_healthcare", "child_healthcare", "dental_healthcare", "nutrition", "diagnostic_imaging", "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety"];
 const BACKLOG_UNAVAILABLE = "Historical backlog storage is unavailable. Please retry.";
 
 function historicalCutoff(now = new Date()) {
@@ -2720,7 +2886,11 @@ async function getDisplayData() {
   return {
     settings: toPublicDisplaySettings(settings),
     storage_mode: getQueueStorageMode(),
-    dispatch_mode: getDispatchMode(),
+    dispatch_mode: publicDispatchMode(),
+    // RR1: who assigns doctors, and the services the general doctors are approved to take. Policy
+    // values, never patient data; the registration page uses them to describe the assignment.
+    dispatch_strategy: isRoundRobin() ? DISPATCH_ROUND_ROBIN : null,
+    approved_services: isSharedDispatch() ? [...APPROVED_GENERAL_SERVICES] : null,
     queue_settings: getQueueSettings(),
     voice_announcements: voiceAnnouncements,
     recent_accepted: recentAccepted,
@@ -2744,7 +2914,8 @@ function getDateLabel(dateValue) {
   });
 }
 
-const ANALYTICS_SERVICE_ORDER = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
+const ANALYTICS_SERVICE_ORDER = ["consultation", "checkup", "prenatal", "maternity", "family_planning",
+  "medical_consultation", "maternal_healthcare", "child_healthcare", "dental_healthcare", "nutrition", "diagnostic_imaging", "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety"];
 const ANALYTICS_STATUS_ORDER = ["waiting", "serving", "completed", "cancelled", "no-show"];
 const ANALYTICS_PRIORITY_ORDER = ["senior", "pwd", "pregnant", "indigenous", "solo_parent", "regular"];
 const ANALYTICS_AGE_GROUPS = [
@@ -3615,6 +3786,12 @@ module.exports = {
   buildCsv,
   buildAnalyticsCsv,
   callPatient,
+  requestDispatch,
+  runRoundRobinDispatch,
+  getRoundRobinStatus,
+  transferConsultation,
+  isRoundRobin,
+  APPROVED_GENERAL_SERVICES,
   cancelPatient,
   cancelHistoricalWaitingVisit,
   getHistoricalBacklog,

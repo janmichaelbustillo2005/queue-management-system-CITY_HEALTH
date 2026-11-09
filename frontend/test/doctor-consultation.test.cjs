@@ -646,3 +646,25 @@ test("shared dispatch: every doctor sees the unassigned queue, and a reservation
   await button(tree, "Call").props.onClick();
   assert.equal(h.actions[0].body.patient_id, 1);
 });
+
+// RR1 round-robin dispatch: a doctor's queue is only the visit assigned to it, never the shared queue.
+const roundRobinQueue = (backend) => ({ ...clone(backend), dispatch_mode: "shared", dispatch_strategy: "round_robin" });
+
+test("RR1: the doctor sees and calls only the visit assigned to it, not unassigned or other doctors' visits", async () => {
+  const rows = [waiting(1, { counter_id: "Doctor 1" }), waiting(2), waiting(3, { counter_id: "Doctor 2", priority_score: 4 })];
+  const h = await harness(rows, { queueResponse: roundRobinQueue });
+  const tree = await h.flush();
+  assert.equal(inQueue(tree, 1), true);
+  assert.equal(inQueue(tree, 2), false, "an unassigned shared visit is not offered");
+  assert.equal(inQueue(tree, 3), false, "another doctor's assigned visit is not offered");
+  assert.match(text(tree), /Assigned by rotation/);
+  await button(tree, "Call").props.onClick();
+  assert.deepEqual(h.actions, [{ route: "/queue/call", method: "POST", body: { patient_id: 1 } }]);
+});
+
+test("RR1: with nothing assigned the doctor has nothing to call, even when the shared queue is not empty", async () => {
+  const h = await harness([waiting(2), waiting(3)], { queueResponse: roundRobinQueue });
+  const tree = await h.flush();
+  assert.equal(button(tree, "Call"), undefined);
+  assert.equal(inQueue(tree, 2) || inQueue(tree, 3), false);
+});

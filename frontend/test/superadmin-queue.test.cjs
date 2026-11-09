@@ -42,7 +42,7 @@ async function harness(initialRows, options = {}) {
   const windowListeners = new Map(), intervals = new Map(), timeouts = new Map(), navigations = [];
   let timerId = 0;
   let cursor = 0;
-  const backend = { patients: clone(initialRows), counters: clone(options.counters || [doctor(1), doctor(2), doctor(3)]) };
+  const backend = { patients: clone(initialRows), counters: clone(options.counters || [doctor(1), doctor(2), doctor(3)]), ...clone(options.backendExtra || {}) };
   const settings = { showCompleted: true, maxQueues: 100, autoRefresh: false,
     doctor1Online: true, doctor2Online: true, doctor3Online: true, ...options.settings };
   const user = { id_num: "superadmin", role: "superadmin" };
@@ -533,4 +533,63 @@ test("Superadmin dashboard shows the section named in the URL, so links, history
     assert.deepEqual(shown(), visible, section);
   }
   assert.equal(h.navigations.length, 0, "the page follows the URL instead of rewriting it");
+});
+
+// RR1 round-robin dispatch (dispatch_strategy "round_robin"): the backend assigns doctors; staff
+// monitor, never call, and may transfer a consultation whose doctor signed out.
+function roundRobin(dispatch = {}, adjust = () => {}) {
+  const value = { dispatch_mode: "shared", dispatch_strategy: "round_robin", dispatch: {
+    available: true, all_unavailable: false, interventions: [], history: [], doctors: [1, 2, 3].map((number) => ({
+      doctor_name: `Doctor ${number}`, enabled: true, signed_in: true, last_seen_at: "2026-10-10T01:00:00Z",
+      serving_patient_id: null, pending_patient_id: null, eligible: true })), ...dispatch } };
+  adjust(value.dispatch.doctors);
+  return value;
+}
+
+test("RR1: staff see each visit's assigned doctor and reassignment, and have no Call action", async () => {
+  const assigned = { ...patient(2, "prenatal", 1, "2026-10-10T01:02:00Z"), counter_id: "Doctor 2" };
+  const h = await harness([assigned, patient(3, "checkup", 1, "2026-10-10T01:03:00Z")], { backendExtra: roundRobin(
+    { history: [{ patient_id: 2, reason: "doctor_unavailable" }, { patient_id: 2, reason: "round_robin_reassignment" }] },
+    (doctors) => { doctors[1].pending_patient_id = 2; doctors[1].eligible = false; }) });
+  const tree = await h.flush();
+  const content = text(tree);
+  assert.match(content, /Assigned to Doctor 2, waiting for the doctor to call/);
+  assert.match(content, /Waiting for an available doctor/);
+  assert.match(content, /Reassigned/);
+  assert.match(content, /Busy \(patient assigned\)/);
+  assert.match(content, /Assigned, not yet called: TEST-2/);
+  assert.equal(nodes(tree, (node) => node.type === "button" && /Call/.test(text(node))).length, 0);
+});
+
+test("RR1: all doctors unavailable and an active consultation needing intervention are both announced", async () => {
+  const h = await harness([serving(1, { consultation_started_at: "2026-10-10T01:02:00Z" })], {
+    counters: [doctor(1, { current_patient_id: 1 }), doctor(2), doctor(3)],
+    backendExtra: roundRobin({ all_unavailable: true, interventions: [{ patient_id: 1, doctor: "Doctor 1" }] },
+      (doctors) => doctors.forEach((item) => { item.signed_in = false; item.eligible = false; })) });
+  const tree = await h.flush();
+  assert.equal(nodes(tree, (node) => node.props?.["data-rr-all-unavailable"] !== undefined).length, 1);
+  assert.match(text(nodes(tree, (node) => node.props?.["data-rr-intervention"] !== undefined)[0]), /Doctor 1 signed out during an active consultation \(TEST-1\)/);
+  assert.match(text(tree), /Doctor signed out\. Needs staff review/);
+  assert.equal(nodes(tree, (node) => node.type === "button" && /Transfer to/.test(text(node))).length, 0, "no signed-in doctor to transfer to");
+});
+
+test("RR1: a consultation is transferred only to a signed-in, free doctor, through POST /queue/transfer", async () => {
+  const h = await harness([serving(1, { consultation_started_at: "2026-10-10T01:02:00Z" })], {
+    counters: [doctor(1, { current_patient_id: 1 }), doctor(2), doctor(3)],
+    backendExtra: roundRobin({ interventions: [{ patient_id: 1, doctor: "Doctor 1" }] }, (doctors) => {
+      Object.assign(doctors[0], { signed_in: false, serving_patient_id: 1, eligible: false });
+      Object.assign(doctors[2], { serving_patient_id: 9, eligible: false });
+    }) });
+  const tree = await h.flush();
+  const transfers = nodes(tree, (node) => node.type === "button" && /Transfer to/.test(text(node)));
+  assert.deepEqual(transfers.map((node) => text(node).trim()), ["Transfer to Doctor 2"]);
+  await transfers[0].props.onClick();
+  assert.deepEqual(h.actions, [{ route: "/queue/transfer", method: "POST", body: { patient_id: 1, doctor: "Doctor 2" } }]);
+  assert.ok(h.refreshes >= 1);
+});
+
+test("RR1: Patient Management shows the readable service name, never the stored key alone", async () => {
+  const h = await harness([patient(4, "family_planning")], { backendExtra: roundRobin() });
+  const cells = nodes(h.render(), (node) => node.type === "span" && node.props.title === "family_planning");
+  assert.deepEqual(cells.map(text), ["Family Planning"]);
 });

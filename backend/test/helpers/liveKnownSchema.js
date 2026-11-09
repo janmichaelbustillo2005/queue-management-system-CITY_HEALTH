@@ -10,7 +10,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const scripts = path.join(__dirname, "..", "..", "scripts");
+// QMS_SCRIPTS_DIR lets a run supply the migration scripts from elsewhere (e.g. a checkout export).
+const scripts = process.env.QMS_SCRIPTS_DIR || path.join(__dirname, "..", "..", "scripts");
 const readScript = (name) => fs.readFileSync(path.join(scripts, name), "utf8");
 
 const supabaseRoles = `

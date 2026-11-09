@@ -35,7 +35,19 @@ const serviceOptions = [
   { value: "checkup", label: "Medical Check-up" },
   { value: "prenatal", label: "Prenatal" },
   { value: "maternity", label: "Maternity" },
-  { value: "family_planning", label: "Family Planning" }
+  { value: "family_planning", label: "Family Planning" },
+  { value: "medical_consultation", label: "Medical Consultation" },
+  { value: "maternal_healthcare", label: "Maternal Healthcare" },
+  { value: "child_healthcare", label: "Child Healthcare" },
+  { value: "dental_healthcare", label: "Dental Healthcare" },
+  { value: "nutrition", label: "Nutrition" },
+  { value: "diagnostic_imaging", label: "Diagnostic Imaging" },
+  { value: "womens_health", label: "Women's Health" },
+  { value: "mental_healthcare", label: "Mental Healthcare" },
+  { value: "medical_documentation", label: "Medical Documentation" },
+  { value: "marriage_preparation", label: "Marriage Preparation" },
+  { value: "environmental_health", label: "Environmental Health" },
+  { value: "food_safety", label: "Food Safety" }
 ];
 
 const vulnerabilityOptions = [
@@ -169,6 +181,10 @@ export default function HomePage() {
   const [counters, setCounters] = useState([]);
   const [dispatchMode, setDispatchMode] = useState("service");
   const sharedDispatch = dispatchMode === SHARED_DISPATCH;
+  // RR1 round-robin dispatch: the backend assigns visits to doctors; staff monitor and intervene.
+  const [roundRobin, setRoundRobin] = useState(null);
+  // Shared/round-robin dispatch: the services the general doctors are approved to take (else null).
+  const [approvedServices, setApprovedServices] = useState(null);
   const [doctorPresence, setDoctorPresence] = useState(null);
   const [presenceNow, setPresenceNow] = useState(() => presenceClock());
   const presenceGenerationRef = useRef(0);
@@ -252,10 +268,20 @@ export default function HomePage() {
     return state?.enabled && !state.occupied && state.head?.id === sharedNext.id;
   }) || null : null;
 
-  const doctorStatuses = DOCTOR_NAMES.map((doctorName) => ({
-    doctorName,
-    ...doctorPresenceStatus(doctorPresence, doctorName, presenceNow)
-  }));
+  const rrDoctors = roundRobin?.available ? roundRobin.doctors || [] : null;
+  const rrDoctor = (doctorName) => rrDoctors?.find((doctor) => doctor.doctor_name === doctorName) || null;
+  const doctorStatuses = DOCTOR_NAMES.map((doctorName) => {
+    const rr = rrDoctor(doctorName);
+    return rr
+      ? { doctorName, label: rr.signed_in ? "Online" : "Offline", lastSeenAt: rr.last_seen_at || null }
+      : { doctorName, ...doctorPresenceStatus(doctorPresence, doctorName, presenceNow) };
+  });
+  const rrInterventions = new Map((roundRobin?.interventions || []).map((item) => [String(item.patient_id), item]));
+  const rrReassigned = new Set((roundRobin?.history || []).filter((item) => item.reason === "doctor_unavailable" ||
+    item.reason === "released_for_transfer" || item.reason === "staff_transfer").map((item) => String(item.patient_id)));
+  // Doctors a consultation may be handed to: signed in, counter enabled, not serving anyone.
+  const rrTransferTargets = (rrDoctors || []).filter((doctor) => doctor.signed_in && doctor.enabled && doctor.serving_patient_id == null)
+    .map((doctor) => doctor.doctor_name);
   const verifiedPresence = doctorStatuses.every((doctor) => doctor.label !== "Unknown");
   const onlineDoctorCount = doctorStatuses.filter((doctor) => doctor.label === "Online").length;
   const dashboardCards = buildDashboardCards(
@@ -397,6 +423,8 @@ export default function HomePage() {
       setQueueRows(queueData.patients || []);
       setCounters(queueData.counters || []);
       setDispatchMode(queueData.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
+      setRoundRobin(queueData.dispatch_strategy === "round_robin" ? (queueData.dispatch || { available: false }) : null);
+      setApprovedServices(Array.isArray(queueData.approved_services) ? queueData.approved_services : null);
       setDashboardCountersReady(Array.isArray(queueData.counters));
       if (queueData.queue_settings) {
         setSettings((prev) => {
@@ -624,7 +652,7 @@ export default function HomePage() {
     }
   }
 
-  async function queueAction(path, patientId) {
+  async function queueAction(path, patientId, extra = {}) {
     const patient = queueRows.find((row) => row.id === patientId);
     if (!patient) { setError("Patient not found. Refresh the queue."); return; }
     const doctorName = patient.counter_id || (sharedDispatch && path === "/queue/call" ? sharedCallDoctor
@@ -654,6 +682,10 @@ export default function HomePage() {
         return;
       }
       body.counterId = mappedDoctor;
+    }
+    if (path === "/queue/transfer") {
+      if (!window.confirm(`Transfer ${patient.id_num} (${patient.queue_number}) from ${patient.counter_id} to ${extra.doctor}? The consultation record is kept.`)) return;
+      body.doctor = extra.doctor;
     }
     if (path === "/queue/complete") {
       setError("The assigned doctor must start and complete the consultation in the Doctor Dashboard.");
@@ -1228,7 +1260,7 @@ export default function HomePage() {
                       >
                         <option value="">Select Service</option>
                         {serviceOptions.map(opt => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          <option key={opt.value} value={opt.value} disabled={Boolean(approvedServices) && !approvedServices.includes(opt.value)}>{opt.label}{approvedServices && !approvedServices.includes(opt.value) ? " (not yet approved for general doctors)" : ""}</option>
                         ))}
                       </select>
                     </div>
@@ -1366,7 +1398,11 @@ export default function HomePage() {
                           {label}
                         </span>
                         <div className="mt-1 text-[9px] md:text-[11px] brand-text-muted">Counter: {counter ? (counter.is_online ? "Enabled" : "Disabled") : "Unknown"}</div>
-                        {label === "Online" && <div className="text-[9px] md:text-[11px] font-semibold brand-text">{occupied ? "Serving" : "Available"}</div>}
+                        {label === "Online" && <div className="text-[9px] md:text-[11px] font-semibold brand-text">{occupied ? "Serving" : rrDoctor(doctorName)?.pending_patient_id != null ? "Busy (patient assigned)" : "Available"}</div>}
+                      {rrDoctor(doctorName)?.pending_patient_id != null && (() => {
+                        const pending = queueRows.find((row) => String(row.id) === String(rrDoctor(doctorName).pending_patient_id));
+                        return <div className="text-center text-[9px] md:text-[11px] brand-text-muted">Assigned, not yet called: <span className="font-semibold brand-text">{pending?.queue_number || rrDoctor(doctorName).pending_patient_id}</span></div>;
+                      })()}
                       </div>
                       {occupied && <div className="text-center text-[9px] md:text-[11px] brand-text-muted">
                         {assigned?.status === "waiting" ? "Reserved: " : "Serving: "}<span className="font-semibold brand-text">{currentName}</span>
@@ -1380,6 +1416,25 @@ export default function HomePage() {
                   ); })}
                 </div>
               </div>
+
+              {roundRobin && !roundRobin.available && (
+                <div role="alert" className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Automatic doctor assignment is unavailable: {roundRobin.error || "dispatch status could not be read"}. Patients stay in the shared queue unassigned.
+                </div>
+              )}
+              {roundRobin?.available && roundRobin.all_unavailable && (
+                <div role="alert" data-rr-all-unavailable className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                  All doctors are signed out or disabled. Registered patients wait in the shared queue and are assigned automatically when a doctor signs in.
+                </div>
+              )}
+              {rrInterventions.size > 0 && (
+                <div role="alert" data-rr-intervention className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                  {Array.from(rrInterventions.values()).map((item) => {
+                    const row = queueRows.find((patient) => String(patient.id) === String(item.patient_id));
+                    return <div key={item.patient_id}>{item.doctor} signed out during an active consultation ({row?.queue_number || `patient ${item.patient_id}`}). It was not moved. Contact the doctor, or transfer it to an available doctor from the table below.</div>;
+                  })}
+                </div>
+              )}
 
               {inconsistentServing.length > 0 && (
                 <div role="alert" className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -1410,7 +1465,7 @@ export default function HomePage() {
                         : doctorQueues[sharedDispatch ? patient.counter_id : getServiceDoctor(patient.service_type)];
                       const doctorPending = Boolean(doctorName) && Array.from(pendingActions.values()).includes(doctorName);
                       const actionPending = pendingActions.has(patient.id) || doctorPending;
-                      const isNextWaiting = patient.status === "waiting" && patient.id === state?.head?.id && !patient.isOptimistic &&
+                      const isNextWaiting = !roundRobin && patient.status === "waiting" && patient.id === state?.head?.id && !patient.isOptimistic &&
                         (sharedDispatch || !patient.counter_id || patient.counter_id === getServiceDoctor(patient.service_type));
                       const canCall = isNextWaiting && state.enabled && !state.occupied;
                       const validServing = patient.status === "serving" && !inconsistentServing.some((row) => row.id === patient.id);
@@ -1465,7 +1520,7 @@ export default function HomePage() {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium brand-bg-subtle brand-text-primary border brand-border">{patient.service_type}</span>
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium brand-bg-subtle brand-text-primary border brand-border" title={patient.service_type}>{serviceOptions.find((option) => option.value === patient.service_type)?.label || patient.service_type}</span>
                           </td>
                           <td className="px-2 py-2 text-center">
                             {(patient.priority_score || 0) >= 3 ? (
@@ -1485,6 +1540,10 @@ export default function HomePage() {
                             {patient.status === "serving" && !validServing && <div className="mt-1 text-[10px] text-amber-800">Doctor assignment missing or inconsistent</div>}
                             {patient.status === "serving" && validServing && patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">Awaiting doctor acceptance</div>}
                             {patient.status === "serving" && validServing && !patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">{patient.consultation_started_at ? "Consultation in progress" : "Ready for consultation"}</div>}
+                            {roundRobin && patient.status === "waiting" && <div className="mt-1 text-[10px] brand-text-muted">{patient.counter_id ? `Assigned to ${patient.counter_id}, waiting for the doctor to call` : "Waiting for an available doctor"}</div>}
+                            {roundRobin && patient.status === "serving" && patient.counter_id && <div className="mt-1 text-[10px] brand-text-muted">Doctor: {patient.counter_id}</div>}
+                            {roundRobin && rrReassigned.has(String(patient.id)) && <div className="mt-1"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-900">Reassigned</span></div>}
+                            {rrInterventions.has(String(patient.id)) && <div role="alert" className="mt-1 text-[10px] font-semibold text-red-800">Doctor signed out. Needs staff review</div>}
                           </td>
                           <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{new Date(patient.created_at).toLocaleTimeString()}</td>
                           <td className="px-2 py-2">
@@ -1495,6 +1554,12 @@ export default function HomePage() {
                                   {pendingActions.has(patient.id) ? "Calling..." : sharedDispatch && doctorName ? `Call to ${doctorName}` : "Call"}
                                 </button>
                               ) : null}
+                              {rrInterventions.has(String(patient.id)) && rrTransferTargets.map((doctor) => (
+                                <button key={doctor} type="button" onClick={() => queueAction("/queue/transfer", patient.id, { doctor })} disabled={actionPending} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
+                                  <i className="fas fa-exchange-alt mr-0.5" />
+                                  Transfer to {doctor}
+                                </button>
+                              ))}
                               {!TERMINAL_QUEUE_STATUSES.includes(patient.status) ? (
                                 <button type="button" onClick={() => queueAction("/queue/cancel", patient.id)} disabled={actionPending} className="bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700 whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-times mr-0.5" />

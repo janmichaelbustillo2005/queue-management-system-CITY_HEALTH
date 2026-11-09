@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const env = require("./config/env");
 const routes = require("./routes");
-const { seedCounters } = require("./services/queueService");
+const { seedCounters, requestDispatch, isRoundRobin } = require("./services/queueService");
 const { startVoiceService } = require("./services/voiceServiceLauncher");
 const { redactQueryValues } = require("./lib/requestLog");
 const { loginLimiter, publicRegistrationLimiter } = require("./middleware/rateLimit");
@@ -83,5 +83,13 @@ app.listen(env.port, "0.0.0.0", async (error) => {
     console.log("Counters seeded successfully");
   } catch (error) {
     console.error("Error seeding counters:", error.message);
+  }
+  // RR1: the backend is the authority on presence. A doctor whose heartbeat stopped (closed tab,
+  // lost network) is signed out by the 75-second presence window; this sweep then releases its
+  // pending patients and assigns waiting ones, even when no one is using the screens.
+  if (isRoundRobin()) {
+    console.log(`Round-robin dispatch active; sweeping every ${env.dispatchSweepSeconds}s`);
+    requestDispatch();
+    setInterval(() => { requestDispatch(); }, env.dispatchSweepSeconds * 1000).unref();
   }
 });

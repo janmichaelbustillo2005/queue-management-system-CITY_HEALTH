@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 const compiled = {};
 before(async () => {
@@ -81,6 +82,7 @@ function harness(options = {}) {
       require(dependency) {
         if (dependency in dependencies) return dependencies[dependency];
         if (dependency.startsWith("../components/")) return dependency.split("/").pop();
+        if (isServicesModule(dependency)) return loadServices();
         throw new Error(`Unexpected dependency ${dependency}`);
       }
     });
@@ -321,12 +323,12 @@ test("only Front Desk and Super Admin see patient search; anyone else keeps the 
 
 test("selecting a patient reads the record by id and fills the form read-only, without registering", async () => {
   const h = harness({ request: recordRequests() });
-  h.change("patient-service", "consultation");
+  h.change("patient-service", "medical_consultation");
   await searchProps(h).onSelect({ id: 7, patient_code: "PAT-0007" });
   assert.deepEqual(h.calls.map(call => call.route), ["/patient-records/7"]);
   assert.equal(h.calls.some(call => call.method === "POST"), false, "retrieval never creates a queue entry");
   const expected = { "patient-first-name": "Maria", "patient-middle-initial": "L", "patient-last-name": "Santos", "patient-mobile": "9171112222",
-    "patient-philhealth": "PH-7", "patient-sex": "Female", "patient-birthdate": "1950-03-15", "patient-residency": "Barangay 2, Cabadbaran City", "patient-service": "consultation" };
+    "patient-philhealth": "PH-7", "patient-sex": "Female", "patient-birthdate": "1950-03-15", "patient-residency": "Barangay 2, Cabadbaran City", "patient-service": "medical_consultation" };
   for (const [id, value] of Object.entries(expected)) assert.equal(h.field(id).props.value, value, id);
   for (const id of ["patient-first-name", "patient-middle-initial", "patient-last-name", "patient-mobile", "patient-philhealth", "patient-birthdate", "patient-residency"]) {
     assert.equal(h.field(id).props.readOnly, true, id);
@@ -337,7 +339,7 @@ test("selecting a patient reads the record by id and fills the form read-only, w
   const shown = text(h.render());
   assert.match(shown, /Returning patient: Maria L\. Santos/);
   assert.match(shown, /Patient ID PAT-0007 · Born Mar 15, 1950 · Female/);
-  assert.match(shown, /Maria L\. Santos \(PAT-0007\) · General Consultation/);
+  assert.match(shown, /Maria L\. Santos \(PAT-0007\) · Medical consultation/);
   assert.equal(searchProps(h).selectedId, 7);
 });
 
@@ -424,17 +426,17 @@ const roundRobinDisplay = { dispatch_mode: "shared", dispatch_strategy: "round_r
 test("RR1: the review names no doctor for the service, and unapproved services cannot be chosen", async () => {
   const h = harness({ request: route => route === "/display" ? roundRobinDisplay
     : route === REGISTRATION ? { error: "Temporary failure" } : undefined });
-  h.fill(); await h.submit();
+  h.fill(); h.change("patient-service", "family_planning"); await h.submit();
   const review = nodes(h.render(), node => node.type === "section" && node.props.className === "registration-review")[0];
   const shown = text(review);
-  assert.match(shown, /Service: Prenatal/);
+  assert.match(shown, /Service: Family planning/);
   assert.match(shown, /Doctor assignment: Any available doctor — automatically assigned/);
   assert.match(shown, /Assignment method: Automatic round robin/);
   assert.doesNotMatch(shown, /Doctor [123]/);
   const options = nodes(nodes(h.render(), node => node.props.id === "patient-service")[0], node => node.type === "option" && node.props.value);
   const disabled = options.filter(node => node.props.disabled).map(node => node.props.value);
-  assert.deepEqual(options.filter(node => !node.props.disabled).map(node => node.props.value),
-    ["consultation", "checkup", "prenatal", "maternity", "family_planning"]);
+  // Of the 13 offered services only Family planning is on the approved shared-queue list.
+  assert.deepEqual(options.filter(node => !node.props.disabled).map(node => node.props.value), ["family_planning"]);
   assert.equal(disabled.length, 12);
   assert.ok(disabled.every(value => /not yet approved for general doctors/.test(text(options.find(node => node.props.value === value))))); 
 });
@@ -452,9 +454,14 @@ test("RR1: registration is not blocked while every doctor is offline, and the ti
 
 test("service dispatch keeps the existing routed-doctor review and offers every listed service", async () => {
   const h = harness({ request: route => route === REGISTRATION ? { error: "Temporary failure" } : undefined });
-  h.fill(); await h.submit();
+  h.fill(); h.change("patient-service", "family_planning"); await h.submit();
   const review = nodes(h.render(), node => node.type === "section" && node.props.className === "registration-review")[0];
-  assert.match(text(review), /Prenatal · Doctor 2/);
+  assert.match(text(review), /Family planning · Doctor 3/);
   const options = nodes(nodes(h.render(), node => node.props.id === "patient-service")[0], node => node.type === "option" && node.props.value);
   assert.equal(options.filter(node => node.props.disabled).length, 0);
+  assert.deepEqual(options.map(node => node.props.value), ["medical_consultation", "maternal_healthcare", "family_planning", "child_healthcare", "dental_healthcare", "nutrition",
+    "diagnostic_imaging", "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety"]);
+  assert.deepEqual(options.map(node => text(node)), ["Medical consultation", "Maternal healthcare", "Family planning",
+    "Child healthcare", "Dental healthcare", "Nutrition", "Diagnostic imaging", "Women's health", "Mental healthcare",
+    "Medical documentation", "Marriage preparation", "Environmental health", "Food safety"]);
 });

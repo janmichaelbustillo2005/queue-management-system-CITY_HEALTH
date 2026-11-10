@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 // The page renders exactly what the backend builds, so the payloads come from the real builder.
 const { buildAnalyticsInsights } = require("../../backend/src/services/analyticsInsights");
 
@@ -27,7 +28,7 @@ before(async () => {
     return module.exports;
   };
   const dailyTrends = load(await compile("lib/dailyTrendsCharts.js"), {});
-  const analyticsCharts = load(await compile("lib/analyticsCharts.js"), { "./dailyTrendsCharts": dailyTrends });
+  const analyticsCharts = load(await compile("lib/analyticsCharts.js"), { "./dailyTrendsCharts": dailyTrends, "./services": loadServices() });
   const jsx = (type, props) => ({ type, props: props || {} });
   const react = {
     useState: (initial) => { const view = { value: initial }; views.push(view); return [view.value, (next) => { view.value = next; }]; },

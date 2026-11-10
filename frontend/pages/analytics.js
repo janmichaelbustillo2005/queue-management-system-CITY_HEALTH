@@ -8,6 +8,7 @@ import StatusAnalytics from "../components/StatusAnalytics";
 import { DetailedInsights } from "../components/AnalyticsInsights";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { request } from "../lib/api";
+import { SERVICE_FILTER_OPTIONS } from "../lib/services";
 import { getDefaultHistoryFilters } from "../lib/historyFilters";
 import { TAB_CHARTS, buildAnalyticsCharts, hasChartData, serviceLabel } from "../lib/analyticsCharts";
 import {
@@ -185,7 +186,7 @@ export default function AnalyticsPage() {
                   <input aria-label="End date" type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
                 </>}
                 <select aria-label="Service" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.service} onChange={(e) => setFilters({ ...filters, service: e.target.value })}>
-                  <option value="">All Services</option><option value="consultation">General Consultation</option><option value="checkup">Medical Check-up</option><option value="prenatal">Prenatal</option><option value="maternity">Maternity</option><option value="family_planning">Family Planning</option><option value="medical_consultation">Medical Consultation</option><option value="maternal_healthcare">Maternal Healthcare</option><option value="child_healthcare">Child Healthcare</option><option value="dental_healthcare">Dental Healthcare</option><option value="nutrition">Nutrition</option><option value="diagnostic_imaging">Diagnostic Imaging</option><option value="womens_health">Women&apos;s Health</option><option value="mental_healthcare">Mental Healthcare</option><option value="medical_documentation">Medical Documentation</option><option value="marriage_preparation">Marriage Preparation</option><option value="environmental_health">Environmental Health</option><option value="food_safety">Food Safety</option>
+                  <option value="">All Services</option>{SERVICE_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
                 <select aria-label="Doctor" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.doctor} onChange={(e) => setFilters({ ...filters, doctor: e.target.value })}>
                   <option value="">All Doctors</option>{[1, 2, 3].map((number) => <option key={number} value={`Doctor ${number}`}>Doctor {number}</option>)}

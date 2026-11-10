@@ -432,6 +432,15 @@ const SERVICE_CODE_MAP = {
 // qms_rr_approved_services() (a test compares them). Add a service only after CHO approval.
 const APPROVED_GENERAL_SERVICES = Object.freeze(["consultation", "checkup", "prenatal", "maternity", "family_planning"]);
 const CONFIGURED_SERVICES = APPROVED_GENERAL_SERVICES;
+
+// The 13 Types of Services offered at registration, in City Health's order (the keys of
+// frontend/lib/services.js), and the former services earlier visits still carry. History
+// filters and analytics recognise both; neither list assigns a doctor or approves dispatch.
+const OFFERED_SERVICES = Object.freeze(["medical_consultation", "maternal_healthcare", "family_planning", "child_healthcare",
+  "dental_healthcare", "nutrition", "diagnostic_imaging", "womens_health", "mental_healthcare", "medical_documentation",
+  "marriage_preparation", "environmental_health", "food_safety"]);
+const FORMER_SERVICES = Object.freeze(["consultation", "checkup", "prenatal", "maternity"]);
+const KNOWN_SERVICES = Object.freeze([...OFFERED_SERVICES, ...FORMER_SERVICES]);
 const DOCTOR_NAMES = ["Doctor 1", "Doctor 2", "Doctor 3"];
 const DISPATCH_SHARED = "shared";
 const UNASSIGNED_DOCTOR = "Unassigned";
@@ -2003,8 +2012,7 @@ const BACKLOG_COLUMNS = "id, id_num, queue_number, service_type, status, counter
 // The backlog is filtered in this process (doctor ownership needs the counters). Beyond this
 // many rows the response says it is truncated rather than silently dropping visits.
 const BACKLOG_FETCH_LIMIT = 500;
-const BACKLOG_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning",
-  "medical_consultation", "maternal_healthcare", "child_healthcare", "dental_healthcare", "nutrition", "diagnostic_imaging", "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety"];
+const BACKLOG_SERVICES = KNOWN_SERVICES;
 const BACKLOG_UNAVAILABLE = "Historical backlog storage is unavailable. Please retry.";
 
 function historicalCutoff(now = new Date()) {
@@ -2914,8 +2922,7 @@ function getDateLabel(dateValue) {
   });
 }
 
-const ANALYTICS_SERVICE_ORDER = ["consultation", "checkup", "prenatal", "maternity", "family_planning",
-  "medical_consultation", "maternal_healthcare", "child_healthcare", "dental_healthcare", "nutrition", "diagnostic_imaging", "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety"];
+const ANALYTICS_SERVICE_ORDER = KNOWN_SERVICES;
 const ANALYTICS_STATUS_ORDER = ["waiting", "serving", "completed", "cancelled", "no-show"];
 const ANALYTICS_PRIORITY_ORDER = ["senior", "pwd", "pregnant", "indigenous", "solo_parent", "regular"];
 const ANALYTICS_AGE_GROUPS = [
@@ -3170,7 +3177,8 @@ async function loadAnalyticsInsights(rows, selection, range, counterAliases) {
         return seconds == null ? null : seconds / 60;
       },
       serviceOrder: ANALYTICS_SERVICE_ORDER,
-      configuredServices: CONFIGURED_SERVICES,
+      // Service demand lists every offered service, including those nobody requested.
+      configuredServices: OFFERED_SERVICES,
       doctorNames: DOCTOR_NAMES,
       shared: isSharedDispatch(),
       statusFilter: selection.status,
@@ -3792,6 +3800,8 @@ module.exports = {
   transferConsultation,
   isRoundRobin,
   APPROVED_GENERAL_SERVICES,
+  OFFERED_SERVICES,
+  FORMER_SERVICES,
   cancelPatient,
   cancelHistoricalWaitingVisit,
   getHistoricalBacklog,

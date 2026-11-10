@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { SERVICE_FILTER_OPTIONS } from "../lib/services";
 
 export const defaultQueueSettings = {
   autoRefresh: true,
@@ -498,23 +499,7 @@ export default function SettingsModal({
                       onChange={(e) => updateDraft({ exportService: e.target.value })}
                     >
                       <option value="">All</option>
-                      <option value="consultation">Consultation</option>
-                      <option value="checkup">Check-up</option>
-                      <option value="prenatal">Prenatal</option>
-                      <option value="maternity">Maternity</option>
-                      <option value="family_planning">Family Planning</option>
-                      <option value="medical_consultation">Medical Consultation</option>
-                      <option value="maternal_healthcare">Maternal Healthcare</option>
-                      <option value="child_healthcare">Child Healthcare</option>
-                      <option value="dental_healthcare">Dental Healthcare</option>
-                      <option value="nutrition">Nutrition</option>
-                      <option value="diagnostic_imaging">Diagnostic Imaging</option>
-                      <option value="womens_health">Women&apos;s Health</option>
-                      <option value="mental_healthcare">Mental Healthcare</option>
-                      <option value="medical_documentation">Medical Documentation</option>
-                      <option value="marriage_preparation">Marriage Preparation</option>
-                      <option value="environmental_health">Environmental Health</option>
-                      <option value="food_safety">Food Safety</option>
+                      {SERVICE_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </label>
                   <label className="text-xs brand-text-muted">

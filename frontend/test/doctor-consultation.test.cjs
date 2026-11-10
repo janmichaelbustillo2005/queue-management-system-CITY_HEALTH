@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 let componentCode, componentCodeWithHandlers;
 before(async () => {
@@ -94,6 +95,7 @@ async function harness(initialRows, options = {}) {
         if (route === "/account-cancellation-requests/mine") return { success: true, request: null };
         return options.request ? options.request(route, init, backend) : { success: true };
       } };
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });

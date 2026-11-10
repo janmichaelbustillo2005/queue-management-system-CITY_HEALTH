@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { loadServices } = require("./services-module.cjs");
 
 let charts;
 
@@ -18,7 +19,7 @@ before(async () => {
     return module.exports;
   };
   const dailyTrends = load(await compile("lib/dailyTrendsCharts.js"));
-  charts = load(await compile("lib/analyticsCharts.js"), { "./dailyTrendsCharts": dailyTrends });
+  charts = load(await compile("lib/analyticsCharts.js"), { "./dailyTrendsCharts": dailyTrends, "./services": loadServices() });
 });
 
 const colors = (config) => Array.from(config.data.datasets[0].backgroundColor);
@@ -41,7 +42,7 @@ test("charts show readable labels instead of stored database values", () => {
     serviceTypes: { labels: ["family_planning", "checkup"], data: [1, 1] },
     priorityCategories: { labels: ["solo_parent", "regular"], data: [1, 2] }
   });
-  assert.deepEqual(Array.from(built.serviceTypesChart.data.labels), ["Family Planning", "Medical Check-up"]);
+  assert.deepEqual(Array.from(built.serviceTypesChart.data.labels), ["Family planning", "Medical Check-up"]);
   assert.deepEqual(Array.from(built.priorityChart.data.labels), ["Solo Parent", "Regular (no priority)"]);
   assert.equal(charts.statusLabel("no-show"), "No-show");
   assert.equal(charts.serviceLabel("dental_care"), "Dental Care");

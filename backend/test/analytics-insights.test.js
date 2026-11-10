@@ -82,7 +82,7 @@ for (const localFallback of [false, true]) {
     const h = await setup(localFallback);
     const { wait } = (await h.service.getAnalytics("2026-10-09", "2026-10-11")).insights;
     assert.deepEqual(clone(wait.by_service.map((row) => [row.key, row.visits, row.samples, row.avg])), [
-      ["consultation", 1, 1, 10], ["checkup", 1, 0, null], ["prenatal", 1, 1, 10], ["family_planning", 1, 1, 45]
+      ["family_planning", 1, 1, 45], ["consultation", 1, 1, 10], ["checkup", 1, 0, null], ["prenatal", 1, 1, 10]
     ]);
     assert.deepEqual(clone(wait.by_doctor.map((row) => [row.key, row.visits])), [["Doctor 1", 2], ["Doctor 2", 1], ["Doctor 3", 1]]);
     assert.deepEqual(clone(wait.by_date.map((row) => [row.key, row.visits, row.avg])), [["2026-10-09", 2, 10], ["2026-10-11", 2, 45]]);
@@ -107,11 +107,15 @@ for (const localFallback of [false, true]) {
     const h = await setup(localFallback);
     const { demand } = (await h.service.getAnalytics("2026-10-09", "2026-10-11")).insights;
     assert.equal(demand.total, 4);
+    // The 13 offered services are always listed; former services appear only when requested.
+    const unrequested = ["medical_consultation", "maternal_healthcare", "child_healthcare", "dental_healthcare", "nutrition", "diagnostic_imaging",
+      "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety"];
     assert.deepEqual(clone(demand.services.map((row) => [row.service, row.count, row.share])), [
-      ["consultation", 1, 25], ["checkup", 1, 25], ["prenatal", 1, 25], ["family_planning", 1, 25], ["maternity", 0, 0]
+      ["family_planning", 1, 25], ["consultation", 1, 25], ["checkup", 1, 25], ["prenatal", 1, 25],
+      ...unrequested.map((service) => [service, 0, 0])
     ]);
     assert.equal(demand.most_requested.length, 4);
-    assert.deepEqual(clone(demand.least_requested.map((row) => row.service)), ["maternity"]);
+    assert.deepEqual(clone(demand.least_requested.map((row) => row.service)), unrequested);
   });
 
   test(`${mode}: peak traffic averages arrivals over every day of the period, including quiet days`, async () => {

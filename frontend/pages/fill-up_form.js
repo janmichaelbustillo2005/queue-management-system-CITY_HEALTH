@@ -6,28 +6,12 @@ import PatientRecordSearch, { formatRecordBirthdate } from "../components/Patien
 import QueueTicketActions from "../components/QueueTicketActions";
 import QueueTicketDialog from "../components/QueueTicketDialog";
 import { request } from "../lib/api";
+import { OFFERED_SERVICES } from "../lib/services";
 import { createQueueTicket, getPatientsAheadSnapshot } from "../lib/queueTicket";
 import { useAuth } from "../context/AuthContext";
 
-const serviceOptions = [
-  { value: "consultation", label: "General Consultation" },
-  { value: "checkup", label: "Medical Check-up" },
-  { value: "prenatal", label: "Prenatal" },
-  { value: "maternity", label: "Maternity" },
-  { value: "family_planning", label: "Family Planning" },
-  { value: "medical_consultation", label: "Medical Consultation" },
-  { value: "maternal_healthcare", label: "Maternal Healthcare" },
-  { value: "child_healthcare", label: "Child Healthcare" },
-  { value: "dental_healthcare", label: "Dental Healthcare" },
-  { value: "nutrition", label: "Nutrition" },
-  { value: "diagnostic_imaging", label: "Diagnostic Imaging" },
-  { value: "womens_health", label: "Women's Health" },
-  { value: "mental_healthcare", label: "Mental Healthcare" },
-  { value: "medical_documentation", label: "Medical Documentation" },
-  { value: "marriage_preparation", label: "Marriage Preparation" },
-  { value: "environmental_health", label: "Environmental Health" },
-  { value: "food_safety", label: "Food Safety" }
-];
+// The 13 Types of Services offered at registration (lib/services.js).
+const serviceOptions = OFFERED_SERVICES;
 
 const SERVICE_TO_DOCTOR = {
   consultation: "Doctor 1",

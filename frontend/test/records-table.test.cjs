@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 const compiled = {};
 before(async () => {
@@ -65,13 +66,15 @@ function hookRuntime() {
 
 function loadTable(react = hookRuntime().react, globals = {}) {
   const lib = { exports: {} };
-  vm.runInNewContext(compiled["lib/recordsFilters.js"], { module: lib, exports: lib.exports, URLSearchParams, Date });
+  vm.runInNewContext(compiled["lib/recordsFilters.js"], { module: lib, exports: lib.exports, URLSearchParams, Date,
+    require(name) { if (isServicesModule(name)) return loadServices(); throw new Error(`Unexpected dependency: ${name}`); } });
   const module = { exports: {} };
   vm.runInNewContext(compiled["components/RecordsTable.js"], { module, exports: module.exports, Date, ...globals, require(name) {
     if (name === "react") return react;
     if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
     if (name === "./RecordsTable.module.css") return css;
     if (name === "../lib/recordsFilters") return lib.exports;
+    if (isServicesModule(name)) return loadServices();
     throw new Error(`Unexpected dependency: ${name}`);
   } });
   return module.exports;
@@ -188,7 +191,7 @@ test("Patient Records keeps every column and shows queue status as a labelled in
   assert.equal(text(nodes(view.table, node => node.type === "caption")[0]), "Patient Records");
   const [first, second] = view.rows;
   assert.equal(nodes(first, node => node.type === "th")[0].props.scope, "row", "the patient name labels its row");
-  assert.deepEqual(plain(view.cellsOf(first).slice(0, 6)), ["Synthetic Patient", "FP-001", "Family Planning", "Doctor 3", "4", "Being served"]);
+  assert.deepEqual(plain(view.cellsOf(first).slice(0, 6)), ["Synthetic Patient", "FP-001", "Family planning", "Doctor 3", "4", "Being served"]);
   assert.equal(view.cellsOf(second)[3], "Doctor 1 (by service)");
   assert.equal(view.cellsOf(second)[7], "Unavailable", "a missing timestamp says so");
   assert.deepEqual(indicators(view.tree), [["blue", "Being served"], ["gray", "No-show"]]);

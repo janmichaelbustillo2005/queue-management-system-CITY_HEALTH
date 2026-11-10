@@ -1,28 +1,11 @@
 import { statusColor } from "./dailyTrendsCharts";
+import { SERVICE_LABELS } from "./services";
 
 // Readable labels and fixed colours for the Analytics page. The backend sends
 // stable keys (e.g. "family_planning", "no-show"); each key always keeps the
 // same colour, whatever order or subset of categories a period contains.
 
-export const SERVICE_LABELS = {
-  consultation: "General Consultation",
-  checkup: "Medical Check-up",
-  prenatal: "Prenatal",
-  maternity: "Maternity",
-  family_planning: "Family Planning",
-  medical_consultation: "Medical Consultation",
-  maternal_healthcare: "Maternal Healthcare",
-  child_healthcare: "Child Healthcare",
-  dental_healthcare: "Dental Healthcare",
-  nutrition: "Nutrition",
-  diagnostic_imaging: "Diagnostic Imaging",
-  womens_health: "Women's Health",
-  mental_healthcare: "Mental Healthcare",
-  medical_documentation: "Medical Documentation",
-  marriage_preparation: "Marriage Preparation",
-  environmental_health: "Environmental Health",
-  food_safety: "Food Safety"
-};
+export { SERVICE_LABELS };
 
 export const STATUS_LABELS = {
   waiting: "Waiting",

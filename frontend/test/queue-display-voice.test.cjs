@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 const source = fs.readFileSync(path.join(__dirname, "../pages/queue-display.js"), "utf8").replace(/\r\n/g, "\n");
 const recoveryFunctions = fs.readFileSync(path.join(__dirname, "../lib/announcementRecovery.js"), "utf8")
@@ -1478,6 +1479,7 @@ async function waitingViewHarness(globals = {}) {
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected waiting-view dependency: ${name}`);
     }
   });
@@ -1543,6 +1545,7 @@ async function displayPageHarness() {
         readAnnouncementRecovery(_storage, now) { return now; }, writeAnnouncementRecovery() {}, clearAnnouncementRecovery() {}
       };
       if (name === "../components/SystemLogo") return { default: function SystemLogo() {} };
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected display dependency: ${name}`);
     }
   });

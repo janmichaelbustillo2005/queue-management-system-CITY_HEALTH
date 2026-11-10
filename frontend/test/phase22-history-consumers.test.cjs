@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 const compiled = {};
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -162,6 +163,7 @@ function harness(component, options = {}) {
     vm.runInNewContext(compiled[relative], { ...globals, module, exports: module.exports,
       require(name) {
         if (name in dependencies) return dependencies[name];
+        if (isServicesModule(name)) return loadServices();
         throw new Error(`Unexpected dependency ${name} from ${relative}`);
       }
     });
@@ -460,7 +462,7 @@ test("Detailed Data shows readable service names, no-show and in-queue columns, 
   const serviceTable = text(tables[0].type(tables[0].props));
   assert.match(serviceTable, /ServiceTotalCompletedCancelledNo-showIn QueueAvg WaitAvg ServiceCompletion/);
   // Total, Completed, Cancelled, No-show, In Queue, Avg Wait, Avg Service, Completion.
-  assert.match(serviceTable, /Family Planning210104\.0m6\.0m50\.0%/);
+  assert.match(serviceTable, /Family planning210104\.0m6\.0m50\.0%/);
   assert.match(serviceTable, /All210104\.0m6\.0m50\.0%$/);
   assert.doesNotMatch(serviceTable, /family_planning/);
   assert.match(text(tables[1].type(tables[1].props)), /Doctor 32101/);

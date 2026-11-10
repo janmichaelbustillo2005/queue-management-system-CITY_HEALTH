@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 let componentCode;
 let presenceHelpers;
@@ -117,6 +118,7 @@ async function harness(initialRows, options = {}) {
         return options.request ? options.request(route, init, backend) : { success: true };
       } };
       if (name === "../lib/doctorPresence") return presenceHelpers;
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });
@@ -366,7 +368,7 @@ test("Superadmin registration renders only the backend-created waiting record wi
   nodes(h.render(), node => node.type === "input" && node.props.placeholder === "Enter full name")[0]
     .props.onChange({ target: { value: "Registered patient" } });
   nodes(h.render(), node => node.type === "select" &&
-    nodes(node, child => child.type === "option" && child.props.value === "consultation").length)[0]
+    nodes(node, child => child.type === "option" && child.props.value === "medical_consultation").length)[0]
     .props.onChange({ target: { value: "family_planning" } });
   const registrationForm = nodes(h.render(), node => node.type === "form" &&
     nodes(node, child => child.type === "input" && child.props.placeholder === "Enter full name").length)[0];
@@ -414,7 +416,7 @@ async function fillManualEntry(h) {
   buttons(h.render(), "Add Patient")[0].props.onClick();
   const change = (predicate, value) => manualField(h, predicate).props.onChange({ target: { value } });
   change(node => node.props.placeholder === "Enter full name", "Synthetic Registration Patient");
-  change(node => node.type === "select" && nodes(node, child => child.props?.value === "prenatal").length, "prenatal");
+  change(node => node.type === "select" && nodes(node, child => child.props?.value === "maternal_healthcare").length, "maternal_healthcare");
   change(node => node.props.placeholder === "9123456789", "9123456789");
   change(node => node.props.placeholder === "Enter PhilHealth ID", "SYNTHETIC-ID");
   change(node => node.props.type === "date", "1990-01-02");
@@ -509,7 +511,7 @@ test("Superadmin successful registration closes and clears entry only after save
   }
   const payload = h.calls.find(call => call.route === "/queue" && call.method === "POST").body;
   assert.deepEqual(payload, {
-    fullName: "Synthetic Registration Patient", service_type: "prenatal", mobile_number: "9123456789",
+    fullName: "Synthetic Registration Patient", service_type: "maternal_healthcare", mobile_number: "9123456789",
     residency: "Synthetic Development Address", philhealth_id: "SYNTHETIC-ID", birthdate: "1990-01-02",
     sex: "Female", vulnerabilityFlags: ["pregnant"]
   });
@@ -591,5 +593,5 @@ test("RR1: a consultation is transferred only to a signed-in, free doctor, throu
 test("RR1: Patient Management shows the readable service name, never the stored key alone", async () => {
   const h = await harness([patient(4, "family_planning")], { backendExtra: roundRobin() });
   const cells = nodes(h.render(), (node) => node.type === "span" && node.props.title === "family_planning");
-  assert.deepEqual(cells.map(text), ["Family Planning"]);
+  assert.deepEqual(cells.map(text), ["Family planning"]);
 });

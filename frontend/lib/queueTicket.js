@@ -1,28 +1,7 @@
 import { request } from "./api";
 import { SYSTEM_BRANDING } from "./branding";
+import { SERVICE_LABELS } from "./services";
 
-const SERVICE_LABELS = {
-  consultation: "General Consultation",
-  checkup: "Medical Check-up",
-  prenatal: "Prenatal",
-  maternity: "Maternity",
-  family_planning: "Family Planning",
-  medical_consultation: "Medical Consultation",
-  maternal_healthcare: "Maternal Healthcare",
-  child_healthcare: "Child Healthcare",
-  dental_healthcare: "Dental Healthcare",
-  nutrition: "Nutrition",
-  diagnostic_imaging: "Diagnostic Imaging",
-  womens_health: "Women's Health",
-  mental_healthcare: "Mental Healthcare",
-  medical_documentation: "Medical Documentation",
-  marriage_preparation: "Marriage Preparation",
-  environmental_health: "Environmental Health",
-  food_safety: "Food Safety",
-  laboratory: "Laboratory",
-  dental: "Dental",
-  obgyne: "Obstetrics and Gynecology"
-};
 const STATUS_LABELS = {
   waiting: "Waiting",
   serving: "Called / in service",

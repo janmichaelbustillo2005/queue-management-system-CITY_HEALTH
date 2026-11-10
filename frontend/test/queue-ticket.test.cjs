@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 let helperCode, actionsCode, componentCode;
 before(async () => {
@@ -40,6 +41,7 @@ function helpers(options = {}) {
         return options.response ? options.response(...args) : { patients: [patient()] };
       } };
       if (name === "./branding") return { SYSTEM_BRANDING: { logoSrc: "/cho_logo-transparent.png" } };
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected import ${name}`);
     }
   });

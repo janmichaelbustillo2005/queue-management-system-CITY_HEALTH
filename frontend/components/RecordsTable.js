@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import styles from "./RecordsTable.module.css";
-import { RECORD_FILTERS } from "../lib/recordsFilters";
+import { SERVICE_LABELS } from "../lib/services";
 
 // Presentation for the Records tables and their footer. Values are shown as
 // the server returns them; indicators only add an icon and a tone, so status,
@@ -9,9 +9,6 @@ import { RECORD_FILTERS } from "../lib/recordsFilters";
 const TIME_KEYS = ["created_at", "called_at", "consultation_started_at", "completed_at", "last_login", "last_seen", "occurred_at"];
 const NUMERIC_KEYS = ["priority_score"];
 const WRAP_KEYS = ["display_name", "doctor", "patient_name", "event", "flags"];
-const SERVICE_LABELS = Object.fromEntries(
-  RECORD_FILTERS.patients.primary.find((field) => field.key === "service").options.map((option) => [option.value, option.label])
-);
 // Queue status: the same readable names the Queue status filter uses.
 const QUEUE_STATUS = {
   waiting: ["amber", "far fa-clock", "Waiting"],

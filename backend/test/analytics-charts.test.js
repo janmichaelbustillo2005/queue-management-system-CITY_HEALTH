@@ -56,7 +56,7 @@ for (const localFallback of [false, true]) {
   test(`${mode}: categories keep a fixed order with readable sex, age, residency and priority groups`, async () => {
     const h = await setup(localFallback);
     const { charts } = await h.service.getAnalytics("2026-10-09", "2026-10-11");
-    assert.deepEqual(clone(charts.serviceTypes), { labels: ["consultation", "checkup", "prenatal", "family_planning"], data: [1, 1, 1, 1] });
+    assert.deepEqual(clone(charts.serviceTypes), { labels: ["family_planning", "consultation", "checkup", "prenatal"], data: [1, 1, 1, 1] });
     assert.deepEqual(clone(charts.status), { labels: ["waiting", "completed", "cancelled", "no-show"], data: [1, 1, 1, 1] });
     assert.deepEqual(clone(charts.sexDistribution), { labels: ["Male", "Female", "Not recorded"], data: [1, 2, 1] });
     // B turns 26 the day after the visit, so is still 25 (18–35) on that date.

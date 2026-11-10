@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 let componentCode, helperCode;
 before(async () => {
@@ -114,6 +115,7 @@ async function harness(options = {}) {
         }
         return { success: true };
       } };
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });

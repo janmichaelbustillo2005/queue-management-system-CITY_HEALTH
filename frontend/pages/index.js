@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import SiteFrame from "../components/SiteFrame";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { request } from "../lib/api";
+import { OFFERED_SERVICES, serviceName } from "../lib/services";
 import {
   captureDoctorPresence,
   doctorPresenceStatus,
@@ -30,25 +31,8 @@ const SECTION_TITLES = {
 // Final visit outcomes: Cancel does not apply; Undo/Re-queue are the recovery actions.
 const TERMINAL_QUEUE_STATUSES = ["completed", "cancelled", "no-show"];
 
-const serviceOptions = [
-  { value: "consultation", label: "General Consultation" },
-  { value: "checkup", label: "Medical Check-up" },
-  { value: "prenatal", label: "Prenatal" },
-  { value: "maternity", label: "Maternity" },
-  { value: "family_planning", label: "Family Planning" },
-  { value: "medical_consultation", label: "Medical Consultation" },
-  { value: "maternal_healthcare", label: "Maternal Healthcare" },
-  { value: "child_healthcare", label: "Child Healthcare" },
-  { value: "dental_healthcare", label: "Dental Healthcare" },
-  { value: "nutrition", label: "Nutrition" },
-  { value: "diagnostic_imaging", label: "Diagnostic Imaging" },
-  { value: "womens_health", label: "Women's Health" },
-  { value: "mental_healthcare", label: "Mental Healthcare" },
-  { value: "medical_documentation", label: "Medical Documentation" },
-  { value: "marriage_preparation", label: "Marriage Preparation" },
-  { value: "environmental_health", label: "Environmental Health" },
-  { value: "food_safety", label: "Food Safety" }
-];
+// The 13 Types of Services offered at registration (lib/services.js).
+const serviceOptions = OFFERED_SERVICES;
 
 const vulnerabilityOptions = [
   { value: "senior", label: "Senior Citizen (60+)", weight: 4 },
@@ -885,7 +869,7 @@ export default function HomePage() {
                   <div className="flex flex-col">
                     <span className="font-semibold brand-text">{row.id_num}</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] md:text-xs brand-text-muted">{row.service_type}</span>
+                      <span className="text-[10px] md:text-xs brand-text-muted">{serviceName(row.service_type)}</span>
                       {row.residency && (
                         <span className="text-[9px] brand-text-muted truncate max-w-[120px]">
                           <i className="fas fa-map-marker-alt mr-1" />
@@ -1520,7 +1504,7 @@ export default function HomePage() {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium brand-bg-subtle brand-text-primary border brand-border" title={patient.service_type}>{serviceOptions.find((option) => option.value === patient.service_type)?.label || patient.service_type}</span>
+                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium brand-bg-subtle brand-text-primary border brand-border" title={patient.service_type}>{serviceName(patient.service_type)}</span>
                           </td>
                           <td className="px-2 py-2 text-center">
                             {(patient.priority_score || 0) >= 3 ? (

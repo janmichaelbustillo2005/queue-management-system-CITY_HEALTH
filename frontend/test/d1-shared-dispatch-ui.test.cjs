@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 let tableCode, ticketCode;
 before(async () => {
@@ -61,6 +62,7 @@ function table(rows, { counters, request } = {}) {
         calls.push({ route, body: JSON.parse(init.body) });
         return request ? request(route, init) : { success: true };
       } };
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });
@@ -139,6 +141,7 @@ function ticketHelpers() {
     require(name) {
       if (name === "./api") return { request: async () => ({ dispatch_mode: "shared", patients: [patient(5, "maternity")] }) };
       if (name === "./branding") return { SYSTEM_BRANDING: { logoSrc: "/logo.png" } };
+      if (isServicesModule(name)) return loadServices();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });

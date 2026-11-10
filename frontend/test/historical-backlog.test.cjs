@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 const SOURCES = {
   lib: "lib/historicalBacklog.js", filters: "lib/recordsFilters.js", table: "components/RecordsTable.js",
@@ -108,6 +109,7 @@ function createRenderer(options = {}) {
       if (dependency === "next/router") return { useRouter: () => router };
       if (dependency === "../context/AuthContext") return { useAuth: () => auth };
       if (dependency === "../components/SiteFrame") return { __esModule: true, default: ({ children, title }) => jsx("main", { title, children }) };
+      if (isServicesModule(dependency)) return loadServices();
       throw new Error(`Unexpected dependency ${dependency} in ${name}`);
     } });
     modules[name] = module.exports;

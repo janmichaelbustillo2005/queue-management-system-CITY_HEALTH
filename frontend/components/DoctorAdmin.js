@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import SiteFrame from "../components/SiteFrame";
 import { request } from "../lib/api";
+import { serviceName } from "../lib/services";
 import { defaultQueueSettings } from "./SettingsModal";
 import { fetchQueueSettings, loadLocalQueueSettings, mergeQueueSettings } from "../lib/queueSettings";
 
@@ -827,7 +828,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                       </td>
                       <td className="px-6 py-4">
                         <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-bold uppercase tracking-wider">
-                          {row.service_type}
+                          {serviceName(row.service_type)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">

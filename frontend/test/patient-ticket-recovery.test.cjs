@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
+const { isServicesModule, loadServices } = require("./services-module.cjs");
 
 const code = {};
 before(async () => {
@@ -100,6 +101,7 @@ function harness(name, options = {}) {
       if (["../components/SiteFrame", "../components/QueueTicketDialog"].includes(dependency)) {
         return dependency.split("/").pop();
       }
+      if (isServicesModule(dependency)) return loadServices();
       throw new Error(`Unexpected dependency: ${dependency}`);
     }
   });

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { request } from "../lib/api";
+import { serviceName } from "../lib/services";
 import { defaultQueueSettings } from "../components/SettingsModal";
 import { mergeQueueSettings, persistLocalQueueSettings } from "../lib/queueSettings";
 import { readAnnouncementRecovery, writeAnnouncementRecovery, clearAnnouncementRecovery } from "../lib/announcementRecovery";
@@ -989,7 +990,7 @@ export default function QueueDisplayPage() {
                     {servingPatient ? (
                       <>
                         <p className="text-[10px] text-white/60 uppercase font-black tracking-widest mt-1">
-                          {servingPatient.service_type}
+                          {serviceName(servingPatient.service_type)}
                         </p>
                       </>
                     ) : (

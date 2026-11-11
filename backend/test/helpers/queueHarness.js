@@ -30,6 +30,10 @@ function createDatabase() {
       { id_num: "superadmin", role: "superadmin", doctor_name: null }
     ],
     calls: [],
+    // FC1: new visits carry confirmed_at/confirmed_by (20261111-fc1-front-desk-confirmation.sql).
+    // true models a Front Desk that confirms every visit, and every Re-queued turn, as soon as it
+    // exists, so tests written before FC1 keep testing their own workflow. FC1 tests set false.
+    autoConfirmVisits: true,
     beforeQuery: null,
     beforeRpc: null,
     beforeRpcCommit: null
@@ -110,7 +114,12 @@ function fakeSupabase(database, now, localFallback) {
             ? { service_types: [], is_online: true, current_patient_id: null }
             : this.table === "patient_records" ? {}
             : { called_at: null, completed_at: null, consultation_started_at: null, counter_id: null, reason: null };
-          if (this.table === "patients") defaults.visit_state_revision = crypto.randomUUID();
+          if (this.table === "patients") {
+            defaults.visit_state_revision = crypto.randomUUID();
+            Object.assign(defaults, database.autoConfirmVisits
+              ? { confirmed_at: new Date(now()).toISOString(), confirmed_by: "frontdesk" }
+              : { confirmed_at: null, confirmed_by: null });
+          }
           const inserted = { id: nextId++, created_at: new Date(now()).toISOString(), ...defaults, ...payload };
           // Models the generated column in 20261103-patient-records.sql.
           if (this.table === "patient_records") inserted.patient_code = `PAT-${inserted.id < 10000 ? String(inserted.id).padStart(4, "0") : inserted.id}`;
@@ -224,6 +233,11 @@ function fakeSupabase(database, now, localFallback) {
           patient.called_at = null;
           patient.counter_id = null;
           patient.reason = args.p_reason ?? null;
+          // FC1 trigger: a Re-queue (new created_at) clears the confirmation; Undo keeps it.
+          if (Object.hasOwn(patient, "confirmed_at")) {
+            Object.assign(patient, database.autoConfirmVisits
+              ? { confirmed_at: timestamp, confirmed_by: "frontdesk" } : { confirmed_at: null, confirmed_by: null });
+          }
           if (name === "requeue_patient_visit") {
             for (const row of counters) {
               if (row.current_patient_id === patient.id) row.current_patient_id = null;
@@ -241,6 +255,33 @@ function fakeSupabase(database, now, localFallback) {
         database.patients.splice(0, database.patients.length, ...patients);
         database.counters.splice(0, database.counters.length, ...counters);
         return { data: database.rpcReturnsArray ? [clone(patient)] : clone(patient), error: null };
+      }
+      if (name === "confirm_patient_visit") {
+        // Mirrors confirm_patient_visit in 20261111-fc1-front-desk-confirmation.sql; the real
+        // function and its locking are covered by fc1-front-desk-confirmation-postgres.test.js.
+        if (database.confirmRpcInstalled === false) {
+          return { data: null, error: { code: "PGRST202", message: "Could not find the function public.confirm_patient_visit" } };
+        }
+        const fail = (code, message) => ({ data: null, error: { code, message } });
+        if (!args.p_patient_id || !String(args.p_user_id_num ?? "").trim() || !args.p_queue_start || !args.p_queue_end) {
+          return fail("22023", "A patient, staff identity and queue window are required");
+        }
+        if (!user || user.role !== "admin" || !["", "front desk", "frontdesk"].includes(String(user.doctor_name ?? "").trim().toLowerCase())) {
+          return fail("42501", "Only the Front Desk can confirm a patient");
+        }
+        if (!patient) return fail("P0002", "Patient not found");
+        if (patient.confirmed_at != null) return { data: { already_confirmed: true, patient: clone(patient) }, error: null };
+        if (patient.status !== "waiting" || patient.completed_at != null) {
+          return fail("P0001", `Only a waiting patient can be confirmed. This visit is ${patient.status}.`);
+        }
+        const created = timestampMicroseconds(patient.created_at);
+        if (created < timestampMicroseconds(args.p_queue_start) || created >= timestampMicroseconds(args.p_queue_end)) {
+          return fail("P0001", "Only a visit in today's queue can be confirmed");
+        }
+        Object.assign(patient, { confirmed_at: timestamp, confirmed_by: user.id_num, visit_state_revision: crypto.randomUUID() });
+        if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
+        database.patients.splice(0, database.patients.length, ...patients);
+        return { data: { already_confirmed: false, patient: clone(patient) }, error: null };
       }
       if (name === "cancel_patient_visit") {
         // Mirrors 20261025-w1-atomic-cancel.sql step by step, with all-or-nothing writes;
@@ -322,6 +363,11 @@ function fakeSupabase(database, now, localFallback) {
         if (!patient) return fail("P0002", "Patient not found");
         if (patient.visit_state_revision !== args.p_expected_revision) return fail("40001", "Patient visit changed; refresh the queue before calling");
         if (patient.status !== "waiting" || patient.completed_at != null) return fail("P0001", "Only a waiting patient without a completion timestamp can be called");
+        // FC1 edit 1: the visit must be confirmed by the Front Desk.
+        if (patient.confirmed_at == null) {
+          return { data: null, error: { code: "P0001", hint: "awaiting_front_desk_confirmation",
+            message: "This patient has not been confirmed by the Front Desk yet. A doctor can call a patient only after the Front Desk confirms the visit." } };
+        }
         if (doctorFor(patient.service_type) !== args.p_doctor_name) return fail("P0001", "This patient is assigned to another doctor");
         if (patient.counter_id != null && patient.counter_id !== args.p_doctor_name) return fail("P0001", "This waiting patient has a conflicting doctor assignment");
         if (counter.is_online !== true) return fail("P0001", `${args.p_doctor_name} is marked offline in System Settings. Enable availability before calling patients.`);
@@ -333,7 +379,8 @@ function fakeSupabase(database, now, localFallback) {
         if (counters.some((row) => row.id !== counter.id && row.current_patient_id === patient.id)) return fail("P0001", "This patient is already assigned to another doctor");
         const start = timestampMicroseconds(args.p_queue_start);
         const end = timestampMicroseconds(args.p_queue_end);
-        const next = patients.filter((row) => row.status === "waiting" && doctorFor(row.service_type) === args.p_doctor_name &&
+        // FC1 edit 2: the head of the doctor's CONFIRMED waiting visits.
+        const next = patients.filter((row) => row.status === "waiting" && row.confirmed_at != null && doctorFor(row.service_type) === args.p_doctor_name &&
             timestampMicroseconds(row.created_at) >= start && timestampMicroseconds(row.created_at) < end)
           .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0) || Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id)[0];
         if (next?.id !== patient.id) return fail("P0001", `Call the next eligible patient for ${args.p_doctor_name} according to queue priority`);
@@ -459,6 +506,24 @@ function createHarness(options = {}) {
     "./settingsService": settings,
     "./analyticsInsights": require("../../src/services/analyticsInsights")
   }, clock);
+  // FC1 in development memory: autoConfirmVisits has the Front Desk confirm each new visit through
+  // the real confirmPatient right after registration (the fake database stamps its own inserts).
+  if (options.localFallback) {
+    const frontdesk = { id_num: "frontdesk", role: "admin", doctor_name: null };
+    for (const name of ["createQueueEntry", "registerPatientVisit", "requeuePatient"]) {
+      const original = service[name];
+      service[name] = async (...args) => {
+        const result = await original(...args);
+        const visit = result?.visit ?? result;
+        if (database.autoConfirmVisits && visit?.id != null && visit.confirmed_at == null) {
+          const { patient } = await service.confirmPatient(visit.id, frontdesk);
+          Object.assign(visit, { confirmed_at: patient.confirmed_at, confirmed_by: patient.confirmed_by,
+            visit_state_revision: patient.visit_state_revision });
+        }
+        return result;
+      };
+    }
+  }
   const handlers = new Map();
   const router = {};
   for (const method of ["get", "post", "put", "delete"]) {

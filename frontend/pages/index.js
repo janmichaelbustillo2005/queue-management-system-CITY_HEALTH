@@ -12,10 +12,16 @@ import {
   QUEUE_SERVICE_BADGE_CLASS,
   QUEUE_STATUS_COUNTERS,
   QUEUE_STATUS_FILTERS,
+  CONFIRMATION_CONFIRMED_CLASS,
+  CONFIRMATION_PENDING_CLASS,
+  CONFIRMATION_PENDING_LABEL,
+  confirmationDetail,
   countQueueStatuses,
   formatQueueDate,
   formatQueueTime,
   doctorDisplayName,
+  isAwaitingConfirmation,
+  isConfirmedWaiting,
   isDoctorOnline,
   matchesQueueDoctor,
   matchesQueueSearch,
@@ -86,8 +92,9 @@ const SHARED_DISPATCH = "shared";
 const SHARED_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
 
 // The backend's shared-queue head for one doctor (unassigned visits plus its own legacy reservation).
+// FC1: only visits the Front Desk confirmed are callable, so every queue head is a confirmed visit.
 function getSharedHead(rows, doctorName) {
-  return rows.filter((row) => row.status === "waiting" && !row.isOptimistic && SHARED_SERVICES.includes(row.service_type) &&
+  return rows.filter((row) => isConfirmedWaiting(row) && !row.isOptimistic && SHARED_SERVICES.includes(row.service_type) &&
     (!String(row.counter_id ?? "").trim() || row.counter_id === doctorName)).sort(compareQueuePriority)[0];
 }
 
@@ -268,7 +275,7 @@ export default function HomePage() {
     const states = {};
     for (const doctorName of DOCTOR_NAMES) {
       const counter = counters.find((item) => (item.id_num || item.name) === doctorName);
-      const head = sharedDispatch ? getSharedHead(queueRows, doctorName) : queueRows.filter((row) => row.status === "waiting" &&
+      const head = sharedDispatch ? getSharedHead(queueRows, doctorName) : queueRows.filter((row) => isConfirmedWaiting(row) &&
         !row.isOptimistic && getServiceDoctor(row.service_type) === doctorName)
         .slice().sort(compareQueuePriority)[0];
       const reservedForHead = head?.counter_id === doctorName && counter?.current_patient_id != null &&
@@ -286,7 +293,7 @@ export default function HomePage() {
 
   // Shared dispatch: the next visit and the first free doctor that may take it. The Superadmin
   // dashboard calls it to that doctor; Patient Management lets Frontdesk choose the doctor.
-  const sharedNext = sharedDispatch ? queueRows.filter((row) => row.status === "waiting" && !row.isOptimistic &&
+  const sharedNext = sharedDispatch ? queueRows.filter((row) => isConfirmedWaiting(row) && !row.isOptimistic &&
     !String(row.counter_id ?? "").trim()).sort(compareQueuePriority)[0] : null;
   const sharedCallDoctor = sharedNext ? DOCTOR_NAMES.find((doctorName) => {
     const state = doctorQueues[doctorName];
@@ -1707,6 +1714,13 @@ export default function HomePage() {
                           </td>
                           <td className="px-2 py-2">
                             <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${statusClass}`}>{patient.status}</span>
+                            {patient.status === "waiting" && !patient.isOptimistic ? (
+                              <div className="mt-1">
+                                <span title={confirmationDetail(patient)} className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${isAwaitingConfirmation(patient) ? CONFIRMATION_PENDING_CLASS : CONFIRMATION_CONFIRMED_CLASS}`}>
+                                  {isAwaitingConfirmation(patient) ? CONFIRMATION_PENDING_LABEL : "Confirmed"}
+                                </span>
+                              </div>
+                            ) : null}
                             {patient.status === "serving" && !validServing && <div className="mt-1 text-[10px] text-amber-800">Doctor assignment missing or inconsistent</div>}
                             {patient.status === "serving" && validServing && patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">Awaiting doctor acceptance</div>}
                             {patient.status === "serving" && validServing && !patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">{patient.consultation_started_at ? "Consultation in progress" : "Ready for consultation"}</div>}

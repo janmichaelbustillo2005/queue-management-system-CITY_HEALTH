@@ -26,7 +26,7 @@ before(async () => {
 function patient(id, service = "consultation", overrides = {}) {
   return { id, id_num: `Synthetic ${id}`, queue_number: `Q-${id}`, service_type: service, status: "waiting",
     priority_score: 1, created_at: `2026-10-29T01:0${id}:00Z`, counter_id: null, called_at: null,
-    consultation_started_at: null, completed_at: null, vulnerability_flags: [], ...overrides };
+    consultation_started_at: null, completed_at: null, vulnerability_flags: [], confirmed_at: `2026-10-29T01:0${id}:30Z`, confirmed_by: "frontdesk", ...overrides };
 }
 
 function table(rows, { counters, request } = {}) {

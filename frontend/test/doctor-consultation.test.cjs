@@ -35,7 +35,8 @@ function serving(id = 1, state = {}) {
   return { id, id_num: `Test patient ${id}`, queue_number: `GP-${id}`, service_type: "consultation",
     status: "serving", priority_score: 1, created_at: "2026-10-10T01:00:00.000Z",
     counter_id: "Doctor 1", called_at: calledAt, awaiting_accept: true, accepted_at: null,
-    consultation_started_at: null, completed_at: null, ...state };
+    consultation_started_at: null, completed_at: null,
+    confirmed_at: "2026-10-10T01:00:30.000Z", confirmed_by: "frontdesk", ...state };
 }
 function doctor(number, patientId = null) {
   return { id: number, id_num: `Doctor ${number}`, name: `Doctor ${number}`,
@@ -685,4 +686,28 @@ test("EP1: the Doctor Queue heading shows the assigned account's display name an
   names["Doctor 1"] = "Dr. Maria Santos";
   await h.flush();
   assert.equal(h.render().props.title, "Dr. Maria Santos Queue");
+});
+
+// FC1 Front Desk confirmation: a visit reaches the doctor only after the Front Desk confirmed it.
+const pending = (id, state = {}) => waiting(id, { confirmed_at: null, confirmed_by: null, ...state });
+
+test("FC1: a visit pending Front Desk confirmation is not in the doctor's queue or counts and cannot be called", async () => {
+  const h = await harness([pending(1, { priority_score: 4 }), waiting(2)]);
+  const tree = await h.flush();
+  assert.equal(inQueue(tree, 1), false, "the pending visit is not shown to the doctor");
+  assert.equal(inQueue(tree, 2), true);
+  const calls = nodes(tree, (node) => node.type === "button" && text(node).trim() === "Call");
+  assert.equal(calls.length, 1, "the confirmed visit is the doctor's next patient despite the pending higher priority");
+  await calls[0].props.onClick();
+  assert.deepEqual(h.actions, [{ route: "/queue/call", method: "POST", body: { patient_id: 2 } }]);
+});
+
+test("FC1: with only pending visits the doctor has nobody to call; Matching Waiting counts confirmed visits only", async () => {
+  const h = await harness([pending(1), pending(2)]);
+  const tree = await h.flush();
+  assert.equal(inQueue(tree, 1), false);
+  assert.equal(inQueue(tree, 2), false);
+  assert.equal(nodes(tree, (node) => node.type === "button" && text(node).trim() === "Call").length, 0);
+  assert.match(text(tree), /0Matching Waiting/);
+  assert.deepEqual(h.actions, []);
 });

@@ -14,6 +14,7 @@ const {
   buildCsv,
   buildAnalyticsCsv,
   callPatient,
+  confirmPatient,
   requestDispatch,
   transferConsultation,
   cancelPatient,
@@ -323,6 +324,27 @@ router.post("/patient-records/visits", authenticateToken, async (req, res) => {
       ...(error.possibleDuplicates ? { possible_duplicates: error.possibleDuplicates } : {}),
       ...(error.patientRecord ? { patient_record: error.patientRecord } : {})
     });
+  }
+});
+
+// FC1: the Front Desk confirms the patient of one waiting visit is present; only then may the
+// assigned doctor call it. Authority is the persisted Frontdesk account (checked again in the
+// database). Confirmation never calls the patient and never runs the doctor dispatcher, so the
+// round robin (assignment, rotation pointer) is untouched.
+router.post("/queue/confirm", authenticateToken, async (req, res) => {
+  try {
+    const { already_confirmed: alreadyConfirmed, patient } = await confirmPatient(Number(req.body?.patient_id), req.user);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      success: true,
+      already_confirmed: alreadyConfirmed,
+      patient: { id: patient.id, queue_number: patient.queue_number, confirmed_at: patient.confirmed_at, confirmed_by: patient.confirmed_by },
+      message: alreadyConfirmed
+        ? `${patient.queue_number} was already confirmed; no changes were made`
+        : `${patient.queue_number} confirmed. The assigned doctor can now call this patient.`
+    });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
 

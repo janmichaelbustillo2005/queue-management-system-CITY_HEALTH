@@ -692,6 +692,9 @@ async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, p
           completed_at: null,
           counter_id: null,
           reason: null,
+          // FC1: a new visit is Pending Confirmation until the Front Desk confirms it.
+          confirmed_at: null,
+          confirmed_by: null,
           ...(patientRecordId != null ? { patient_record_id: patientRecordId } : {})
         };
         localData.patients.push(patient);
@@ -1127,6 +1130,17 @@ function getSharedQueueHead(waitingPatients, doctorName, rankedAt = Date.now()) 
   return waitingPatients.filter((p) => isSharedCandidate(p, doctorName)).sort(compareWaitingPriority(rankedAt))[0] || null;
 }
 
+// FC1 Front Desk confirmation: a doctor calls only visits the Front Desk confirmed (the patient
+// is present). confirmed_at is per visit row, so every new visit starts Pending Confirmation.
+// The database enforces it too (trigger + the FC1 Call functions); without the columns every
+// Call fails closed.
+const FRONT_DESK_CONFIRMATION_MIGRATION = "backend/scripts/20261111-fc1-front-desk-confirmation.sql";
+const CONFIRMATION_REQUIRED = `Front Desk confirmation needs its database migration (${FRONT_DESK_CONFIRMATION_MIGRATION}). Nothing was changed.`;
+const AWAITING_CONFIRMATION_MESSAGE = "This patient has not been confirmed by the Front Desk yet. A doctor can call a patient only after the Front Desk confirms the visit.";
+const UNCONFIRMED_CONFIRMATION_MESSAGE = "Could not verify that the confirmation was saved. Refresh the queue before retrying.";
+const hasConfirmationColumns = (patient) => Boolean(patient) && Object.prototype.hasOwnProperty.call(patient, "confirmed_at");
+const isFrontDeskConfirmed = (patient) => patient?.confirmed_at != null;
+
 const UNCONFIRMED_CALL_MESSAGE = "Could not confirm the call. Refresh the queue before retrying.";
 const SHARED_CALL_MIGRATION_REQUIRED = "Shared doctor dispatch needs the D1 database migration (backend/scripts/20261029-d1-shared-call.sql). Nothing was changed.";
 const SHARED_WPS_A_REQUIRED = "Shared doctor dispatch with WPS Aging needs its database function (backend/scripts/20261029-d1a-shared-wps-a-call.sql). Turn WPS_AGING off or install the function. Nothing was changed.";
@@ -1232,6 +1246,7 @@ async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, r
   if (error) {
     if (CALL_MISSING_RPC_CODES.includes(error.code)) return null;
     if (!error.code) throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
+    if (error.hint === "awaiting_front_desk_confirmation") throw consultationError(AWAITING_CONFIRMATION_MESSAGE, 409);
     const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
       ["P0001", "22023"].includes(error.code) ? 400 : 503;
     throw consultationError(error.message || "Failed to call patient", status);
@@ -1270,6 +1285,9 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
   if (patient.status !== "waiting" || patient.completed_at != null) {
     throw new Error("Only a waiting patient without a completion timestamp can be called");
   }
+  // FC1: every caller (doctor or Superadmin), every dispatch mode. Fails closed without the columns.
+  if (!localCall && !hasConfirmationColumns(patient)) throw consultationError(CONFIRMATION_REQUIRED, 503);
+  if (!isFrontDeskConfirmed(patient)) throw consultationError(AWAITING_CONFIRMATION_MESSAGE, 409);
   const shared = isSharedDispatch();
   const roundRobin = isRoundRobin();
   // RR1 needs its atomic database functions; development memory has none, so it fails closed.
@@ -1333,6 +1351,9 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     if (localCall !== useLocalFallback) {
       throw new Error("Queue storage changed while calling. Refresh the queue and try again.");
     }
+    // FC1: a doctor's queue is its confirmed visits. Unconfirmed visits keep their doctor and
+    // rank but are skipped, so the next patient is the head of the CONFIRMED visits (as in SQL).
+    waitingPatients = waitingPatients.filter(isFrontDeskConfirmed);
 
     const counter = counters.find((c) => c.id_num === doctorName);
     if (!counter) throw new Error(`${doctorName} counter was not found`);
@@ -1471,6 +1492,56 @@ function consultationError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+// FC1: the Front Desk confirms that the patient of one waiting visit (today's queue) is present.
+// Only a Frontdesk account (by its persisted record) may confirm. It changes nothing but
+// confirmed_at/confirmed_by: no status, doctor, priority, queue number or rotation. A repeat
+// confirmation is idempotent and keeps the original (already_confirmed: true).
+async function confirmPatient(patientId, actor) {
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
+  const { patient, counters, user, local } = await loadCancellationContext(patientId, actor);
+  // Identify the caller first so an unauthorized account learns nothing about a patient.
+  const who = resolveCancelActor(actor, user, counters);
+  if (who.kind !== "frontdesk") throw consultationError("Only the Front Desk can confirm a patient.", 403);
+  if (!patient) throw consultationError("Patient not found", 404);
+  if (isFrontDeskConfirmed(patient)) return { already_confirmed: true, patient: parsePatientPriority(patient) };
+  const range = getTodayRange();
+
+  if (local) {
+    // Development memory: no await between the checks and the write.
+    if (patient.status !== "waiting" || patient.completed_at != null) {
+      throw consultationError(`Only a waiting patient can be confirmed. This visit is ${patient.status}.`, 409);
+    }
+    if (!isCreatedInRange(patient, range)) throw consultationError("Only a visit in today's queue can be confirmed", 409);
+    patient.confirmed_at = new Date().toISOString();
+    patient.confirmed_by = user.id_num;
+    patient.visit_state_revision = randomUUID();
+    return { already_confirmed: false, patient: parsePatientPriority(patient) };
+  }
+
+  if (!hasConfirmationColumns(patient)) throw consultationError(CONFIRMATION_REQUIRED, 503);
+  let result;
+  try {
+    result = await supabase.rpc("confirm_patient_visit", {
+      p_patient_id: patientId, p_user_id_num: actor.id_num, p_queue_start: range.start, p_queue_end: range.end
+    });
+  } catch {
+    throw consultationError(UNCONFIRMED_CONFIRMATION_MESSAGE, 503);
+  }
+  const { data, error } = result || {};
+  if (error) {
+    if (MISSING_RPC_CODES.includes(error.code)) throw consultationError(CONFIRMATION_REQUIRED, 503);
+    if (!error.code) throw consultationError(UNCONFIRMED_CONFIRMATION_MESSAGE, 503);
+    const status = error.code === "42501" ? 403 : error.code === "P0002" ? 404 : error.code === "P0001" ? 409 :
+      error.code === "22023" ? 400 : error.code === "55P03" ? 409 : 503;
+    throw consultationError(error.message || "Failed to confirm the patient", status);
+  }
+  const row = data?.patient;
+  if (!row || Number(row.id) !== patientId || row.confirmed_at == null || !row.confirmed_by) {
+    throw consultationError(UNCONFIRMED_CONFIRMATION_MESSAGE, 503);
+  }
+  return { already_confirmed: data.already_confirmed === true, patient: parsePatientPriority(row) };
 }
 
 function requireConsultationDoctor(actor) {
@@ -2483,6 +2554,9 @@ async function recoverPatientVisit(existing, action, actor, reason = null, count
     if (action === "requeue") {
       patient.created_at = new Date().toISOString();
       patient.reason = reason;
+      // FC1 (as the database trigger): a Re-queue is a new turn and needs a new confirmation.
+      patient.confirmed_at = null;
+      patient.confirmed_by = null;
     }
     patient.called_at = null;
     patient.counter_id = null;
@@ -4200,6 +4274,7 @@ module.exports = {
   buildCsv,
   buildAnalyticsCsv,
   callPatient,
+  confirmPatient,
   requestDispatch,
   runRoundRobinDispatch,
   getRoundRobinStatus,

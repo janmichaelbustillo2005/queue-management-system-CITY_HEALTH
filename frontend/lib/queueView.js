@@ -21,6 +21,23 @@ export const serviceDoctor = (serviceType) => SERVICE_TO_DOCTOR[serviceType] || 
 
 export const isUnassigned = (row) => !String(row?.counter_id ?? "").trim();
 
+// FC1 Front Desk confirmation (confirmed_at on the visit, from GET /queue). A waiting visit is
+// callable only once the Front Desk confirmed the patient is present; until then it keeps its
+// doctor and rank but is not part of any doctor's queue. The backend enforces the same rule.
+export const isAwaitingConfirmation = (row) => row?.status === "waiting" && row?.confirmed_at == null;
+export const isConfirmedWaiting = (row) => row?.status === "waiting" && row?.confirmed_at != null;
+export const CONFIRMATION_PENDING_LABEL = "Pending Confirmation";
+export const CONFIRMATION_AWAITING_LABEL = "Awaiting Front Desk Confirmation";
+export const CONFIRMATION_PENDING_CLASS = "bg-amber-100 text-amber-800";
+export const CONFIRMATION_CONFIRMED_CLASS = "bg-emerald-100 text-emerald-800";
+
+// "Confirmed 9:41 AM by frontdesk", for the confirmation badge's tooltip.
+export function confirmationDetail(row) {
+  if (row?.confirmed_at == null) return "Not yet confirmed by the Front Desk";
+  const time = formatQueueTime(row.confirmed_at);
+  return `Confirmed ${time}${row.confirmed_by ? ` by ${row.confirmed_by}` : ""}`;
+}
+
 export function matchesDoctor(serviceType, doctorName) {
   if (!serviceType || !doctorName) return false;
   return serviceDoctor(serviceType) === doctorName;

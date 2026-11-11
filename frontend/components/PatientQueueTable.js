@@ -2,13 +2,20 @@ import { useMemo } from "react";
 import { request } from "../lib/api";
 import { serviceName } from "../lib/services";
 import {
+  CONFIRMATION_AWAITING_LABEL,
+  CONFIRMATION_CONFIRMED_CLASS,
+  CONFIRMATION_PENDING_CLASS,
+  CONFIRMATION_PENDING_LABEL,
   QUEUE_SERVICE_BADGE_CLASS,
   QUEUE_STATUS_COUNTERS,
   belongsToDoctor,
+  confirmationDetail,
   countQueueStatuses,
   doctorDisplayName,
   formatQueueDate,
   formatQueueTime,
+  isAwaitingConfirmation,
+  isConfirmedWaiting,
   isDoctorOnline,
   isUnassigned,
   matchesQueueSearch,
@@ -88,7 +95,9 @@ export default function PatientQueueTable({
   onViewTicket,
   ticketLoadingId = null,
   dispatchMode = "service",
-  doctorNames = {}
+  doctorNames = {},
+  // FC1: true for a Frontdesk account, the only role that may confirm a patient's presence.
+  canConfirm = false
 }) {
   const shared = dispatchMode === SHARED_DISPATCH;
 
@@ -100,8 +109,9 @@ export default function PatientQueueTable({
       states[doctor.name] = {
         activeRows,
         serving,
-        // Only the head of each doctor's queue (serving first, else first waiting) may be acted on
-        activePatientId: serving?.id ?? activeRows.find((row) => row.status === "waiting")?.id ?? null,
+        // Only the head of each doctor's queue (serving first, else first CONFIRMED waiting) may be
+        // acted on; a visit pending Front Desk confirmation is not in the doctor's queue yet.
+        activePatientId: serving?.id ?? activeRows.find(isConfirmedWaiting)?.id ?? null,
         online: isDoctorOnline(counters, queueSettings, doctor.name)
       };
     }
@@ -110,7 +120,7 @@ export default function PatientQueueTable({
 
   // Shared dispatch: one queue for every doctor.
   const sharedQueue = useMemo(() => (shared ? buildSharedQueue(queueRows) : []), [shared, queueRows]);
-  const sharedHead = sharedQueue.find((row) => row.status === "waiting" && !row.isOptimistic) || null;
+  const sharedHead = sharedQueue.find((row) => isConfirmedWaiting(row) && !row.isOptimistic) || null;
 
   const visibleRows = useMemo(() => {
     const byId = new Map();
@@ -161,6 +171,60 @@ export default function PatientQueueTable({
   }
 
   const isHead = (row, doctorName) => row?.id != null && row.id === doctorStates[doctorName]?.activePatientId;
+  const laneName = (doctorName) => doctorName ?? SHARED_LANE;
+
+  // FC1: the Front Desk confirms the patient of this visit is present. It does not call the
+  // patient; the assigned doctor can call once the visit is the head of its confirmed queue.
+  // The dialog's submitting state blocks a second submission; the backend is idempotent too.
+  function handleConfirmPatient(row, doctorName) {
+    if (!canConfirm || !isAwaitingConfirmation(row)) return;
+    const doctor = doctorName ? doctorDisplayName(doctorNames, doctorName) : "The next available doctor";
+    onConfirm({
+      title: "Confirm Patient",
+      message: `Confirm that ${row.id_num} (${row.queue_number}) is present? ${doctor} can then call this patient. The patient's place in the queue does not change.`,
+      onConfirm: () => postAction(laneName(doctorName), "/queue/confirm", { patient_id: row.id }, "Patient confirmed")
+    });
+  }
+
+  // A visit pending confirmation (for example, a patient who left) can be cancelled at any time.
+  function handlePendingCancel(row, doctorName) {
+    if (!isAwaitingConfirmation(row)) return;
+    onConfirm({
+      title: "Cancel Patient",
+      message: `Cancel ${row.id_num} (${row.queue_number}), who has not been confirmed yet? Please enter a reason for canceling.`,
+      showReason: true,
+      requireReason: true,
+      onConfirm: (reason) => postAction(laneName(doctorName), "/queue/cancel",
+        { patient_id: row.id, reason, ...(doctorName ? { counter_id: doctorName } : {}) }, "Patient cancelled successfully")
+    });
+  }
+
+  function renderPendingActions(row, doctorName) {
+    if (!canConfirm) {
+      return <span className="text-[11px] brand-text-muted font-semibold italic px-1">{CONFIRMATION_AWAITING_LABEL}</span>;
+    }
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => handleConfirmPatient(row, doctorName)}
+          disabled={row.isOptimistic}
+          aria-label={`Confirm patient ${row.queue_number}`}
+          className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <i className="fas fa-user-check me-1" aria-hidden="true" />
+          Confirm Patient
+        </button>
+        <button
+          type="button"
+          onClick={() => handlePendingCancel(row, doctorName)}
+          className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
+        >
+          Cancel
+        </button>
+      </>
+    );
+  }
 
   function handleSharedCancel(row) {
     if (row.id !== sharedHead?.id) {
@@ -179,6 +243,7 @@ export default function PatientQueueTable({
   // Calling belongs to the doctor's own queue; here a row can only be cancelled.
   function renderSharedActions(row) {
     if (row.status !== "waiting") return <span className="brand-text-muted text-xs">—</span>;
+    if (isAwaitingConfirmation(row)) return renderPendingActions(row, null);
     if (row.id !== sharedHead?.id) {
       return <span className="text-[11px] brand-text-muted font-semibold italic px-1">Waiting for turn</span>;
     }
@@ -216,6 +281,7 @@ export default function PatientQueueTable({
   function renderActions(row, doctorName) {
     if (doctorName == null) return renderSharedActions(row);
     if (row.status === "waiting") {
+      if (isAwaitingConfirmation(row)) return renderPendingActions(row, doctorName);
       if (!isHead(row, doctorName)) {
         const serving = doctorStates[doctorName].serving;
         return <span className="text-[11px] brand-text-muted font-semibold italic px-1">
@@ -363,6 +429,13 @@ export default function PatientQueueTable({
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${queueStatusClass(row.status)}`}>
                       {row.status}
                     </span>
+                    {row.status === "waiting" && !row.isOptimistic ? (
+                      <div className="mt-1.5" data-confirmation={isAwaitingConfirmation(row) ? "pending" : "confirmed"}>
+                        <span title={confirmationDetail(row)} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isAwaitingConfirmation(row) ? CONFIRMATION_PENDING_CLASS : CONFIRMATION_CONFIRMED_CLASS}`}>
+                          {isAwaitingConfirmation(row) ? CONFIRMATION_PENDING_LABEL : "Confirmed"}
+                        </span>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-4 text-xs brand-text-muted whitespace-nowrap">{formatQueueTime(row.created_at)}</td>
                   <td className="px-4 py-4 text-right">

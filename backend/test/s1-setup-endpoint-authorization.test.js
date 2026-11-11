@@ -16,6 +16,7 @@ function patient(h, id, fields) {
     id_num: `Synthetic Patient ${id}`, mobile_number: "09000000000", service_type: "consultation",
     status: "waiting", priority_score: 1, vulnerability_flags: [], source: "admin", created_at: at,
     called_at: null, consultation_started_at: null, completed_at: null, counter_id: null, reason: null,
+    confirmed_at: at, confirmed_by: "frontdesk",
     ...fields
   };
 }

@@ -31,7 +31,7 @@ function patient(id, service = "consultation", score = 1, created = "2026-10-10T
   return { id, id_num: `Test patient ${id}`, queue_number: `TEST-${id}`, service_type: service,
     status: "waiting", priority_score: score, created_at: created,
     counter_id: null, called_at: null, accepted_at: null, consultation_started_at: null,
-    completed_at: null, awaiting_accept: false, vulnerability_flags: [] };
+    completed_at: null, awaiting_accept: false, vulnerability_flags: [], confirmed_at: created, confirmed_by: "frontdesk" };
 }
 function doctor(number, state = {}) {
   return { id: number, id_num: `Doctor ${number}`, is_online: true, current_patient_id: null, ...state };
@@ -708,4 +708,18 @@ test("EP1: Superadmin monitoring, filters, assignments and transfers show displa
   assert.deepEqual(transfer.map((node) => text(node).trim()), ["Transfer to Dr. Maria Santos"]);
   await transfer[0].props.onClick();
   assert.deepEqual(h.actions, [{ route: "/queue/transfer", method: "POST", body: { patient_id: 1, doctor: "Doctor 2" } }]);
+});
+
+// FC1 Front Desk confirmation: Superadmin sees each waiting visit's confirmation state; a pending
+// visit keeps its row but is never a doctor's next patient, so it offers no Call.
+test("FC1: a pending visit shows Pending Confirmation and no Call; the doctor's first confirmed visit is callable", async () => {
+  const pendingVisit = { ...patient(1, "consultation", 4), confirmed_at: null, confirmed_by: null };
+  const h = await harness([pendingVisit, patient(2)]);
+  const tree = h.render();
+  assert.match(text(row(tree, 1)), /Pending Confirmation/);
+  assert.equal(callButton(tree, 1), undefined);
+  assert.match(text(row(tree, 2)), /Confirmed/);
+  assert.equal(buttons(tree, "Confirm Patient").length, 0, "Superadmin gains no confirmation permission");
+  await callButton(h.render(), 2).props.onClick();
+  assert.deepEqual(h.actions.map(action => action.body), [{ patient_id: 2, counterId: "Doctor 1" }]);
 });

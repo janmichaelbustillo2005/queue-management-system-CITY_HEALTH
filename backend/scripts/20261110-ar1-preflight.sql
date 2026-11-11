@@ -11,6 +11,8 @@ WITH checks(position, check_name, expected, actual, passed) AS (
       AND c.table_name = 'users' AND c.column_name = 'id_num')
 
   UNION ALL
+
+  
   SELECT 2, 'users.auth_revision (Phase A)', 'uuid',
     COALESCE((SELECT c.data_type FROM information_schema.columns AS c WHERE c.table_schema = 'public'
       AND c.table_name = 'users' AND c.column_name = 'auth_revision'), 'MISSING COLUMN'),

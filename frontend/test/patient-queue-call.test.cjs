@@ -23,7 +23,7 @@ function patient(id, service = "consultation", score = 1, created = "2026-10-10T
   return { id, id_num: `Test ${id}`, queue_number: `GP-${id}`, service_type: service,
     status: "waiting", priority_score: score, created_at: created,
     counter_id: null, called_at: null, accepted_at: null, consultation_started_at: null,
-    completed_at: null, vulnerability_flags: [] };
+    completed_at: null, vulnerability_flags: [], confirmed_at: created, confirmed_by: "frontdesk" };
 }
 
 function harness(rows, options = {}) {

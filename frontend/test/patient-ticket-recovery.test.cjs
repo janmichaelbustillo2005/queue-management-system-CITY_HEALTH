@@ -26,7 +26,7 @@ before(async () => {
 function patient(id, overrides = {}) {
   return { id, id_num: `Patient ${id}`, queue_number: `GP-${String(id).padStart(3, "0")}`,
     service_type: "consultation", counter_id: null, status: "waiting", priority_score: 1,
-    created_at: "2026-10-13T01:00:00Z", ...overrides };
+    created_at: "2026-10-13T01:00:00Z", confirmed_at: "2026-10-13T01:00:30Z", confirmed_by: "frontdesk", ...overrides };
 }
 
 // Mirrors the shared module's safe-ticket contract; its actual whitelist and

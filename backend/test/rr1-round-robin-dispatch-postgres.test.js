@@ -24,6 +24,12 @@ const DEVELOPMENT_STATE = ["20261023-phase-b2-records.sql", "20261025-c1-atomic-
   "20261022-f5-requeue-terminal-recovery.sql", "20261025-w1-atomic-cancel.sql", "20261103-patient-records.sql",
   "add-account-cancellation-requests.sql", "20261110-ar1-staff-archive.sql"];
 const RR1 = "20261109-rr1-round-robin-dispatch.sql";
+// FC1 Front Desk confirmation is installed after RR1 (the backend refuses every Call without it).
+// These tests are about doctor assignment, so the column defaults model a Front Desk that confirms
+// every visit the moment it is saved; fc1-front-desk-confirmation-postgres.test.js covers FC1.
+const FC1 = "20261111-fc1-front-desk-confirmation.sql";
+const CONFIRMED_ON_ARRIVAL = `ALTER TABLE public.patients ALTER COLUMN confirmed_at SET DEFAULT clock_timestamp(),
+  ALTER COLUMN confirmed_by SET DEFAULT 'frontdesk';`;
 const ACCOUNTS = {
   superadmin: ["superadmin", null], frontdesk: ["admin", null],
   admin1: ["admin", "Doctor 1"], admin2: ["admin", "Doctor 2"], admin3: ["admin", "Doctor 3"]
@@ -39,7 +45,8 @@ const password = (idNum) => `synthetic-${idNum}-password`;
 
 async function freshDatabase({ withRr1 = true } = {}) {
   const db = await liveKnownDatabase(PGlite);
-  for (const script of [...DEVELOPMENT_STATE, ...(withRr1 ? [RR1] : [])]) await db.exec(readScript(script));
+  for (const script of [...DEVELOPMENT_STATE, ...(withRr1 ? [RR1] : []), FC1]) await db.exec(readScript(script));
+  await db.exec(CONFIRMED_ON_ARRIVAL);
   await db.exec("ALTER ROLE service_role BYPASSRLS; SET TIME ZONE 'UTC'; SET ROLE service_role;");
   const users = Object.entries(ACCOUNTS).map(([idNum, [role, doctor]]) =>
     `('${idNum}', '${bcrypt.hashSync(password(idNum), 4)}', '${role}', ${doctor ? `'${doctor}'` : "NULL"})`);

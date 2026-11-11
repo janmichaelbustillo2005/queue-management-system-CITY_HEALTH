@@ -139,7 +139,8 @@ test("mock Supabase: active retrieval and call priority page beyond 1000 under a
   for (let id = 1105; id >= 1; id -= 1) {
     h.database.patients.push({ id, id_num: `Paged patient ${id}`, queue_number: `GP-${id}`,
       service_type: "consultation", status: "waiting", created_at: "2026-10-10T01:00:00.000Z",
-      priority_score: id === 1105 ? 100 : 0, counter_id: null, called_at: null, completed_at: null });
+      priority_score: id === 1105 ? 100 : 0, counter_id: null, called_at: null, completed_at: null,
+      confirmed_at: "2026-10-10T01:00:30.000Z", confirmed_by: "frontdesk" });
   }
   h.database.patients.push({ id: 2000, id_num: "Old serving", queue_number: "OB-001", service_type: "prenatal",
     status: "serving", created_at: "2026-10-09T01:00:00.000Z", counter_id: "Doctor 2", called_at: "2026-10-09T01:01:00.000Z" });

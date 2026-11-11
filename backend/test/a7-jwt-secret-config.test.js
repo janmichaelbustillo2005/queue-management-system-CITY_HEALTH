@@ -127,7 +127,8 @@ function configuredHarness() {
   const config = loadConfig({ JWT_SECRET: generated() });
   const h = createRealAuthHarness({ env: config });
   const at = (offset) => new Date(h.clock.now - offset).toISOString();
-  const base = { priority_score: 1, vulnerability_flags: [], called_at: null, consultation_started_at: null, completed_at: null, counter_id: null, reason: null };
+  const base = { priority_score: 1, vulnerability_flags: [], called_at: null, consultation_started_at: null, completed_at: null, counter_id: null, reason: null,
+    confirmed_at: at(30000), confirmed_by: "frontdesk" };
   h.database.patients.push(
     { ...base, id: 1, visit_state_revision: crypto.randomUUID(), queue_number: "GP-001", id_num: "Synthetic GP", service_type: "consultation", status: "waiting", created_at: at(60000) },
     { ...base, id: 2, visit_state_revision: crypto.randomUUID(), queue_number: "OB-001", id_num: "Synthetic OB", service_type: "prenatal", status: "waiting", created_at: at(50000) },

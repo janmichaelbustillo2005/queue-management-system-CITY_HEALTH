@@ -63,6 +63,10 @@ export default function PatientManagementPage() {
   }, [user, authLoading, router]);
 
   const canView = !!user && !DOCTOR_ACCOUNTS.includes(user.id_num);
+  // FC1: only a Frontdesk account (an admin without a doctor assignment) confirms a patient's
+  // presence; Superadmin sees the confirmation state only. The backend decides from the account.
+  const canConfirm = user?.role === "admin" &&
+    ["", "front desk", "frontdesk"].includes(String(user?.doctor_name ?? "").trim().toLowerCase());
   const canIssueTicket = user?.id_num === "frontdesk" || user?.role === "superadmin";
   const canIssueTicketRef = useRef(canIssueTicket);
   canIssueTicketRef.current = canIssueTicket;
@@ -249,6 +253,7 @@ export default function PatientManagementPage() {
               <div>
                 <h2 className="font-bold brand-text text-lg m-0">Patient Management</h2>
                 <p className="text-xs brand-text-muted m-0">Monitor every registered patient in one table. Each doctor calls patients from their own queue; changes sync with the doctor accounts.</p>
+                <p className="text-xs brand-text-muted mt-1 mb-0">A new patient is Pending Confirmation. {canConfirm ? "Select Confirm Patient once the patient is present" : "The Front Desk confirms each patient once present"}; only then can the assigned doctor call them.</p>
                 {canIssueTicket ? <p className="text-xs brand-text-muted mt-1 mb-0">Lost ticket? Choose All registered patients to search today's registrations, then select View Ticket to photograph, download, or reprint the same queue number.</p> : null}
               </div>
             </div>
@@ -339,6 +344,7 @@ export default function PatientManagementPage() {
           onViewTicket={canIssueTicket ? handleViewTicket : undefined}
           ticketLoadingId={ticketLoadingId}
           dispatchMode={dispatchMode}
+          canConfirm={canConfirm}
         />
       </div>
 

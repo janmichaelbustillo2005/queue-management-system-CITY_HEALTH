@@ -10,7 +10,7 @@ function base(id, overrides) {
     id, id_num: `Patient ${id}`, queue_number: `Q-${id}`, service_type: "consultation", status: "waiting",
     priority_score: 1, effective_priority: 1, created_at: "2026-11-10T04:22:00Z", counter_id: null,
     called_at: null, accepted_at: null, consultation_started_at: null, completed_at: null,
-    awaiting_accept: false, vulnerability_flags: [], ...overrides
+    awaiting_accept: false, vulnerability_flags: [], confirmed_at: "2026-11-10T04:22:30Z", confirmed_by: "frontdesk", ...overrides
   };
 }
 

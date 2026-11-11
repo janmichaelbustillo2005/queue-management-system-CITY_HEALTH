@@ -33,6 +33,11 @@ function normalizeDoctorAssignment(value, counters = []) {
 const SHARED_DISPATCH = "shared";
 const SHARED_SERVICES = ["consultation", "checkup", "prenatal", "maternity", "family_planning"];
 
+// FC1 Front Desk confirmation (lib/queueView.js isConfirmedWaiting): until the Front Desk confirms
+// the patient is present, a waiting visit is not in this doctor's queue and cannot be called. The
+// backend refuses such a Call as well; the visit keeps its doctor and rank meanwhile.
+const isFrontDeskConfirmed = (row) => row?.confirmed_at != null;
+
 function isAssignedToDoctor(row, doctorName, counters = []) {
   if (!row || !doctorName) return false;
   return (
@@ -281,6 +286,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       // A registered patient waits directly in the assigned doctor's queue. The doctor is the
       // stored assignment, else the service's doctor; a shared visit waits for any doctor.
       if (row.status === "waiting") {
+        // FC1: a visit reaches the doctor only after the Front Desk confirmed the patient is present.
+        if (!isFrontDeskConfirmed(row)) return false;
         if (String(row.counter_id ?? "").trim()) return isAssignedToDoctor(row, doctorName, counters);
         if (roundRobin) return false;
         return sharedDispatch ? SHARED_SERVICES.includes(row.service_type) : matchesDoctor(row.service_type, doctorName);
@@ -489,9 +496,9 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     const patients = data.patients ?? [];
     
     const myServed = patients.filter(q => isAssignedToDoctor(q, doctorName, data.counters ?? []));
-    const matchingWaiting = patients.filter(q => 
-      // Shared dispatch: every waiting patient may come to this doctor.
-      q.status === "waiting" && (assignedByRotation ? isAssignedToDoctor(q, doctorName, data.counters ?? [])
+    const matchingWaiting = patients.filter(q =>
+      // Shared dispatch: every waiting patient may come to this doctor. FC1: confirmed visits only.
+      q.status === "waiting" && isFrontDeskConfirmed(q) && (assignedByRotation ? isAssignedToDoctor(q, doctorName, data.counters ?? [])
         : shared || matchesDoctor(q.service_type, doctorName))
     );
 

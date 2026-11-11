@@ -109,7 +109,7 @@ export default function PatientManagementPage() {
       if (ticketReadVersion === ticketRequestRef.current && ticketPatientIdRef.current != null) {
         const patient = patients.find((row) => String(row.id) === String(ticketPatientIdRef.current));
         if (patient) {
-          setQueueTicket(createQueueTicket(patient, { dispatchMode: data.dispatch_mode, doctorNames: data.doctor_display_names }));
+          setQueueTicket(createQueueTicket(patient, { dispatchMode: data.dispatch_mode, dispatchStrategy: data.dispatch_strategy, doctorNames: data.doctor_display_names }));
         } else {
           ticketPatientIdRef.current = null;
           setQueueTicket(null);

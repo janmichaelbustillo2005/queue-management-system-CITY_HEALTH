@@ -1,7 +1,8 @@
 -- FC1 Front Desk confirmation: prerequisite preflight. READ ONLY; changes nothing.
 -- Run before 20261111-fc1-front-desk-confirmation.sql. Expected: every passed = true,
 -- failed_count = 0, all_pass = true. Rows 6 and 7 are information (always pass): the visits that
--- will start as Pending Confirmation, and the Call functions the migration will replace.
+-- will start as Pending Confirmation, and the Call functions the migration will replace. Row 8
+-- fails if an installed Call function differs from the reviewed script FC1 was generated from.
 BEGIN TRANSACTION READ ONLY;
 
 WITH call_functions(signature) AS (
@@ -10,6 +11,20 @@ WITH call_functions(signature) AS (
     ('public.call_patient_visit_shared(bigint,text,text,uuid,timestamptz,timestamptz)'),
     ('public.call_patient_visit_shared_wps_a(bigint,text,text,uuid,timestamptz,timestamptz,timestamptz)'),
     ('public.call_patient_visit_rr(bigint,text,text,uuid,timestamptz,timestamptz,timestamptz,boolean)')
+), known_sources(signature, original_md5, fc1_md5) AS (
+  VALUES ('public.call_patient_visit(bigint,text,text,uuid,timestamptz,timestamptz)',
+      '1468f34221343673d93d34848da46f3f', '02702f8e45dbb1a65363e281c4e33d7e'),
+    ('public.call_patient_visit_wps_a(bigint,text,text,uuid,timestamptz,timestamptz,timestamptz)',
+      '8a7dfc2485e2bcec69bb5516281e3c59', '1e919639fa7c9898e721fac7357bf674'),
+    ('public.call_patient_visit_shared(bigint,text,text,uuid,timestamptz,timestamptz)',
+      '0ff5318ad880e54f4fb02183576fd4d0', 'dc9f510a75c25dffe0d4269796911572'),
+    ('public.call_patient_visit_shared_wps_a(bigint,text,text,uuid,timestamptz,timestamptz,timestamptz)',
+      'e18c44897641a2d98d6ae3f9d78d17f0', '39f1b955629d754e84099e8631574825'),
+    ('public.call_patient_visit_rr(bigint,text,text,uuid,timestamptz,timestamptz,timestamptz,boolean)',
+      '7e4a2380e528a1a3b624098d8646ce9b', 'dfb40f8a79baf4fed6251616ca94c550')
+), installed AS (
+  SELECT k.signature, pg_catalog.md5(pg_catalog.replace(p.prosrc, E'\r\n', E'\n')) IN (k.original_md5, k.fc1_md5) AS known
+  FROM known_sources AS k JOIN pg_catalog.pg_proc AS p ON p.oid = pg_catalog.to_regprocedure(k.signature)
 ), checks(position, check_name, expected, actual, passed) AS (
   SELECT 1, 'patients.visit_state_revision (Phase 2.1)', 'uuid',
     COALESCE((SELECT c.data_type FROM information_schema.columns AS c WHERE c.table_schema = 'public'
@@ -53,6 +68,15 @@ WITH call_functions(signature) AS (
   SELECT 7, 'information: installed Call functions FC1 will replace', 'any',
     COALESCE((SELECT pg_catalog.string_agg(pg_catalog.split_part(f.signature, '(', 1), ', ' ORDER BY f.signature)
       FROM call_functions AS f WHERE pg_catalog.to_regprocedure(f.signature) IS NOT NULL), 'none'), true
+
+  UNION ALL
+  -- FC1 replaces each installed Call function with its reviewed script plus two edits. A function
+  -- that is neither that reviewed version nor already the FC1 version would be overwritten: stop.
+  -- Sources compared with line endings normalized, as the C1/D1/D1-A verify scripts do.
+  SELECT 8, 'installed Call functions are the reviewed versions (or FC1 already)', 'all known',
+    COALESCE((SELECT pg_catalog.string_agg(pg_catalog.split_part(i.signature, '(', 1), ', ' ORDER BY i.signature)
+      FROM installed AS i WHERE NOT i.known), 'all known'),
+    NOT EXISTS (SELECT 1 FROM installed AS i WHERE NOT i.known)
 )
 SELECT c.position, c.check_name, c.expected, c.actual, c.passed,
   pg_catalog.count(*) FILTER (WHERE NOT c.passed) OVER () AS failed_count,

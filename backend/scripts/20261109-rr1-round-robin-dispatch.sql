@@ -5,8 +5,8 @@
 -- Requires Phase A (staff sessions / get_staff_doctor_presence), Phase 2, Phase 2.1
 -- (visit_state_revision + rotation trigger). Run 20261109-rr1-preflight.sql first.
 --
--- ADDITIVE ONLY. Adds two tables, nine functions and two unique indexes on existing tables
--- (counters.current_patient_id, one serving visit per doctor). Replaces no existing function,
+-- ADDITIVE ONLY. Adds two tables, nine functions and three unique indexes on existing tables
+-- (counters.current_patient_id, one serving visit per doctor, patients.queue_number). Replaces no existing function,
 -- alters no existing column, and updates no patient, counter, user or session row.
 --
 -- Model:
@@ -26,10 +26,22 @@
 --   * WPS (or WPS-A when the backend runs with WPS_AGING) still decides the ORDER in which each
 --     doctor serves its own list: effective priority DESC, priority_score DESC, created_at (ms)
 --     ASC, id ASC. Call refuses anything but the head of the doctor's own list.
---   * A doctor that is signed out, stale or disabled loses its not-yet-called visits: they are
---     re-assigned, in WPS order, to the eligible doctors in rotation (created_at, priority_score
---     and flags untouched). With no eligible doctor they wait unassigned and are assigned as soon
---     as one becomes eligible (dispatch_round_robin, run by the backend on changes and a timer).
+--   * Automatic reassignment (2026-11-11): a doctor that signs out, loses its heartbeat, is
+--     disabled in System Settings or is archived loses its WAITING (not yet called) visits. In
+--     one transaction dispatch_round_robin moves each, highest WPS/WPS-A rank first, straight to
+--     the next eligible doctor in the same rotation, so they alternate between the doctors still
+--     available. One history row per move (previous_doctor -> new_doctor, reason, detail, time).
+--     created_at, priority, flags, service and confirmation are untouched.
+--   * No eligible doctor: the visits are held as pending reassignment (counter_id NULL, history
+--     'doctor_unavailable') and placed by the same rotation as soon as a doctor is eligible. A
+--     returning doctor rejoins the rotation; it does not take back visits already reassigned.
+--   * Undo and Re-queue clear a visit's doctor (Phase 2.2 / F5): the visit goes back to the doctor
+--     that last held it if that doctor is eligible (no new turn), otherwise it is reassigned like
+--     the others. A visit that never had a doctor (registered before round robin was switched
+--     on) is assigned in rotation once a doctor is eligible.
+--   * dispatch_round_robin runs after every sign-in/out, availability change, archive and queue
+--     change, and on a backend timer (DISPATCH_SWEEP_SECONDS, 15 s), so a lost heartbeat is acted
+--     on within about 75 + 15 seconds without anyone refreshing a page.
 --   * A SERVING visit whose doctor is signed out is never moved automatically: it is recorded once
 --     as 'intervention_required'; staff may transfer it (transfer_active_consultation).
 --   * Every assignment change is recorded in patient_assignment_history.
@@ -75,14 +87,19 @@ CREATE TABLE IF NOT EXISTS public.patient_assignment_history (
   previous_status TEXT NOT NULL,
   new_status TEXT NOT NULL,
   reason TEXT NOT NULL CHECK (reason IN ('round_robin_assignment', 'round_robin_reassignment',
-    'doctor_unavailable', 'intervention_required', 'staff_transfer', 'released_for_transfer')),
+    'doctor_unavailable', 'intervention_required', 'staff_transfer', 'released_for_transfer',
+    'restored_to_assigned_doctor')),
   automatic BOOLEAN NOT NULL,
   actor_id_num TEXT,
   visit_called_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT pg_catalog.clock_timestamp()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT pg_catalog.clock_timestamp(),
+  -- Why an automatic move happened: doctor_signed_out (sign-out, heartbeat lost, archived),
+  -- doctor_disabled (System Settings), pending_reassignment, doctor_unavailable_after_undo.
+  detail TEXT
 );
+ALTER TABLE public.patient_assignment_history ADD COLUMN IF NOT EXISTS detail TEXT;
 COMMENT ON TABLE public.patient_assignment_history IS
-  'RR1 audit of doctor assignment changes: round-robin assignments at registration, releases and reassignments when a doctor became unavailable, intervention notices and staff transfers.';
+  'RR1 audit of doctor assignment changes: round-robin assignments at registration, automatic reassignments (previous_doctor -> new_doctor) and pending-reassignment holds when a doctor became unavailable, restorations after Undo/Re-queue, intervention notices and staff transfers. created_at is the time of the change.';
 CREATE INDEX IF NOT EXISTS patient_assignment_history_patient_idx
   ON public.patient_assignment_history (patient_id, created_at);
 CREATE INDEX IF NOT EXISTS patient_assignment_history_created_idx
@@ -101,12 +118,15 @@ REVOKE ALL ON SEQUENCE public.patient_assignment_history_id_seq FROM PUBLIC, ano
 -- the indexes make any violation impossible rather than merely avoided. Creation fails (and
 -- the whole migration rolls back) if existing rows already break them: run the preflight.
 --   * a visit is pointed at by at most one doctor counter;
---   * a doctor has at most one serving visit.
+--   * a doctor has at most one serving visit;
+--   * a ticket number belongs to one visit (queue numbers are never reused, across all days).
 -- ---------------------------------------------------------------------------------------------
 CREATE UNIQUE INDEX IF NOT EXISTS counters_current_patient_once
   ON public.counters (current_patient_id) WHERE current_patient_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS patients_one_serving_visit_per_doctor
   ON public.patients (counter_id) WHERE status = 'serving' AND counter_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS patients_queue_number_unique
+  ON public.patients (queue_number);
 
 -- ---------------------------------------------------------------------------------------------
 -- Doctor state: one definition of enabled / signed in / eligible, used by every function.
@@ -195,8 +215,10 @@ $function$;
 
 -- ---------------------------------------------------------------------------------------------
 -- Registration: insert the visit and assign it to the next eligible doctor, atomically.
--- p_visit carries the columns the backend already computed (queue number, priority, ...). A
--- duplicate queue number (23505) or a missing doctor rolls back the visit AND the pointer.
+-- p_visit carries the columns the backend already computed (priority, ...). The TICKET NUMBER is
+-- assigned here, under the rotation lock: the backend's queue_number supplies only the service
+-- code (GP / OB / FP). Any failure (no eligible doctor, a bad value) rolls back the visit, the
+-- ticket number and the pointer together; nothing is consumed.
 -- ---------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.register_visit_round_robin(
   p_visit JSONB,
@@ -220,6 +242,9 @@ DECLARE
   v_eligible TEXT[];
   v_doctor TEXT;
   v_patient public.patients%ROWTYPE;
+  v_code TEXT;
+  v_sequence BIGINT;
+  v_queue_number TEXT;
 BEGIN
   IF p_visit IS NULL OR pg_catalog.jsonb_typeof(p_visit) <> 'object'
      OR p_queue_start IS NULL OR p_queue_end IS NULL
@@ -243,11 +268,21 @@ BEGIN
   IF v_date IS DISTINCT FROM v_today THEN
     v_last := NULL;   -- a new operating day starts with the first eligible doctor
   END IF;
-  -- Registrations are serialized here, so a ticket number another desk just used is caught even
-  -- where patients.queue_number has no unique index; the backend retries with the next number.
-  IF EXISTS (SELECT 1 FROM public.patients AS p WHERE p.queue_number = p_visit->>'queue_number') THEN
-    RAISE EXCEPTION 'Queue number % is already in use', p_visit->>'queue_number' USING ERRCODE = '23505';
+  -- Ticket number. Every registration holds the rotation row lock above until it commits, so
+  -- the highest number is read only after the previous registration's insert is committed: two
+  -- desks can never compute the same number, however close together they submit. Same rule and
+  -- format as the backend's getNextQueueNumber: the highest standard number of the service code
+  -- (CODE-NNN; legacy forms such as GP-1-001 are ignored) across all days, plus one, at least
+  -- three digits. patients_queue_number_unique is the backstop for any other writer.
+  v_code := pg_catalog.split_part(p_visit->>'queue_number', '-', 1);
+  IF v_code !~ '^[A-Z]{2,3}$' THEN
+    RAISE EXCEPTION 'A ticket number of the form CODE-NNN is required' USING ERRCODE = '22023';
   END IF;
+  SELECT COALESCE(pg_catalog.max(pg_catalog.split_part(p.queue_number, '-', 2)::BIGINT), 0) + 1 INTO v_sequence
+    FROM public.patients AS p
+    WHERE p.queue_number ~ ('^' || v_code || '-[0-9]{1,18}$');
+  v_queue_number := v_code || '-' || pg_catalog.lpad(v_sequence::TEXT, GREATEST(3, pg_catalog.length(v_sequence::TEXT)), '0');
+  p_visit := pg_catalog.jsonb_set(p_visit, '{queue_number}', pg_catalog.to_jsonb(v_queue_number));
   -- Availability cannot change under us: System Settings writes the counter row.
   PERFORM c.id FROM public.counters AS c ORDER BY c.id FOR SHARE;
   SELECT pg_catalog.array_agg(d.doctor_name ORDER BY d.doctor_name) INTO v_eligible
@@ -275,8 +310,10 @@ END;
 $function$;
 
 -- ---------------------------------------------------------------------------------------------
--- Dispatcher: release, flag, re-assign. Idempotent; safe to call from any number of backends.
--- It never touches a visit that already has an eligible doctor.
+-- Dispatcher (automatic reassignment, 2026-11-11). Idempotent; safe to call from any number of
+-- backends: every pass holds the rotation lock and every counter, then locks the visits it moves.
+-- It never moves a visit whose doctor is eligible, a serving or finished visit, or a visit a
+-- counter points at (legacy reservation).
 -- ---------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.dispatch_round_robin(
   p_queue_start TIMESTAMPTZ,
@@ -291,6 +328,8 @@ SET search_path = ''
 SET lock_timeout = '5s'
 AS $function$
 DECLARE
+  -- Read by 20261109-rr1-verify.sql to tell this version from earlier drafts.
+  v_version CONSTANT TEXT := 'rr1-auto-reassign-2026-11-11';
   v_services CONSTANT TEXT[] := public.qms_rr_approved_services();
   v_doctors CONSTANT TEXT[] := ARRAY['Doctor 1', 'Doctor 2', 'Doctor 3'];
   -- Doctor state read ONCE per pass, after the locks: every decision below uses the same view
@@ -303,10 +342,12 @@ DECLARE
   v_candidate TEXT;
   v_last_patient BIGINT;
   v_row RECORD;
+  v_detail TEXT;
   v_released JSONB := '[]'::JSONB;
   v_assigned JSONB := '[]'::JSONB;
   v_flagged JSONB := '[]'::JSONB;
   v_unassigned BIGINT;
+  v_pending BIGINT;
 BEGIN
   IF p_queue_start IS NULL OR p_queue_end IS NULL OR p_ranked_at IS NULL OR p_aging IS NULL
      OR NOT pg_catalog.isfinite(p_queue_start) OR NOT pg_catalog.isfinite(p_queue_end)
@@ -329,30 +370,7 @@ BEGIN
   SELECT pg_catalog.array_agg(d.key ORDER BY d.key) INTO v_eligible
     FROM pg_catalog.jsonb_each(v_state) AS d WHERE (d.value->>'eligible')::BOOLEAN;
 
-  -- 2. Release the not-yet-called visits of doctors that are signed out, stale or disabled. A
-  --    legacy Phase 2.1 reservation (a counter points at the visit) is not touched.
-  FOR v_row IN
-    SELECT w.id, w.counter_id::TEXT AS doctor
-    FROM public.patients AS w
-    WHERE w.status::TEXT = 'waiting' AND w.completed_at IS NULL
-      AND w.counter_id::TEXT = ANY (v_doctors)
-      AND w.created_at >= p_queue_start AND w.created_at < p_queue_end
-      AND NOT COALESCE((v_state->(w.counter_id::TEXT)->>'eligible')::BOOLEAN, false)
-      AND NOT EXISTS (SELECT 1 FROM public.counters AS x WHERE x.current_patient_id = w.id)
-    ORDER BY w.id
-    FOR UPDATE OF w
-  LOOP
-    -- created_at, priority_score and vulnerability_flags are not touched: waiting time and
-    -- WPS/WPS-A rank are preserved. The revision rotates, so stale actions on it fail.
-    UPDATE public.patients AS p SET counter_id = NULL
-      WHERE p.id = v_row.id AND p.status::TEXT = 'waiting' AND p.counter_id = v_row.doctor;
-    INSERT INTO public.patient_assignment_history
-        (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic)
-      VALUES (v_row.id, v_row.doctor, NULL, 'waiting', 'waiting', 'doctor_unavailable', true);
-    v_released := v_released || pg_catalog.jsonb_build_object('patient_id', v_row.id, 'doctor', v_row.doctor);
-  END LOOP;
-
-  -- 3. A serving visit whose doctor is signed out stays with that doctor; staff are told once.
+  -- 2. A serving visit whose doctor is signed out stays with that doctor; staff are told once.
   FOR v_row IN
     INSERT INTO public.patient_assignment_history
         (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic, visit_called_at)
@@ -366,48 +384,116 @@ BEGIN
     v_flagged := v_flagged || pg_catalog.jsonb_build_object('patient_id', v_row.patient_id, 'doctor', v_row.previous_doctor);
   END LOOP;
 
-  -- 4. Every unassigned waiting visit of the day, highest WPS/WPS-A rank first, goes to the next
-  --    eligible doctor in rotation (released visits keep their place in the ranking).
-  IF v_eligible IS NOT NULL THEN
-    FOR v_row IN
-      SELECT w.id FROM public.patients AS w
-      WHERE w.status::TEXT = 'waiting' AND w.completed_at IS NULL
-        AND w.created_at >= p_queue_start AND w.created_at < p_queue_end
-        AND w.service_type = ANY (v_services)
-        AND NULLIF(pg_catalog.btrim(w.counter_id), '') IS NULL
-        AND NOT EXISTS (SELECT 1 FROM public.counters AS x WHERE x.current_patient_id = w.id)
-      ORDER BY public.qms_rr_effective_priority(w.priority_score, w.created_at, p_ranked_at, p_aging) DESC,
-        COALESCE(w.priority_score, 0) DESC,
-        pg_catalog.date_trunc('milliseconds', w.created_at) ASC, w.id ASC
-      FOR UPDATE OF w
-    LOOP
+  -- 3. Every waiting visit of the day that needs a doctor, highest WPS/WPS-A rank first, so the
+  --    most urgent patient is placed first and consecutive patients alternate between doctors:
+  --      * still assigned to a doctor that is no longer eligible (signed out, heartbeat lost,
+  --        disabled in System Settings, archived);
+  --      * pending reassignment (released earlier while no doctor was eligible);
+  --      * cleared by Undo / Re-queue (it goes back to the doctor that last held it while that
+  --        doctor is eligible; otherwise it is reassigned like the others);
+  --      * never assigned (registered before round robin was switched on).
+  --    created_at, priority_score, vulnerability_flags, service, confirmation and status are never
+  --    written, so waiting time and WPS/WPS-A rank are preserved; the revision trigger rotates
+  --    visit_state_revision, so an action prepared against the old doctor fails with 40001.
+  FOR v_row IN
+    SELECT w.id, NULLIF(pg_catalog.btrim(w.counter_id), '') AS current_doctor, h.new_doctor AS last_new, h.previous_doctor AS last_previous,
+      h.reason AS last_reason
+    FROM public.patients AS w
+    LEFT JOIN LATERAL (SELECT x.new_doctor, x.previous_doctor, x.reason FROM public.patient_assignment_history AS x
+      WHERE x.patient_id = w.id AND x.reason <> 'intervention_required' ORDER BY x.id DESC LIMIT 1) AS h ON true
+    WHERE w.status::TEXT = 'waiting' AND w.completed_at IS NULL
+      AND w.created_at >= p_queue_start AND w.created_at < p_queue_end
+      AND w.service_type = ANY (v_services)
+      AND NOT EXISTS (SELECT 1 FROM public.counters AS x WHERE x.current_patient_id = w.id)
+      AND (NULLIF(pg_catalog.btrim(w.counter_id), '') IS NULL
+        OR (w.counter_id::TEXT = ANY (v_doctors) AND NOT COALESCE((v_state->(w.counter_id::TEXT)->>'eligible')::BOOLEAN, false)))
+    ORDER BY public.qms_rr_effective_priority(w.priority_score, w.created_at, p_ranked_at, p_aging) DESC,
+      COALESCE(w.priority_score, 0) DESC,
+      pg_catalog.date_trunc('milliseconds', w.created_at) ASC, w.id ASC
+    FOR UPDATE OF w
+  LOOP
+    IF v_row.current_doctor IS NOT NULL THEN
+      -- a. Assigned to an unavailable doctor: move it straight to the next eligible doctor, or
+      --    hold it as pending reassignment when no doctor is eligible.
+      v_detail := CASE WHEN NOT COALESCE((v_state->v_row.current_doctor->>'enabled')::BOOLEAN, false)
+        THEN 'doctor_disabled' ELSE 'doctor_signed_out' END;
+      IF v_eligible IS NOT NULL THEN
+        v_candidate := public.qms_rr_next_doctor(v_last, v_eligible);
+        UPDATE public.patients AS p SET counter_id = v_candidate
+          WHERE p.id = v_row.id AND p.status::TEXT = 'waiting' AND p.counter_id = v_row.current_doctor;
+        INSERT INTO public.patient_assignment_history
+            (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic, detail)
+          VALUES (v_row.id, v_row.current_doctor, v_candidate, 'waiting', 'waiting', 'round_robin_reassignment', true, v_detail);
+        v_last := v_candidate;
+        v_last_patient := v_row.id;
+        v_assigned := v_assigned || pg_catalog.jsonb_build_object('patient_id', v_row.id, 'doctor', v_candidate,
+          'previous_doctor', v_row.current_doctor, 'reason', 'round_robin_reassignment');
+      ELSE
+        UPDATE public.patients AS p SET counter_id = NULL
+          WHERE p.id = v_row.id AND p.status::TEXT = 'waiting' AND p.counter_id = v_row.current_doctor;
+        INSERT INTO public.patient_assignment_history
+            (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic, detail)
+          VALUES (v_row.id, v_row.current_doctor, NULL, 'waiting', 'waiting', 'doctor_unavailable', true, v_detail);
+        v_released := v_released || pg_catalog.jsonb_build_object('patient_id', v_row.id, 'doctor', v_row.current_doctor);
+      END IF;
+
+    ELSIF v_row.last_reason IS DISTINCT FROM 'doctor_unavailable' AND v_row.last_new IS NOT NULL
+        AND COALESCE((v_state->v_row.last_new->>'eligible')::BOOLEAN, false) THEN
+      -- b. Undo / Re-queue: back to the doctor that last held it (it is available); not a new turn.
+      UPDATE public.patients AS p SET counter_id = v_row.last_new
+        WHERE p.id = v_row.id AND p.status::TEXT = 'waiting' AND p.counter_id IS NULL;
+      INSERT INTO public.patient_assignment_history
+          (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic)
+        VALUES (v_row.id, NULL, v_row.last_new, 'waiting', 'waiting', 'restored_to_assigned_doctor', true);
+      v_assigned := v_assigned || pg_catalog.jsonb_build_object('patient_id', v_row.id, 'doctor', v_row.last_new,
+        'previous_doctor', v_row.last_new, 'reason', 'restored_to_assigned_doctor');
+
+    ELSIF v_eligible IS NOT NULL THEN
+      -- c. Pending reassignment, an Undo/Re-queue whose doctor is unavailable, or never assigned:
+      --    the next eligible doctor in rotation. A returning doctor takes its turn like any other.
       v_candidate := public.qms_rr_next_doctor(v_last, v_eligible);
       UPDATE public.patients AS p SET counter_id = v_candidate
         WHERE p.id = v_row.id AND p.status::TEXT = 'waiting' AND p.counter_id IS NULL;
       INSERT INTO public.patient_assignment_history
-          (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic)
-        VALUES (v_row.id, NULL, v_candidate, 'waiting', 'waiting',
-          CASE WHEN EXISTS (SELECT 1 FROM public.patient_assignment_history AS h
-              WHERE h.patient_id = v_row.id AND h.reason IN ('doctor_unavailable', 'released_for_transfer'))
-            THEN 'round_robin_reassignment' ELSE 'round_robin_assignment' END, true);
+          (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic, detail)
+        VALUES (v_row.id, COALESCE(v_row.last_new, v_row.last_previous), v_candidate, 'waiting', 'waiting',
+          CASE WHEN COALESCE(v_row.last_new, v_row.last_previous) IS NULL THEN 'round_robin_assignment' ELSE 'round_robin_reassignment' END,
+          true,
+          CASE WHEN v_row.last_reason = 'doctor_unavailable' THEN 'pending_reassignment'
+            WHEN COALESCE(v_row.last_new, v_row.last_previous) IS NOT NULL THEN 'doctor_unavailable_after_undo' END);
       v_last := v_candidate;
       v_last_patient := v_row.id;
-      v_assigned := v_assigned || pg_catalog.jsonb_build_object('patient_id', v_row.id, 'doctor', v_candidate);
-    END LOOP;
-    IF v_last_patient IS NOT NULL THEN
-      UPDATE public.doctor_rotation_state AS s
-        SET last_doctor = v_last, last_patient_id = v_last_patient, rotation_date = v_today,
-          updated_at = pg_catalog.clock_timestamp()
-        WHERE s.id = 1;
+      v_assigned := v_assigned || pg_catalog.jsonb_build_object('patient_id', v_row.id, 'doctor', v_candidate,
+        'previous_doctor', COALESCE(v_row.last_new, v_row.last_previous),
+        'reason', CASE WHEN COALESCE(v_row.last_new, v_row.last_previous) IS NULL THEN 'round_robin_assignment' ELSE 'round_robin_reassignment' END);
+
+    ELSIF v_row.last_reason IS DISTINCT FROM 'doctor_unavailable' AND v_row.last_new IS NOT NULL THEN
+      -- d. Undo / Re-queue while no doctor is eligible: recorded once as pending reassignment.
+      INSERT INTO public.patient_assignment_history
+          (patient_id, previous_doctor, new_doctor, previous_status, new_status, reason, automatic, detail)
+        VALUES (v_row.id, v_row.last_new, NULL, 'waiting', 'waiting', 'doctor_unavailable', true, 'doctor_unavailable_after_undo');
+      v_released := v_released || pg_catalog.jsonb_build_object('patient_id', v_row.id, 'doctor', v_row.last_new);
     END IF;
+    -- Otherwise (pending or never assigned, no eligible doctor) it waits; nothing is written.
+  END LOOP;
+
+  IF v_last_patient IS NOT NULL THEN
+    UPDATE public.doctor_rotation_state AS s
+      SET last_doctor = v_last, last_patient_id = v_last_patient, rotation_date = v_today,
+        updated_at = pg_catalog.clock_timestamp()
+      WHERE s.id = 1;
   END IF;
 
-  SELECT pg_catalog.count(*) INTO v_unassigned FROM public.patients AS w
+  SELECT pg_catalog.count(*),
+      pg_catalog.count(*) FILTER (WHERE (SELECT x.reason FROM public.patient_assignment_history AS x
+        WHERE x.patient_id = w.id AND x.reason <> 'intervention_required' ORDER BY x.id DESC LIMIT 1) = 'doctor_unavailable')
+    INTO v_unassigned, v_pending
+    FROM public.patients AS w
     WHERE w.status::TEXT = 'waiting' AND w.created_at >= p_queue_start AND w.created_at < p_queue_end
       AND NULLIF(pg_catalog.btrim(w.counter_id), '') IS NULL;
-  RETURN pg_catalog.jsonb_build_object('released', v_released, 'assigned', v_assigned,
+  RETURN pg_catalog.jsonb_build_object('version', v_version, 'released', v_released, 'assigned', v_assigned,
     'interventions', v_flagged, 'all_unavailable', v_eligible IS NULL,
-    'unassigned_waiting', v_unassigned);
+    'unassigned_waiting', v_unassigned, 'pending_reassignment', v_pending);
 END;
 $function$;
 
@@ -662,10 +748,17 @@ AS $function$
         'consultation_started_at', s.consultation_started_at) ORDER BY s.id)
       FROM public.patients AS s JOIN doctors AS d ON d.doctor_name = s.counter_id
       WHERE s.status::TEXT = 'serving' AND s.completed_at IS NULL AND NOT d.signed_in), '[]'::JSONB),
+    'pending_reassignment', COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+        'patient_id', w.id, 'previous_doctor', l.previous_doctor, 'since', l.created_at) ORDER BY w.id)
+      FROM public.patients AS w
+      CROSS JOIN LATERAL (SELECT x.reason, x.previous_doctor, x.created_at FROM public.patient_assignment_history AS x
+        WHERE x.patient_id = w.id AND x.reason <> 'intervention_required' ORDER BY x.id DESC LIMIT 1) AS l
+      WHERE w.status::TEXT = 'waiting' AND w.created_at >= p_queue_start AND w.created_at < p_queue_end
+        AND NULLIF(pg_catalog.btrim(w.counter_id), '') IS NULL AND l.reason = 'doctor_unavailable'), '[]'::JSONB),
     'history', COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
         'patient_id', h.patient_id, 'previous_doctor', h.previous_doctor, 'new_doctor', h.new_doctor,
         'previous_status', h.previous_status, 'new_status', h.new_status, 'reason', h.reason,
-        'automatic', h.automatic, 'created_at', h.created_at) ORDER BY h.id)
+        'automatic', h.automatic, 'detail', h.detail, 'created_at', h.created_at) ORDER BY h.id)
       FROM public.patient_assignment_history AS h
       WHERE h.patient_id IN (SELECT p.id FROM public.patients AS p
         WHERE p.created_at >= p_queue_start AND p.created_at < p_queue_end)), '[]'::JSONB),

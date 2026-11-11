@@ -132,8 +132,25 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
   const patientCount = async () => Number((await db.query("SELECT count(*) AS n FROM public.patients")).rows[0].n);
   const rotation = async () => (await db.query(`SELECT last_doctor, last_patient_id,
       rotation_date = (now() AT TIME ZONE 'Asia/Manila')::date AS today FROM public.doctor_rotation_state`)).rows[0];
-  const history = async (id) => (await db.query(`SELECT reason, previous_doctor, new_doctor, automatic FROM public.patient_assignment_history
-    WHERE ($1::bigint IS NULL OR patient_id = $1) ORDER BY id`, [id ?? null])).rows;
+  const history = async (id) => (await db.query(`SELECT patient_id::int AS patient_id, reason, previous_doctor, new_doctor, automatic, detail,
+      created_at FROM public.patient_assignment_history WHERE ($1::bigint IS NULL OR patient_id = $1) ORDER BY id`, [id ?? null])).rows;
+  // Every waiting visit of the day is with exactly one eligible doctor, or pending with none.
+  async function assertNoLostOrMisassigned() {
+    await db.exec("RESET ROLE");   // qms_rr_doctor_state is closed to the API roles
+    const { rows } = await db.query(`SELECT p.id::int AS id, p.counter_id, d.eligible FROM public.patients p
+      LEFT JOIN public.qms_rr_doctor_state(now() - interval '1 day', now() + interval '1 day') d ON d.doctor_name = p.counter_id
+      WHERE p.status = 'waiting'`);
+    await db.exec("SET ROLE service_role");
+    for (const row of rows) {
+      if (row.counter_id) assert.equal(row.eligible, true, `visit ${row.id} is with unavailable ${row.counter_id}`);
+    }
+    // The saved doctor always equals the last assignment recorded for the visit.
+    const { rows: mismatched } = await db.query(`SELECT p.id FROM public.patients p
+      JOIN LATERAL (SELECT h.new_doctor FROM public.patient_assignment_history h WHERE h.patient_id = p.id
+        AND h.reason <> 'intervention_required' ORDER BY h.id DESC LIMIT 1) l ON true
+      WHERE p.status = 'waiting' AND p.counter_id IS DISTINCT FROM l.new_doctor`);
+    assert.deepEqual(mismatched, [], "history and saved doctor agree");
+  }
   const call = (doctor, id) => h.request("POST", "/queue/call", { token: tokens[DOCTOR_ACCOUNT[doctor]], body: { patient_id: id } });
   const start = (doctor, id) => h.request("POST", "/queue/start", { token: tokens[DOCTOR_ACCOUNT[doctor]], body: { patient_id: id } });
   const complete = (doctor, id) => h.request("POST", "/queue/complete", { token: tokens[DOCTOR_ACCOUNT[doctor]], body: { patient_id: id } });
@@ -205,6 +222,61 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.equal((await register("Same day")).body.assigned_doctor, "Doctor 3");
   });
 
+  // The acceptance sequence of 2026-11-11, checked against the saved rows (not the responses):
+  // six patients across six services, then one doctor offline, two offline, and both back. The
+  // doctor is read from the database right after each registration AND at the end: a doctor going
+  // offline hands its waiting patients to the doctors still available, and does not take them back.
+  test("acceptance: mixed services rotate 1-2-3; one and two doctors offline are skipped; returning doctors rejoin", async (t) => {
+    await signInAll();
+    const steps = [];
+    const reg = async (label, service) => {
+      const response = await register(label, { service });
+      assert.equal(response.status, 200, response.body.message);
+      steps.push({ id: response.id, label, service, answered: response.body.assigned_doctor, saved: await doctorOf(response.id) });
+    };
+    const services = ["medical_consultation", "maternal_healthcare", "family_planning", "dental_healthcare", "child_healthcare", "food_safety"];
+    for (const [i, service] of services.entries()) await reg(`Patient ${i + 1}`, service);
+    // One doctor unavailable (System Settings toggle).
+    assert.equal((await setAvailable("Doctor 2", false)).status, 200);
+    for (const service of ["nutrition", "womens_health", "mental_healthcare", "diagnostic_imaging"]) await reg(`D2 off ${service}`, service);
+    // Two doctors unavailable (Doctor 3 also signs out): every patient goes to Doctor 1.
+    assert.equal((await signOut("Doctor 3")).status, 200);
+    for (const service of ["medical_documentation", "marriage_preparation", "environmental_health"]) await reg(`Only D1 ${service}`, service);
+    // Both return: they rejoin the rotation in their fixed places.
+    assert.equal((await setAvailable("Doctor 2", true)).status, 200);
+    await signIn("Doctor 3");
+    for (const service of ["medical_consultation", "family_planning", "maternal_healthcare", "nutrition"]) await reg(`Back ${service}`, service);
+
+    const rows = (await db.query("SELECT id, queue_number, service_type, counter_id FROM public.patients ORDER BY id")).rows;
+    t.diagnostic(`\n #  ticket  service                 saved at registration  saved at the end (after automatic reassignment)\n${rows.map((row, i) =>
+      `${String(i + 1).padStart(2)}  ${row.queue_number}  ${row.service_type.padEnd(22)}  ${steps[i].saved.padEnd(21)}  ${row.counter_id}   (${steps[i].label})`).join("\n")}`);
+    assert.deepEqual(rows.map((row) => Number(row.id)), steps.map((step) => step.id));
+    assert.deepEqual(steps.map((step) => step.saved), [
+      "Doctor 1", "Doctor 2", "Doctor 3", "Doctor 1", "Doctor 2", "Doctor 3", // all three eligible
+      "Doctor 1", "Doctor 3", "Doctor 1", "Doctor 3",                         // Doctor 2 unavailable
+      "Doctor 1", "Doctor 1", "Doctor 1",                                     // only Doctor 1
+      "Doctor 2", "Doctor 3", "Doctor 1", "Doctor 2"                          // both returned
+    ]);
+    assert.deepEqual(steps.map((step) => step.answered), steps.map((step) => step.saved), "the response names the saved doctor");
+    assert.equal((await rotation()).last_doctor, "Doctor 2", "the persisted pointer is the last saved assignment");
+    // Doctor 2 off: its patients 2 and 5 alternate to Doctor 1 and Doctor 3. Doctor 3 off: all of
+    // its patients go to Doctor 1. Neither takes anything back on returning.
+    assert.deepEqual(rows.map((row) => row.counter_id), [
+      "Doctor 1", "Doctor 1", "Doctor 1", "Doctor 1", "Doctor 1", "Doctor 1",
+      "Doctor 1", "Doctor 1", "Doctor 1", "Doctor 1", "Doctor 1", "Doctor 1", "Doctor 1",
+      "Doctor 2", "Doctor 3", "Doctor 1", "Doctor 2"]);
+    const moves = (await history()).filter((row) => row.reason === "round_robin_reassignment");
+    const id = (n) => steps[n - 1].id;
+    assert.deepEqual(moves.map((row) => [row.patient_id, row.previous_doctor, row.new_doctor, row.detail]), [
+      [id(2), "Doctor 2", "Doctor 1", "doctor_disabled"], [id(5), "Doctor 2", "Doctor 3", "doctor_disabled"],
+      [id(3), "Doctor 3", "Doctor 1", "doctor_signed_out"], [id(5), "Doctor 3", "Doctor 1", "doctor_signed_out"],
+      [id(6), "Doctor 3", "Doctor 1", "doctor_signed_out"], [id(8), "Doctor 3", "Doctor 1", "doctor_signed_out"],
+      [id(10), "Doctor 3", "Doctor 1", "doctor_signed_out"]]);
+    assert.ok(moves.every((row) => row.automatic && row.created_at));
+    await assertNoLostOrMisassigned();
+    await assertConsistent();
+  });
+
   // ---- Availability ---------------------------------------------------------------------------
   test("an offline doctor is skipped: Doctor 1, 3, 1, 3, 1, 3", async () => {
     await signIn("Doctor 1");
@@ -228,12 +300,19 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.deepEqual(counters.map((row) => row.is_online), [true, false, true], "the rotation never toggles availability");
   });
 
-  test("an archived doctor is excluded and cannot sign back in", async () => {
+  test("an archived doctor is excluded and cannot sign back in; its waiting patients are reassigned automatically", async () => {
     await signInAll();
+    const held = await register("Doctor 1 patient");
+    const moved = await register("Doctor 2 patient");
+    assert.equal(moved.body.assigned_doctor, "Doctor 2");
     // The service call behind POST /users/:id_num/archive (the harness has no route for it), then
     // the dispatch pass that route triggers.
     await h.queue.archiveUser("admin2", { id_num: "superadmin" });
     await sweep();
+    assert.equal(await doctorOf(moved.id), "Doctor 3", "next after Doctor 2 among the available doctors");
+    assert.equal(await doctorOf(held.id), "Doctor 1", "an available doctor's patient is never moved");
+    assert.deepEqual((await history(moved.id)).map((row) => [row.reason, row.previous_doctor, row.new_doctor, row.detail]),
+      [["round_robin_assignment", null, "Doctor 2", null], ["round_robin_reassignment", "Doctor 2", "Doctor 3", "doctor_signed_out"]]);
     assert.deepEqual(await registerMany(4), ["Doctor 1", "Doctor 3", "Doctor 1", "Doctor 3"]);
     const login = await h.request("POST", "/auth/login", { body: { id_num: "admin2", password: password("admin2") } });
     assert.notEqual(login.status, 200);
@@ -252,14 +331,49 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.equal((await register("Patient 6")).body.assigned_doctor, "Doctor 1", "the returning doctor is not given every new patient");
   });
 
+  test("only one doctor available: every patient goes to that doctor (even while it serves), then the others rejoin in order", async () => {
+    await signIn("Doctor 2");
+    assert.deepEqual(await registerMany(3), ["Doctor 2", "Doctor 2", "Doctor 2"]);
+    const first = Number((await db.query("SELECT id FROM public.patients ORDER BY id LIMIT 1")).rows[0].id);
+    const called = await call("Doctor 2", first);
+    assert.equal(called.status, 200, called.body.message);
+    const busy = await register("While serving");
+    assert.equal(busy.status, 200, busy.body.message);
+    assert.equal(busy.body.assigned_doctor, "Doctor 2", "a serving doctor is still available and keeps receiving patients");
+    assert.equal(await doctorOf(busy.id), "Doctor 2", "the assignment is saved on the visit");
+    await signIn("Doctor 1");
+    await signIn("Doctor 3");
+    assert.deepEqual(await registerMany(4), ["Doctor 3", "Doctor 1", "Doctor 2", "Doctor 3"]);
+    assert.equal((await rotation()).last_doctor, "Doctor 3", "the persisted pointer matches the last assignment");
+  });
+
+  test("the registration response names the assigned doctor with its display name (EP1) when one is set", async () => {
+    await db.exec(`RESET ROLE; ALTER TABLE public.users ADD COLUMN IF NOT EXISTS display_name TEXT;
+      UPDATE public.users SET display_name = 'Dr. Ana Santos' WHERE id_num = 'admin2'; SET ROLE service_role;`);
+    try {
+      await signInAll();
+      const one = await register("Patient 1");
+      assert.equal(one.body.assigned_doctor, "Doctor 1");
+      assert.equal(one.body.assigned_doctor_name, null, "no display name: the counter name is the label");
+      const two = await register("Patient 2");
+      assert.equal(two.body.assigned_doctor, "Doctor 2");
+      assert.equal(two.body.assigned_doctor_name, "Dr. Ana Santos");
+      assert.equal(await doctorOf(two.id), "Doctor 2", "the counter, not the label, is stored");
+    } finally {
+      await db.exec("RESET ROLE; UPDATE public.users SET display_name = NULL; SET ROLE service_role;");
+    }
+  });
+
   test("no online and available doctor: registration is refused, nothing is saved and the rotation does not move", async () => {
     await signInAll();
     await registerMany(1);
-    // Each sign-out hands the waiting patient to the next signed-in doctor; after the last one it
-    // waits unassigned. The snapshot is taken after that.
+    // Each sign-out hands the waiting patient to the next available doctor; after the last one it
+    // is held as pending reassignment. The snapshot is taken after that.
     for (const doctor of DOCTORS) await signOut(doctor);
-    assert.deepEqual((await history()).map((row) => row.reason), ["round_robin_assignment", "doctor_unavailable",
-      "round_robin_reassignment", "doctor_unavailable", "round_robin_reassignment", "doctor_unavailable"]);
+    assert.deepEqual((await history()).map((row) => [row.reason, row.previous_doctor, row.new_doctor]), [
+      ["round_robin_assignment", null, "Doctor 1"], ["round_robin_reassignment", "Doctor 1", "Doctor 2"],
+      ["round_robin_reassignment", "Doctor 2", "Doctor 3"], ["doctor_unavailable", "Doctor 3", null]]);
+    assert.equal((await db.query("SELECT counter_id FROM public.patients")).rows[0].counter_id, null);
     const before = await rotation();
     const historyBefore = await history();
     const refused = await register("No Doctor");
@@ -298,35 +412,46 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
   });
 
   // ---- Database integrity -----------------------------------------------------------------------
-  test("a failed registration transaction does not move the rotation (duplicate ticket, retried with the next number)", async () => {
+  test("ticket numbers are assigned by the database under the rotation lock; a failed registration consumes neither a number nor a turn", async () => {
     await signInAll();
-    await registerMany(1);
-    // Direct: a duplicate queue number fails and leaves pointer and history as they were.
-    const before = await rotation();
+    await registerMany(1);                                       // GP-001 -> Doctor 1
     const window = (await db.query(`SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Manila') AT TIME ZONE 'Asia/Manila') AS s`)).rows[0].s;
-    await assert.rejects(db.query(`SELECT public.register_visit_round_robin($1::jsonb, $2::timestamptz, $2::timestamptz + interval '1 day')`,
-      [JSON.stringify({ queue_number: "GP-001", id_num: "Dup", service_type: "medical_consultation" }), window]),
-    (error) => error.code === "23505");
-    assert.deepEqual(await rotation(), before);
+    // FROM, not (fn(...)).*: the latter calls the function once per output column.
+    const direct = (visit) => db.query(`SELECT * FROM public.register_visit_round_robin($1::jsonb, $2::timestamptz, $2::timestamptz + interval '1 day')`,
+      [JSON.stringify({ id_num: "Direct", service_type: "medical_consultation", ...visit }), window]);
+    // A failure after the number was chosen (a bad birthdate fails the insert) rolls back the
+    // number, the visit, the history and the pointer together.
+    const before = await rotation();
+    await assert.rejects(direct({ queue_number: "GP-001", birthdate: "not-a-date" }));
+    assert.deepEqual(await rotation(), before, "no turn consumed");
     assert.equal((await history()).length, 1);
-    // Through the backend: another desk takes the ticket number first; the retry gets the next one
-    // and the rotation moves exactly one step.
-    let raced = false;
+    assert.equal(await patientCount(), 1);
+    // A proposal that is already taken (or stale) is not an error: the database picks the next
+    // free number of the same service code, in the existing format.
+    const { rows: [taken] } = await direct({ queue_number: "GP-001" });
+    assert.equal(taken.queue_number, "GP-002", "the failed attempt did not use up GP-002");
+    assert.equal(taken.counter_id, "Doctor 2");
+    const { rows: [family] } = await direct({ queue_number: "FP-777", service_type: "family_planning" });
+    assert.equal(family.queue_number, "FP-001", "per service code, highest + 1, three digits");
+    await assert.rejects(direct({ queue_number: "bad" }), (error) => error.code === "22023");
+    // Through the backend: another writer takes the proposed number first; the database simply
+    // assigns the next one, with no retry and exactly one rotation step.
     const racing = backend({
       onRequest: async (request) => {
-        if (!raced && request.kind === "rpc" && request.name === "register_visit_round_robin") {
-          raced = true;
+        if (request.kind === "rpc" && request.name === "register_visit_round_robin") {
           await db.query(`INSERT INTO public.patients (id_num, queue_number, service_type, status, counter_id, priority_score)
-            VALUES ('Other Desk', $1, 'medical_consultation', 'completed', 'Doctor 1', 1)`, [request.args.p_visit.queue_number]);
+            VALUES ('Other Writer', $1, 'medical_consultation', 'completed', 'Doctor 1', 1)`, [request.args.p_visit.queue_number]);
         }
       }
     });
-    const response = await register("Retried", { harness: racing });
+    const response = await register("Raced", { harness: racing });
     assert.equal(response.status, 200, response.body.message);
-    // The existing retry (next maximum + attempt offset) picks a fresh number; numbering is unchanged.
-    assert.match(response.body.queue_number, /^GP-00[34]$/);
-    assert.equal(response.body.assigned_doctor, "Doctor 2");
-    assert.equal((await history()).length, 2);
+    assert.equal(response.body.queue_number, "GP-004", "GP-003 was taken by the other writer");
+    assert.equal(response.body.assigned_doctor, "Doctor 1");
+    assert.equal((await history()).length, 4);
+    // The unique index refuses a duplicate from any writer.
+    await assert.rejects(db.query(`INSERT INTO public.patients (id_num, queue_number, service_type, status, priority_score)
+      VALUES ('Dup', 'GP-004', 'medical_consultation', 'waiting', 1)`), (error) => error.code === "23505");
     await assertConsistent();
   });
 
@@ -342,6 +467,46 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     const perDoctor = (await db.query("SELECT counter_id, count(*)::int AS n FROM public.patients GROUP BY counter_id ORDER BY counter_id")).rows;
     assert.deepEqual(perDoctor, DOCTORS.map((doctor) => ({ counter_id: doctor, n: 2 })));
     assert.equal(await patientCount(), 6, "no duplicate visit");
+    await assertConsistent();
+  });
+
+  test("24 simultaneous registrations from three sessions and three routes: each saved once, unique tickets, exact rotation", async (t) => {
+    await signInAll();
+    const desks = [h, backend(), backend()];
+    const services = ["medical_consultation", "family_planning", "prenatal", "dental_healthcare", "maternity", "nutrition"];
+    const jobs = Array.from({ length: 24 }, (_, i) => {
+      const harness = desks[i % 3];
+      const serviceType = services[i % services.length];
+      const name = `Burst ${i + 1}`;
+      if (i % 3 === 0) return harness.request("POST", "/queue", { token: tokens.frontdesk, body: { fullName: name, service_type: serviceType } });
+      if (i % 3 === 1) return harness.request("POST", "/queue/website", { body: { fullName: name, serviceType } });
+      return harness.request("POST", "/patient-records/visits", { token: tokens.frontdesk, body: {
+        firstName: name, lastName: "Concurrent", sex: "Female", birthdate: "1990-01-01", residency: "Barangay 1", serviceType } });
+    });
+    const responses = await Promise.all(jobs);
+    assert.deepEqual(responses.map((r) => r.status), Array(24).fill(200), JSON.stringify(responses.map((r) => r.body?.message)));
+    const rows = (await db.query(`SELECT id::int AS id, queue_number, service_type, counter_id, status FROM public.patients ORDER BY id`)).rows;
+    assert.equal(rows.length, 24, "every valid registration saved exactly once");
+    assert.equal(new Set(rows.map((row) => row.queue_number)).size, 24, "every ticket number is unique");
+    // Format and numbering per service code: CODE-NNN, 001.. with no gap, in commit order.
+    const code = { prenatal: "OB", maternity: "OB", family_planning: "FP" };
+    for (const prefix of ["GP", "OB", "FP"]) {
+      const numbers = rows.filter((row) => (code[row.service_type] || "GP") === prefix).map((row) => row.queue_number);
+      assert.deepEqual(numbers, numbers.map((_, i) => `${prefix}-${String(i + 1).padStart(3, "0")}`), prefix);
+    }
+    // Each response shows the ticket that was saved for that patient.
+    const saved = new Set(rows.map((row) => row.queue_number));
+    assert.ok(responses.every((r) => saved.has(r.body.queue_number)));
+    // Rotation: in commit order the doctors cycle exactly, and the pointer is the last assignment.
+    assert.deepEqual(rows.map((row) => row.counter_id), Array.from({ length: 24 }, (_, i) => DOCTORS[i % 3]));
+    const log = await history();
+    assert.deepEqual(log.map((row) => [row.patient_id, row.new_doctor]), rows.map((row) => [row.id, row.counter_id]));
+    const pointer = await rotation();
+    assert.equal(pointer.last_doctor, "Doctor 3");
+    assert.equal(Number(pointer.last_patient_id), rows.at(-1).id);
+    assert.equal(Number((await db.query("SELECT count(*) AS n FROM public.patient_records")).rows[0].n), 8, "one record per new patient");
+    t.diagnostic(`24 simultaneous registrations: ${rows.length} saved, ${new Set(rows.map((r) => r.queue_number)).size} unique tickets; ` +
+      `per doctor ${DOCTORS.map((d) => `${d}=${rows.filter((r) => r.counter_id === d).length}`).join(", ")}; tickets ${rows.map((r) => r.queue_number).join(" ")}`);
     await assertConsistent();
   });
 
@@ -434,30 +599,96 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
   });
 
   // ---- Doctors going offline with assigned patients ----------------------------------------------
-  test("a doctor who signs out loses its not-yet-called patients; they are reassigned in turn with rank and waiting time kept", async () => {
-    await signInAll();
-    await registerMany(6);                // D1 has patients 1 and 4
-    const d1 = (await db.query("SELECT id FROM public.patients WHERE counter_id = 'Doctor 1' ORDER BY id")).rows.map((r) => Number(r.id));
-    const before = await Promise.all(d1.map(patient));
-    assert.equal((await signOut("Doctor 1")).status, 200);
-    const after = await Promise.all(d1.map(patient));
-    assert.deepEqual(after.map((p) => p.counter_id), ["Doctor 2", "Doctor 3"], "rotation continues after Doctor 3, skipping Doctor 1");
-    for (const [index, row] of after.entries()) {
-      for (const key of ["created_at", "priority_score", "vulnerability_flags", "queue_number", "status"]) assert.deepEqual(row[key], before[index][key], key);
+  test("Doctor 2 goes offline with five waiting patients: they alternate between Doctor 1 and Doctor 3 in WPS order, data kept", async () => {
+    await signIn("Doctor 2");
+    // Five patients for Doctor 2 with different priorities and services (WPS order: 3, 1, 5, 2, 4).
+    const regs = [];
+    for (const [name, service, flags] of [["P1", "medical_consultation", ["pwd"]], ["P2", "dental_healthcare", []],
+      ["P3", "maternal_healthcare", ["senior"]], ["P4", "nutrition", []], ["P5", "family_planning", ["indigenous"]]]) {
+      const response = await register(name, { service, flags });
+      assert.equal(response.body.assigned_doctor, "Doctor 2");
+      regs.push(response.id);
     }
-    assert.deepEqual((await history(d1[0])).map((r) => r.reason), ["round_robin_assignment", "doctor_unavailable", "round_robin_reassignment"]);
-    // The next registration continues the rotation.
-    assert.equal((await register("Next")).body.assigned_doctor, "Doctor 2");
+    await signIn("Doctor 1");
+    await signIn("Doctor 3");
+    const before = await Promise.all(regs.map(patient));
+    assert.equal((await signOut("Doctor 2")).status, 200);   // the logout route runs the dispatcher
+    const after = await Promise.all(regs.map(patient));
+    const byWps = [2, 0, 4, 1, 3];                              // P3 senior 4, P1 pwd 3, P5 indigenous 2, P2, P4
+    assert.deepEqual(byWps.map((i) => after[i].counter_id), ["Doctor 3", "Doctor 1", "Doctor 3", "Doctor 1", "Doctor 3"],
+      "rotation continues after Doctor 2 among Doctor 1 and Doctor 3, highest rank first");
+    const counts = after.reduce((acc, p) => ({ ...acc, [p.counter_id]: (acc[p.counter_id] || 0) + 1 }), {});
+    assert.deepEqual(counts, { "Doctor 1": 2, "Doctor 3": 3 }, "balanced: never all to one doctor");
+    for (const [index, row] of after.entries()) {
+      for (const key of ["created_at", "priority_score", "vulnerability_flags", "queue_number", "status", "service_type",
+        "id_num", "confirmed_at", "confirmed_by", "birthdate", "called_at"]) {
+        assert.deepEqual(row[key], before[index][key], key);
+      }
+      assert.notEqual(row.visit_state_revision, before[index].visit_state_revision, "stale actions on the old doctor fail");
+    }
+    const moves = (await history()).filter((row) => row.reason === "round_robin_reassignment");
+    assert.equal(moves.length, 5);
+    assert.ok(moves.every((row) => row.previous_doctor === "Doctor 2" && row.detail === "doctor_signed_out" && row.automatic));
+    // WPS still decides each doctor's order: Doctor 3's head is P3 (senior), Doctor 1's is P1 (pwd).
+    assert.notEqual((await call("Doctor 2", regs[2])).status, 200, "the signed-out doctor cannot call");
+    assert.equal((await call("Doctor 3", regs[4])).status, 400, "not Doctor 3's WPS head");
+    assert.equal((await call("Doctor 3", regs[2])).status, 200);
+    assert.equal((await call("Doctor 1", regs[0])).status, 200);
+    // Doctor 2 returns: it takes nothing back and rejoins the rotation for new registrations.
+    await signIn("Doctor 2");
+    await sweep();
+    assert.deepEqual((await Promise.all(regs.map(doctorOf))), after.map((p) => p.counter_id));
+    assert.deepEqual(await registerMany(3), ["Doctor 1", "Doctor 2", "Doctor 3"]);
+    await assertNoLostOrMisassigned();
+    await assertConsistent();
   });
 
-  test("with every doctor offline, released and legacy unassigned visits wait, then are assigned when a doctor signs in", async () => {
-    const legacy = await unassignedVisit("GP-500", { minutesAgo: 5 });
+  test("a lost heartbeat (timer sweep) and a System Settings switch-off both reassign; two doctors offline leaves one with all", async () => {
+    await signInAll();
+    await registerMany(6);                                      // 1, 2, 3, 1, 2, 3
+    await goStale("Doctor 1");
+    await sweep();                                              // what the backend's 15-second timer does
+    let rows = (await db.query("SELECT counter_id FROM public.patients ORDER BY id")).rows.map((r) => r.counter_id);
+    assert.deepEqual(rows, ["Doctor 2", "Doctor 2", "Doctor 3", "Doctor 3", "Doctor 2", "Doctor 3"]);
+    assert.equal((await setAvailable("Doctor 3", false)).status, 200);
+    rows = (await db.query("SELECT counter_id FROM public.patients ORDER BY id")).rows.map((r) => r.counter_id);
+    assert.deepEqual(rows, DOCTORS.flatMap(() => ["Doctor 2", "Doctor 2"]), "only Doctor 2 is left: it holds every waiting patient");
+    const details = (await history()).filter((row) => row.reason === "round_robin_reassignment").map((row) => row.detail);
+    assert.deepEqual(details, ["doctor_signed_out", "doctor_signed_out", "doctor_disabled", "doctor_disabled", "doctor_disabled"]);
+    assert.deepEqual(await registerMany(2), ["Doctor 2", "Doctor 2"]);
+    await assertNoLostOrMisassigned();
+  });
+
+  test("all doctors unavailable: waiting patients are held as pending reassignment, then placed in rotation when a doctor returns", async () => {
+    const legacy = await unassignedVisit("GP-500", { minutesAgo: 30 });
+    await signIn("Doctor 1");
+    await signIn("Doctor 3");
     await sweep();
-    assert.equal(await doctorOf(legacy), null);
-    assert.equal((await overview()).dispatch.all_unavailable, true);
+    assert.equal(await doctorOf(legacy), "Doctor 1", "a never-assigned visit is assigned in rotation");
+    const [a, b] = [(await register("A")).id, (await register("B")).id];   // Doctor 3, Doctor 1
+    assert.equal((await signOut("Doctor 1")).status, 200);
+    assert.equal((await signOut("Doctor 3")).status, 200);
+    for (const id of [legacy, a, b]) assert.equal(await doctorOf(id), null, "never left with an unavailable doctor");
+    const view = (await overview()).dispatch;
+    assert.equal(view.all_unavailable, true);
+    assert.deepEqual(view.pending_reassignment.map((row) => [row.patient_id, row.previous_doctor]).sort(),
+      [[legacy, "Doctor 3"], [a, "Doctor 3"], [b, "Doctor 3"]].sort(), "listed as pending reassignment (Doctor 3 held all of them last)");
+    await sweep();
+    await sweep();
+    assert.equal((await history()).filter((row) => row.reason === "doctor_unavailable").length, 3, "held once, not re-recorded by each sweep");
+    assert.equal((await register("Refused")).status, 409);
+    // Doctor 2 (never involved) signs in: it receives all three, in WPS order.
     await signIn("Doctor 2");
-    assert.equal(await doctorOf(legacy), "Doctor 2");
-    assert.equal((await register("Then")).body.assigned_doctor, "Doctor 2");
+    for (const id of [legacy, a, b]) assert.equal(await doctorOf(id), "Doctor 2");
+    const placed = (await history()).filter((row) => row.detail === "pending_reassignment");
+    assert.equal(placed.length, 3);
+    assert.ok(placed.every((row) => row.reason === "round_robin_reassignment" && row.new_doctor === "Doctor 2" && row.previous_doctor));
+    assert.deepEqual((await overview()).dispatch.pending_reassignment, []);
+    // Doctor 1 returns: it takes nothing back; new registrations rotate 1, 2 again.
+    await signIn("Doctor 1");
+    for (const id of [legacy, a, b]) assert.equal(await doctorOf(id), "Doctor 2");
+    assert.deepEqual(await registerMany(2), ["Doctor 1", "Doctor 2"]);
+    await assertNoLostOrMisassigned();
   });
 
   test("an active consultation is never moved automatically; staff are told once and may transfer it", async () => {
@@ -475,7 +706,7 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.equal(still.counter_id, "Doctor 1");
     assert.equal((await history(p1)).filter((row) => row.reason === "intervention_required").length, 1, "notified once");
     assert.deepEqual((await overview()).dispatch.interventions.map((row) => [row.patient_id, row.doctor]), [[p1, "Doctor 1"]]);
-    assert.equal(await doctorOf(p2), null, "the waiting patient left the offline doctor");
+    assert.equal(await doctorOf(p2), null, "the waiting patient left the offline doctor (pending: no one else is online)");
 
     await signIn("Doctor 2");
     assert.equal(await doctorOf(p2), "Doctor 2");
@@ -494,6 +725,33 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     await assertConsistent();
   });
 
+  test("Undo and Re-queue return the visit to its doctor while available; otherwise it is reassigned in rotation", async () => {
+    await signInAll();
+    const [a, b, c] = [await register("A"), await register("B"), await register("C")];   // Doctor 1, 2, 3
+    const cancel = (id) => h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: id, reason: "Synthetic" } });
+    for (const visit of [b, c]) {
+      const cancelled = await cancel(visit.id);
+      assert.equal(cancelled.status, 200, cancelled.body.message);
+    }
+    const requeued = await h.request("POST", "/queue/requeue", { token: tokens.frontdesk, body: { patient_id: c.id, reason: "Came back" } });
+    assert.equal(requeued.status, 200, requeued.body.message);
+    assert.equal(await doctorOf(c.id), "Doctor 3", "Re-queue: back to its available doctor");
+    assert.equal((await rotation()).last_doctor, "Doctor 3", "restoring is not a new turn");
+    assert.equal((await signOut("Doctor 2")).status, 200);
+    const undone = await h.request("POST", "/queue/undo", { token: tokens.frontdesk, body: { patient_id: b.id } });
+    assert.equal(undone.status, 200, undone.body.message);
+    assert.equal((await patient(b.id)).status, "waiting");
+    assert.equal(await doctorOf(b.id), "Doctor 1", "Undo: its doctor is offline, so the next available doctor after Doctor 3");
+    assert.deepEqual((await history(b.id)).map((row) => [row.reason, row.previous_doctor, row.new_doctor, row.detail]),
+      [["round_robin_assignment", null, "Doctor 2", null], ["round_robin_reassignment", "Doctor 2", "Doctor 1", "doctor_unavailable_after_undo"]]);
+    assert.deepEqual((await history(c.id)).map((row) => [row.reason, row.new_doctor]),
+      [["round_robin_assignment", "Doctor 3"], ["restored_to_assigned_doctor", "Doctor 3"]]);
+    assert.equal(await doctorOf(a.id), "Doctor 1");
+    assert.equal((await register("D")).body.assigned_doctor, "Doctor 3");
+    await assertNoLostOrMisassigned();
+    await assertConsistent();
+  });
+
   test("the previous doctor's stale Call is refused after reassignment; only the assigned doctor calls", async () => {
     await signIn("Doctor 1");
     const p1 = (await register("Stale")).id;
@@ -507,6 +765,39 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.equal((await call("Doctor 2", p1)).status, 200);
     const announcements = h.settings.getVoiceAnnouncementEvents().filter((event) => Number(event.patient_id) === p1);
     assert.equal(announcements.length, 1);
+    await assertConsistent();
+  });
+
+  test("simultaneous registrations, sign-outs, availability changes and sweeps from two backends lose or duplicate no patient", async (t) => {
+    await signInAll();
+    const other = backend();
+    await registerMany(6);
+    const burst = [];
+    for (let i = 0; i < 6; i += 1) burst.push(register(`Burst ${i}`, { harness: i % 2 ? other : h }));
+    burst.push(signOut("Doctor 2"), setAvailable("Doctor 3", false), sweep(), sweep(other));
+    for (let i = 6; i < 10; i += 1) burst.push(register(`Burst ${i}`, { harness: i % 2 ? other : h }));
+    burst.push(setAvailable("Doctor 3", true), sweep(other), sweep());
+    const results = await Promise.allSettled(burst);
+    assert.ok(results.every((r) => r.status === "fulfilled"), JSON.stringify(results.filter((r) => r.status !== "fulfilled").map((r) => r.reason?.message)));
+    await sweep();
+    const registered = results.slice(0, 6).concat(results.slice(10, 14)).map((r) => r.value);
+    const saved = registered.filter((r) => r.status === 200);
+    t.diagnostic(`simultaneous registrations during availability changes: ${saved.length} of ${registered.length} saved`);
+    assert.equal(saved.length, registered.length, JSON.stringify(registered.map((r) => r.body?.message)));
+    assert.equal(await patientCount(), 16, "every registration is in the database exactly once");
+    const tickets = (await db.query("SELECT queue_number FROM public.patients ORDER BY id")).rows.map((row) => row.queue_number);
+    assert.deepEqual(tickets, Array.from({ length: 16 }, (_, i) => `GP-${String(i + 1).padStart(3, "0")}`), "unique, gap-free, in commit order");
+    const rows = (await db.query("SELECT id, counter_id FROM public.patients ORDER BY id")).rows;
+    assert.ok(rows.every((row) => ["Doctor 1", "Doctor 3"].includes(row.counter_id)), JSON.stringify(rows));
+    // Every visit has one coherent assignment trail: each move starts where the previous one ended.
+    for (const row of rows) {
+      const trail = (await history(Number(row.id))).filter((h) => h.reason !== "intervention_required");
+      assert.equal(trail[0].reason, "round_robin_assignment");
+      for (let i = 1; i < trail.length; i += 1) assert.equal(trail[i].previous_doctor, trail[i - 1].new_doctor ?? trail[i].previous_doctor);
+      assert.equal(trail.at(-1).new_doctor, row.counter_id);
+    }
+    assert.ok(!(await history()).some((row) => row.new_doctor === "Doctor 2" && row.reason !== "round_robin_assignment"), "nothing reassigned to the signed-out doctor");
+    await assertNoLostOrMisassigned();
     await assertConsistent();
   });
 
@@ -567,7 +858,7 @@ describe("RR1 installation lifecycle (isolated PGlite)", { skip: unavailable }, 
         .concat((await db.query("SELECT row_to_json(c) AS v FROM public.counters c ORDER BY id")).rows);
 
       const pre = await lastRows(readScript("20261109-rr1-preflight.sql"));
-      assert.equal(pre.length, 19);
+      assert.equal(pre.length, 20);
       assert.deepEqual(pre.filter((row) => !row.passed), []);
       const fnBefore = await functions();
       const dataBefore = await data();

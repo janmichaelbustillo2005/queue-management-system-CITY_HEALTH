@@ -265,8 +265,8 @@ export default function FillUpFormPage() {
       if (matches.length !== 1) throw new Error("The saved ticket could not be found in today's queue. Check Patient Management; do not register this patient again.");
       const savedPatient = matches[0];
       savedPatientIdRef.current = savedPatient.id;
-      setTicket(createQueueTicket(savedPatient, { dispatchMode: data.dispatch_mode }));
-      if (captureSnapshot) setWaitingCount(getPatientsAheadSnapshot(data.patients, savedPatient, data.dispatch_mode));
+      setTicket(createQueueTicket(savedPatient, { dispatchMode: data.dispatch_mode, dispatchStrategy: data.dispatch_strategy, doctorNames: data.doctor_display_names }));
+      if (captureSnapshot) setWaitingCount(getPatientsAheadSnapshot(data.patients, savedPatient, data.dispatch_mode, data.dispatch_strategy));
     } catch (error) {
       if (generation === ticketGenerationRef.current) setTicketError(error.message || "Unable to load the saved ticket. Please retry.");
     } finally {
@@ -434,13 +434,18 @@ export default function FillUpFormPage() {
       }
 
       registrationSavedRef.current = true;
+      // RR1: the doctor the round robin assigned at submit, "Name (Doctor N)" when a display name is set.
+      const assignedDoctor = typeof data.assigned_doctor === "string" && data.assigned_doctor.trim() ? data.assigned_doctor.trim() : "";
+      const assignedDoctorName = typeof data.assigned_doctor_name === "string" ? data.assigned_doctor_name.trim() : "";
+      const assignedDoctorLabel = assignedDoctor ? (assignedDoctorName ? `${assignedDoctorName} (${assignedDoctor})` : assignedDoctor) : "";
       setMessage({
         type: "success",
         text: "Your queue number has been generated successfully!",
         queue: data.queue_number,
         priorityScore: data.priority_score || 0,
         serviceType: form.serviceType,
-        doctorName,
+        doctorName: assignedDoctorLabel || doctorName,
+        assignedDoctor: assignedDoctorLabel,
         patientCode: data.patient_record?.patient_code || "",
         recordCreated: Boolean(data.patient_record_created)
       });
@@ -516,6 +521,9 @@ export default function FillUpFormPage() {
                   <div>
                     <h2 ref={successHeadingRef} tabIndex={-1}>Patient registered successfully.</h2>
                     <p>Print the ticket, then register the next patient.</p>
+                    {message.assignedDoctor ? (
+                      <p className="registration-patient-code" data-assigned-doctor>Assigned doctor: {message.assignedDoctor}</p>
+                    ) : null}
                     {message.patientCode ? (
                       <p className="registration-patient-code">Patient ID {message.patientCode} · {message.recordCreated ? "new patient record saved" : "returning patient"}</p>
                     ) : null}
@@ -865,7 +873,7 @@ export default function FillUpFormPage() {
                       {waitingCount !== null && canIssueTicket ? (
                         <div className="registration-snapshot">
                           <p className="registration-snapshot-title"><i className="bi bi-clock-history" aria-hidden="true" /> Registration snapshot</p>
-                          <p><strong>{waitingCount} waiting {waitingCount === 1 ? "patient" : "patients"} ahead</strong> in {sharedDispatch ? "the shared queue" : `${ticket?.doctorName}'s queue`} when this patient was registered. Priority arrivals and queue activity can change the order.</p>
+                          <p><strong>{waitingCount} waiting {waitingCount === 1 ? "patient" : "patients"} ahead</strong> in {sharedDispatch && !(roundRobin && message.assignedDoctor) ? "the shared queue" : `${ticket?.doctorName}'s queue`} when this patient was registered. Priority arrivals and queue activity can change the order.</p>
                         </div>
                       ) : null}
 

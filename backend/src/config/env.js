@@ -30,13 +30,16 @@ function readJwtSecret(value) {
   return value;
 }
 
-// D1: how a waiting visit reaches a doctor. "service" (the default, unchanged behavior) routes
-// each service to its fixed doctor. "shared" (Model A, provisional, pending administrator and
-// adviser approval) keeps one Weighted-Priority queue and stores the doctor chosen at Call; it
-// needs backend/scripts/20261029-d1-shared-call.sql. "round_robin" (RR1, provisional) assigns each
-// registration to the next online and available doctor in turn (per operating day), refuses it
-// when there is none, and reassigns a signed-out doctor's not-yet-called patients; it needs
-// backend/scripts/20261109-rr1-round-robin-dispatch.sql. Any other value stops the backend.
+// How a waiting visit reaches a doctor. "round_robin" (RR1, the default since 2026-11-11) assigns
+// each registration to the next online and available doctor in turn, Doctor 1 -> 2 -> 3 (per
+// Manila operating day), whatever its service, and refuses it when there is none. The waiting
+// patients of a doctor that goes offline are reassigned automatically to the doctors still
+// available, in rotation (held as pending reassignment while none is). It needs backend/scripts/20261109-rr1-round-robin-
+// dispatch.sql (then the FC1 script); without them registration and Call fail closed (503).
+// "service" is the former fixed service-to-doctor routing (12 of the 13 offered services fell
+// through to Doctor 1) and is kept only as an explicit rollback value. "shared" (D1, provisional)
+// keeps one Weighted-Priority queue and stores the doctor chosen at Call; it needs
+// backend/scripts/20261029-d1-shared-call.sql. Any other value stops the backend.
 const DOCTOR_DISPATCH_MODES = ["service", "shared", "round_robin"];
 
 // RR1: how often the backend re-runs the dispatcher, so a doctor whose heartbeat stopped loses
@@ -52,7 +55,7 @@ function readDispatchSweepSeconds(value) {
 }
 
 function readDoctorDispatchMode(value) {
-  const mode = String(value ?? "").trim().toLowerCase() || "service";
+  const mode = String(value ?? "").trim().toLowerCase() || "round_robin";
   if (!DOCTOR_DISPATCH_MODES.includes(mode)) {
     const error = new Error(`Invalid DOCTOR_DISPATCH_MODE in backend/.env: use ${DOCTOR_DISPATCH_MODES.join(" or ")}.`);
     error.code = "INVALID_DOCTOR_DISPATCH_MODE";

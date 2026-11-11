@@ -441,15 +441,43 @@ test("RR1: the review names no doctor for the service, and unapproved services c
   assert.ok(disabled.every(value => /not yet approved for general doctors/.test(text(options.find(node => node.props.value === value))))); 
 });
 
-test("RR1: registration is not blocked while every doctor is offline, and the ticket promises no doctor", async () => {
+test("RR1: registration is not blocked while every doctor is offline, and the ticket names the doctor saved on the visit", async () => {
   const waitingAssigned = { ...savedPatient, counter_id: "Doctor 2" };
   const h = harness({ request: route => route === "/display" ? roundRobinDisplay
     : route === "/queue" ? { dispatch_mode: "shared", dispatch_strategy: "round_robin", patients: [waitingAssigned] } : undefined });
   h.fill(); await h.submit();
   assert.match(text(h.render()), /Patient registered successfully\./);
   assert.equal(h.calls.filter(call => call.method === "POST").length, 1);
-  assert.equal(nodes(h.render(), node => node.type === "DigitalQueuePass")[0].props.ticket.doctorName, "Next available doctor",
-    "a provisional round-robin assignment is not printed: it can still change");
+  assert.equal(nodes(h.render(), node => node.type === "DigitalQueuePass")[0].props.ticket.doctorName, "Doctor 2",
+    "the round-robin assignment saved at registration is printed");
+});
+
+test("RR1: the confirmation names the assigned doctor, and the snapshot counts only that doctor's list", async () => {
+  const assigned = { ...savedPatient, counter_id: "Doctor 2" };
+  const rows = [
+    { ...savedPatient, id: 1, queue_number: "OB-001", counter_id: "Doctor 2", priority_score: 9 },
+    { ...savedPatient, id: 2, queue_number: "OB-003", counter_id: "Doctor 1", priority_score: 9 },
+    { ...savedPatient, id: 3, queue_number: "OB-004", counter_id: "Doctor 3", priority_score: 9 },
+    assigned
+  ];
+  const h = harness({ request: route => route === "/display" ? roundRobinDisplay
+    : route === REGISTRATION ? { success: true, queue_number: savedPatient.queue_number, priority_score: 3, patient_record: { id: 1, patient_code: "PAT-0001" },
+      patient_record_created: true, assigned_doctor: "Doctor 2", assigned_doctor_name: "Dr. Ana Santos" }
+    : route === "/queue" ? { dispatch_mode: "shared", dispatch_strategy: "round_robin", doctor_display_names: { "Doctor 2": "Dr. Ana Santos" }, patients: rows } : undefined });
+  h.fill(); await h.submit();
+  const tree = h.render();
+  const confirmation = nodes(tree, node => node.props["data-assigned-doctor"] !== undefined);
+  assert.equal(confirmation.length, 1);
+  assert.equal(text(confirmation[0]), "Assigned doctor: Dr. Ana Santos (Doctor 2)");
+  assert.equal(nodes(tree, node => node.type === "DigitalQueuePass")[0].props.ticket.doctorName, "Dr. Ana Santos (Doctor 2)");
+  assert.match(text(tree), /1 waiting patient ahead/);
+  assert.match(text(tree), /in Dr\. Ana Santos \(Doctor 2\)'s queue/);
+});
+
+test("service dispatch shows no assigned-doctor line (the backend sends none)", async () => {
+  const h = harness();
+  h.fill(); await h.submit();
+  assert.equal(nodes(h.render(), node => node.props["data-assigned-doctor"] !== undefined).length, 0);
 });
 
 test("service dispatch keeps the existing routed-doctor review and offers every listed service", async () => {

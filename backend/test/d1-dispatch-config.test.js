@@ -1,5 +1,6 @@
-// D1: DOCTOR_DISPATCH_MODE is read once at startup. The default keeps the service-routed
-// workflow; only "shared" enables the provisional shared queue; anything else stops the backend.
+// DOCTOR_DISPATCH_MODE is read once at startup. Unset means round robin (RR1, the default since
+// 2026-11-11); "service" (the former fixed routing) and "shared" (D1) must be chosen explicitly;
+// anything else stops the backend.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -19,13 +20,15 @@ function loadEnv(value) {
   return module.exports;
 }
 
-test("the dispatch mode defaults to the existing service routing", () => {
-  assert.equal(loadEnv(undefined).doctorDispatchMode, "service");
-  assert.equal(loadEnv("").doctorDispatchMode, "service");
-  assert.equal(loadEnv("  ").doctorDispatchMode, "service");
+test("the dispatch mode defaults to round robin, not the former service routing", () => {
+  assert.equal(loadEnv(undefined).doctorDispatchMode, "round_robin");
+  assert.equal(loadEnv("").doctorDispatchMode, "round_robin");
+  assert.equal(loadEnv("  ").doctorDispatchMode, "round_robin");
 });
 
-test("shared and service are accepted in any case", () => {
+test("round_robin, shared and service are accepted in any case", () => {
+  assert.equal(loadEnv("round_robin").doctorDispatchMode, "round_robin");
+  assert.equal(loadEnv(" Round_Robin ").doctorDispatchMode, "round_robin");
   assert.equal(loadEnv("shared").doctorDispatchMode, "shared");
   assert.equal(loadEnv(" Shared ").doctorDispatchMode, "shared");
   assert.equal(loadEnv("SERVICE").doctorDispatchMode, "service");

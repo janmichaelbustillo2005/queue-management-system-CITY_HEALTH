@@ -1,5 +1,5 @@
 -- RR1 round-robin dispatch: prerequisite preflight. READ ONLY; changes nothing.
--- Run before 20261109-rr1-round-robin-dispatch.sql. Expected: 19 rows, every passed = true,
+-- Run before 20261109-rr1-round-robin-dispatch.sql. Expected: 20 rows, every passed = true,
 -- failed_count = 0, all_pass = true.
 BEGIN TRANSACTION READ ONLY;
 
@@ -74,9 +74,16 @@ WITH expected_columns(position, table_name, column_name, data_type) AS (
       WHERE p.status::TEXT = 'serving' AND p.counter_id IS NOT NULL GROUP BY 1 HAVING pg_catalog.count(*) > 1) AS d),
     NOT EXISTS (SELECT 1 FROM public.patients AS p WHERE p.status::TEXT = 'serving' AND p.counter_id IS NOT NULL
       GROUP BY p.counter_id HAVING pg_catalog.count(*) > 1)
+
+  -- The migration adds a unique index on patients.queue_number (ticket numbers are never reused).
+  UNION ALL
+  SELECT 20, 'no ticket number is used by two visits', '0',
+    (SELECT pg_catalog.count(*)::TEXT FROM (SELECT p.queue_number FROM public.patients AS p
+      GROUP BY 1 HAVING pg_catalog.count(*) > 1) AS d),
+    NOT EXISTS (SELECT 1 FROM public.patients AS p GROUP BY p.queue_number HAVING pg_catalog.count(*) > 1)
 )
 SELECT c.position, c.check_name, c.expected, c.actual, c.passed,
   pg_catalog.count(*) FILTER (WHERE NOT c.passed) OVER () AS failed_count,
-  pg_catalog.bool_and(c.passed) OVER () AND pg_catalog.count(*) OVER () = 19 AS all_pass
+  pg_catalog.bool_and(c.passed) OVER () AND pg_catalog.count(*) OVER () = 20 AS all_pass
 FROM checks AS c ORDER BY c.position;
 COMMIT;

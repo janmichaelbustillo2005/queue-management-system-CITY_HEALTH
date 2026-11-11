@@ -663,7 +663,8 @@ async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, p
         });
         try {
           const stats = await getQueueStats();
-          sendQueueCreatedNotification(mobileNumber, queueNumber, serviceType, Math.max(0, stats.waiting - 1));
+          // The ticket number the database assigned (it can differ from the proposal above).
+          sendQueueCreatedNotification(mobileNumber, data.queue_number, serviceType, Math.max(0, stats.waiting - 1));
         } catch (notificationError) {
           console.warn("Queue entry saved; creation notification could not be prepared:", notificationError.message);
         }
@@ -1650,10 +1651,12 @@ async function consultationRpc(name, params) {
 // RR1 round-robin dispatch (DOCTOR_DISPATCH_MODE=round_robin)
 //
 // WPS / WPS-A decides WHO is next; round robin decides WHICH signed-in, free doctor receives that
-// visit. Everything happens in dispatch_round_robin, under its locks: releasing the pending
-// visits of doctors that signed out, timed out or were disabled (waiting time and priority
-// untouched), flagging serving visits whose doctor signed out, and assigning. The backend only
-// triggers it: after queue changes, sign-in/out, availability changes and on a timer.
+// visit at registration. dispatch_round_robin (one transaction, under its locks) automatically
+// reassigns the waiting visits of a doctor that signed out, lost its heartbeat, was disabled or
+// archived to the doctors still eligible, in WPS order and in rotation (pending reassignment when
+// none is); flags serving visits whose doctor signed out; returns Undo/Re-queue visits to their
+// doctor. The backend only triggers it: after queue changes, sign-in/out, availability changes,
+// archiving and on a timer.
 // Without the database functions nothing is assigned and the visits simply wait (fail closed).
 // ---------------------------------------------------------------------------
 let dispatchInFlight = null;
@@ -1676,9 +1679,11 @@ function noAvailableDoctorError() {
   return error;
 }
 
-// Inserts a visit and assigns it to the next eligible doctor in one database transaction. A
-// duplicate queue number comes back as code 23505 (createQueueEntry retries with the next
-// number); no eligible doctor means no visit and an unchanged rotation.
+// Inserts a visit and assigns it to the next eligible doctor in one database transaction. The
+// database also assigns the ticket number, under the same rotation lock (visit.queue_number only
+// carries the service code), so simultaneous registrations never collide. No eligible doctor
+// means no visit, no ticket number used and an unchanged rotation. 23505 can now only come from
+// the unique ticket index if a non-round-robin writer raced; createQueueEntry then retries.
 async function insertRoundRobinVisit(visit) {
   const { start, end } = getTodayRange();
   let result;
@@ -1698,7 +1703,10 @@ async function insertRoundRobinVisit(visit) {
     throw rpcFailure(error, "Failed to create queue entry");
   }
   const row = Array.isArray(data) ? data[0] : data;
-  if (!row?.id || row.status !== "waiting" || !DOCTOR_NAMES.includes(row.counter_id) || row.queue_number !== visit.queue_number) {
+  // The saved ticket keeps the proposed service code and the CODE-NNN format.
+  const code = String(visit.queue_number).split("-")[0];
+  if (!row?.id || row.status !== "waiting" || !DOCTOR_NAMES.includes(row.counter_id)
+      || !new RegExp(`^${code}-\\d{3,}$`).test(String(row.queue_number ?? ""))) {
     throw consultationError(UNCONFIRMED_REGISTRATION_MESSAGE, 503);
   }
   return row;

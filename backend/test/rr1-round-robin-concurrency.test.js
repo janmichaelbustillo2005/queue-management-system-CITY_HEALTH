@@ -8,6 +8,11 @@ const { describe, test, before, after, beforeEach } = require("node:test");
 const f = require("./helpers/c1f5w1Fixture");
 
 const RR1 = "20261109-rr1-round-robin-dispatch.sql";
+// FC1 is installed after RR1 (the backend refuses every Call without it). These races are about
+// assignment and ticket numbers, so visits are confirmed on arrival (as in the PGlite suite).
+const FC1 = "20261111-fc1-front-desk-confirmation.sql";
+const CONFIRMED_ON_ARRIVAL = `ALTER TABLE public.patients ALTER COLUMN confirmed_at SET DEFAULT clock_timestamp(),
+  ALTER COLUMN confirmed_by SET DEFAULT 'frontdesk';`;
 const DOCTORS = ["Doctor 1", "Doctor 2", "Doctor 3"];
 const ACCOUNT = { "Doctor 1": "admin1", "Doctor 2": "admin2", "Doctor 3": "admin3" };
 
@@ -19,7 +24,8 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
 
   before(async () => {
     await f.startCluster();
-    db = await f.createDatabase("rr1", [f.C1.migration, f.F5.migration, f.W1.migration, RR1]);
+    db = await f.createDatabase("rr1", [f.C1.migration, f.F5.migration, f.W1.migration, RR1, FC1]);
+    await db.setup.query(CONFIRMED_ON_ARRIVAL);
   });
   after(async () => { await f.stopCluster(); });
 
@@ -65,14 +71,17 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     assert.deepEqual(row, { duplicate_tickets: 0, waiting_with_unknown_doctor: 0 });
   }
   // register_visit_round_robin on its own connection, as a separate backend request would run it.
-  async function registerDirect(ticket) {
-    const client = await db.connect(`rr1-register-${ticket}`);
+  // The database assigns the ticket number; the proposal only carries the service code.
+  async function registerDirect(name, { proposal = "GP-001", extra = {}, withTicket = false } = {}) {
+    const client = await db.connect(`rr1-register-${name}`);
     try {
       await client.query("SET ROLE service_role");
-      return (await client.query(`SELECT (r).counter_id AS doctor FROM (SELECT public.register_visit_round_robin($1::jsonb,
+      const { rows: [row] } = await client.query(`SELECT (r).counter_id AS doctor, (r).queue_number AS ticket, (r).id AS id
+        FROM (SELECT public.register_visit_round_robin($1::jsonb,
           date_trunc('day', now() AT TIME ZONE 'Asia/Manila') AT TIME ZONE 'Asia/Manila',
           (date_trunc('day', now() AT TIME ZONE 'Asia/Manila') + interval '1 day') AT TIME ZONE 'Asia/Manila') AS r) s`,
-        [JSON.stringify({ queue_number: ticket, id_num: `Synthetic ${ticket}`, service_type: "medical_consultation", priority_score: 1 })])).rows[0].doctor;
+        [JSON.stringify({ queue_number: proposal, id_num: `Synthetic ${name}`, service_type: "medical_consultation", priority_score: 1, ...extra })]);
+      return withTicket ? row : row.doctor;
     } finally { await client.end(); }
   }
 
@@ -247,7 +256,7 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
   });
 
   // ---- R8 ---------------------------------------------------------------------------------
-  test("R8: parallel sweeps after a doctor drops record one release and one intervention, never more", async () => {
+  test("R8: parallel sweeps after a doctor drops record one reassignment and one intervention, never more", async () => {
     const serving = await visit("R8-S", { minutesAgo: 9 });
     const pending = await visit("R8-P", { minutesAgo: 8 });
     await signOut("Doctor 2"); await signOut("Doctor 3");
@@ -255,7 +264,7 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     assert.equal((await f.post(h, tokens.admin1, "/queue/call", { patient_id: serving })).status, 200);
     await signOut("Doctor 1");
     await db.observer.query("UPDATE public.staff_auth_sessions SET revoked_at = NULL WHERE user_id_num = 'admin2'");
-    // Doctor 1 serves `serving` and still holds `pending`, which must be released exactly once.
+    // Doctor 1 serves `serving` and still holds `pending`, which must be reassigned exactly once.
     assert.equal(await doctorOf(pending), "Doctor 1");
     const blocker = await holdRotation();
     const sweeps = [dispatch(h), dispatch(other), dispatch(h), dispatch(other), dispatch(h)];
@@ -263,10 +272,81 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     await blocker.release();
     const results = await settle(sweeps);
     assert.ok(results.every((r) => r.status === "fulfilled"), JSON.stringify(results.map((r) => r.reason?.message)));
-    assert.equal((await history("doctor_unavailable")).filter((row) => row.patient_id === String(pending) || Number(row.patient_id) === pending).length, 1);
+    // One row per move (2026-11-11): previous_doctor Doctor 1 -> new_doctor Doctor 2, no release row.
+    const moves = (await history("round_robin_reassignment")).filter((row) => Number(row.patient_id) === pending);
+    assert.deepEqual(moves.map((row) => [row.previous_doctor, row.new_doctor]), [["Doctor 1", "Doctor 2"]]);
+    assert.equal((await history("doctor_unavailable")).length, 0);
     assert.equal((await history("intervention_required")).length, 1);
     assert.equal(await doctorOf(pending), "Doctor 2");
     assert.equal((await f.patient(db, serving)).counter_id, "Doctor 1", "the active consultation is not moved");
+    await assertSingleOwnership();
+  });
+
+  // ---- R10-R12: ticket numbers under real contention (2026-11-11) -------------------------
+  test("R10: 24 registrations queued on the rotation lock with the SAME proposed ticket get unique, gap-free tickets", async () => {
+    const blocker = await holdRotation();
+    const registrations = Array.from({ length: 24 }, (_, i) => registerDirect(`R10-${i}`, { proposal: "GP-001", withTicket: true }));
+    await f.waitForLockWaiters(db, 24);
+    await blocker.release();
+    const results = await settle(registrations);
+    assert.deepEqual(results.map((r) => r.status), Array(24).fill("fulfilled"), JSON.stringify(results.map((r) => r.reason?.message)));
+    const rows = (await db.observer.query("SELECT id::int AS id, queue_number, counter_id FROM public.patients ORDER BY id")).rows;
+    assert.equal(rows.length, 24);
+    assert.deepEqual(rows.map((row) => row.queue_number), Array.from({ length: 24 }, (_, i) => `GP-${String(i + 1).padStart(3, "0")}`),
+      "unique, contiguous, in commit order");
+    assert.deepEqual(rows.map((row) => row.counter_id), Array.from({ length: 24 }, (_, i) => DOCTORS[i % 3]), "exact rotation in commit order");
+    assert.deepEqual((await history("round_robin_assignment")).map((row) => Number(row.patient_id)), rows.map((row) => row.id));
+    assert.deepEqual(results.map((r) => r.value.ticket).sort(), rows.map((row) => row.queue_number).sort(), "each caller got its saved ticket");
+    await assertSingleOwnership();
+  });
+
+  test("R11: 24 registrations through three backends and three routes at once: each saved once, unique tickets per code, exact rotation", async () => {
+    const third = await f.backend(db, { doctorDispatchMode: "round_robin" });
+    const desks = [h, other, third];
+    const services = ["medical_consultation", "family_planning", "prenatal", "dental_healthcare", "maternity", "nutrition"];
+    const blocker = await holdRotation();
+    const jobs = Array.from({ length: 24 }, (_, i) => {
+      const harness = desks[i % 3];
+      const serviceType = services[i % services.length];
+      const name = `R11-${i}`;
+      if (i % 3 === 0) return f.post(harness, tokens.frontdesk, "/queue", { fullName: name, service_type: serviceType });
+      if (i % 3 === 1) return harness.request("POST", "/queue/website", { body: { fullName: name, serviceType } });
+      return f.post(harness, tokens.frontdesk, "/patient-records/visits", {
+        firstName: name, lastName: "Concurrent", sex: "Female", birthdate: "1990-01-01", residency: "Barangay 1", serviceType });
+    });
+    await f.waitForLockWaiters(db, 12);
+    await blocker.release();
+    const responses = await Promise.all(jobs);
+    assert.deepEqual(responses.map((r) => r.status), Array(24).fill(200), JSON.stringify(responses.map((r) => r.body?.message)));
+    const rows = (await db.observer.query("SELECT id::int AS id, queue_number, service_type, counter_id FROM public.patients ORDER BY id")).rows;
+    assert.equal(rows.length, 24, "every valid registration saved exactly once");
+    assert.equal(new Set(rows.map((row) => row.queue_number)).size, 24, "every ticket number is unique");
+    const code = { prenatal: "OB", maternity: "OB", family_planning: "FP" };
+    for (const prefix of ["GP", "OB", "FP"]) {
+      const numbers = rows.filter((row) => (code[row.service_type] || "GP") === prefix).map((row) => row.queue_number);
+      assert.deepEqual(numbers, numbers.map((_, i) => `${prefix}-${String(i + 1).padStart(3, "0")}`), prefix);
+    }
+    assert.deepEqual(rows.map((row) => row.counter_id), Array.from({ length: 24 }, (_, i) => DOCTORS[i % 3]));
+    const saved = new Set(rows.map((row) => row.queue_number));
+    assert.ok(responses.every((r) => saved.has(r.body.queue_number)), "each response shows its saved ticket");
+    const { rows: [pointer] } = await db.observer.query("SELECT last_doctor, last_patient_id::int AS last FROM public.doctor_rotation_state");
+    assert.deepEqual(pointer, { last_doctor: "Doctor 3", last: rows.at(-1).id });
+    await assertSingleOwnership();
+  });
+
+  test("R12: a registration failing mid-burst consumes neither a ticket number nor a rotation turn", async () => {
+    const blocker = await holdRotation();
+    const registrations = Array.from({ length: 9 }, (_, i) => registerDirect(`R12-${i}`,
+      { withTicket: true, extra: i === 4 ? { birthdate: "not-a-date" } : {} }));
+    await f.waitForLockWaiters(db, 9);
+    await blocker.release();
+    const results = await settle(registrations);
+    assert.equal(results.filter((r) => r.status === "rejected").length, 1);
+    assert.equal(results[4].status, "rejected");
+    const rows = (await db.observer.query("SELECT queue_number, counter_id FROM public.patients ORDER BY id")).rows;
+    assert.deepEqual(rows.map((row) => row.queue_number), Array.from({ length: 8 }, (_, i) => `GP-${String(i + 1).padStart(3, "0")}`), "no gap");
+    assert.deepEqual(rows.map((row) => row.counter_id), Array.from({ length: 8 }, (_, i) => DOCTORS[i % 3]), "no skipped turn");
+    assert.equal((await history("round_robin_assignment")).length, 8);
     await assertSingleOwnership();
   });
 

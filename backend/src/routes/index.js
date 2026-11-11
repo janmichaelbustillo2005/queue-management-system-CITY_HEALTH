@@ -86,10 +86,14 @@ async function afterQueueChange() {
 }
 
 // RR1: the doctor round robin assigned at registration, read from the saved visit itself (the
-// same counter_id every dashboard shows), for the registration confirmation.
-function assignedDoctorFor(_dispatch, visit) {
+// same counter_id every dashboard shows), for the registration confirmation, with the doctor's
+// current display name (EP1) when one is set. The name is a label only; never fails the request.
+async function assignedDoctorFor(_dispatch, visit) {
   if (!roundRobinDispatch()) return {};
-  return { assigned_doctor: visit?.counter_id ?? null };
+  const doctor = visit?.counter_id ?? null;
+  const names = doctor ? await doctorDisplayNamesOrNone() : {};
+  const name = typeof names?.[doctor] === "string" ? names[doctor].trim() : "";
+  return { assigned_doctor: doctor, assigned_doctor_name: name || null };
 }
 
 function readRecordFilters(query, defaultDateFilter = "") {
@@ -235,7 +239,7 @@ router.post("/queue", authenticateToken, async (req, res) => {
       success: true,
       queue_number: row.queue_number,
       priority_score: row.priority_score,
-      ...assignedDoctorFor(dispatch, row),
+      ...(await assignedDoctorFor(dispatch, row)),
       message: "Patient added successfully"
     });
   } catch (error) {
@@ -313,7 +317,7 @@ router.post("/patient-records/visits", authenticateToken, async (req, res) => {
       success: true,
       queue_number: visit.queue_number,
       priority_score: visit.priority_score,
-      ...assignedDoctorFor(dispatch, visit),
+      ...(await assignedDoctorFor(dispatch, visit)),
       patient_record: record,
       patient_record_created: recordCreated
     });

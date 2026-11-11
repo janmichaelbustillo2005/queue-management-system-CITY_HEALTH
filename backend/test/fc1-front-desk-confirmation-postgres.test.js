@@ -350,7 +350,7 @@ describe("FC1 installation lifecycle (isolated PGlite)", { skip: unavailable }, 
         FROM public.patients ORDER BY id`)).rows;
 
       const pre = await lastRows(db, readScript("20261111-fc1-preflight.sql"));
-      assert.equal(pre.length, 7);
+      assert.equal(pre.length, 8);
       assert.deepEqual(pre.filter((row) => !row.passed), []);
       assert.match(pre[6].actual, /call_patient_visit, .*call_patient_visit_rr/);
       const original = await callFunctions(db);
@@ -386,6 +386,21 @@ describe("FC1 installation lifecycle (isolated PGlite)", { skip: unavailable }, 
 
       await db.exec(readScript(FC1));
       assert.deepEqual((await lastRows(db, readScript("20261111-fc1-verify.sql"))).filter((row) => !row.passed), [], "reinstall");
+    } finally {
+      await db.close();
+    }
+  });
+
+  test("preflight stops when an installed Call function is not the reviewed version FC1 would replace", async () => {
+    const db = await liveKnownDatabase(PGlite);
+    try {
+      for (const script of DEVELOPMENT_STATE) await db.exec(readScript(script));
+      const c1 = readScript("20261025-c1-atomic-call.sql").replace("Call the next eligible patient for %", "Locally edited: call the next patient for %");
+      await db.exec(c1);
+      const pre = await lastRows(db, readScript("20261111-fc1-preflight.sql"));
+      assert.equal(pre[7].passed, false);
+      assert.equal(pre[7].actual, "public.call_patient_visit");
+      assert.equal(pre[0].all_pass, false);
     } finally {
       await db.close();
     }

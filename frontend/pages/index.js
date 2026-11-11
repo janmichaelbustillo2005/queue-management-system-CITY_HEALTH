@@ -309,8 +309,12 @@ export default function HomePage() {
       : { doctorName, ...doctorPresenceStatus(doctorPresence, doctorName, presenceNow) };
   });
   const rrInterventions = new Map((roundRobin?.interventions || []).map((item) => [String(item.patient_id), item]));
-  const rrReassigned = new Set((roundRobin?.history || []).filter((item) => item.reason === "doctor_unavailable" ||
-    item.reason === "released_for_transfer" || item.reason === "staff_transfer").map((item) => String(item.patient_id)));
+  const rrReassigned = new Set((roundRobin?.history || []).filter((item) => item.reason === "round_robin_reassignment" ||
+    item.reason === "doctor_unavailable" || item.reason === "released_for_transfer" || item.reason === "staff_transfer")
+    .map((item) => String(item.patient_id)));
+  // Waiting visits released from an unavailable doctor while no doctor was available; the backend
+  // assigns them in rotation as soon as a doctor is online and available.
+  const rrPending = new Map((roundRobin?.pending_reassignment || []).map((item) => [String(item.patient_id), item]));
   // Doctors a consultation may be handed to: signed in, counter enabled, not serving anyone.
   const rrTransferTargets = (rrDoctors || []).filter((doctor) => doctor.signed_in && doctor.enabled && doctor.serving_patient_id == null)
     .map((doctor) => doctor.doctor_name);
@@ -1541,7 +1545,7 @@ export default function HomePage() {
               )}
               {roundRobin?.available && roundRobin.all_unavailable && (
                 <div role="alert" data-rr-all-unavailable className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-                  No Available Doctors: all doctors are signed out or unavailable, so new registrations are refused until a doctor is online and available. Patients already waiting are assigned automatically when a doctor signs in.
+                  No Available Doctors: all doctors are signed out or unavailable, so new registrations are refused until a doctor is online and available. Waiting patients are held as Pending Reassignment and assigned automatically when a doctor becomes available.
                 </div>
               )}
               {rrInterventions.size > 0 && (
@@ -1725,6 +1729,7 @@ export default function HomePage() {
                             {patient.status === "serving" && validServing && patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">Awaiting doctor acceptance</div>}
                             {patient.status === "serving" && validServing && !patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">{patient.consultation_started_at ? "Consultation in progress" : "Ready for consultation"}</div>}
                             {roundRobin && patient.status === "waiting" && <div className="mt-1 text-[10px] brand-text-muted">{patient.counter_id ? `Assigned to ${doctorLabel(patient.counter_id)}, waiting for the doctor to call` : "Waiting for an available doctor"}</div>}
+                            {roundRobin && patient.status === "waiting" && !patient.counter_id && rrPending.has(String(patient.id)) && <div className="mt-1"><span data-rr-pending-reassignment title={`Released from ${doctorLabel(rrPending.get(String(patient.id)).previous_doctor)}`} className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-900">Pending reassignment</span></div>}
                             {roundRobin && patient.status === "serving" && patient.counter_id && <div className="mt-1 text-[10px] brand-text-muted">Doctor: {doctorLabel(patient.counter_id)}</div>}
                             {roundRobin && rrReassigned.has(String(patient.id)) && <div className="mt-1"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-900">Reassigned</span></div>}
                             {rrInterventions.has(String(patient.id)) && <div role="alert" className="mt-1 text-[10px] font-semibold text-red-800">Doctor signed out. Needs staff review</div>}

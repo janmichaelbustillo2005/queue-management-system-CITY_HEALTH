@@ -312,3 +312,14 @@ test("EP1: the ticket shows the assigned doctor's current name with the counter 
   const long = api.createQueuePassSvg({ ...named, doctorName: `${"Dr. ".padEnd(90, "x")} (Doctor 2)` }, "/logo.png");
   assert.match(long, /textLength="630"/, "a long name is fitted inside the ticket");
 });
+
+test("RR1: a round-robin ticket names the doctor saved at registration; plain shared dispatch still promises none", () => {
+  const { api } = helpers();
+  const waiting = { ...patient(), status: "waiting", counter_id: "Doctor 3" };
+  assert.equal(api.createQueueTicket(waiting, { dispatchMode: "shared", dispatchStrategy: "round_robin" }).doctorName, "Doctor 3");
+  assert.equal(api.createQueueTicket(waiting, { dispatchMode: "shared", dispatchStrategy: "round_robin", doctorNames: { "Doctor 3": "Dr. Reyes" } }).doctorName,
+    "Dr. Reyes (Doctor 3)");
+  assert.equal(api.createQueueTicket(waiting, { dispatchMode: "shared" }).doctorName, "Next available doctor");
+  const unassigned = { ...waiting, counter_id: null };
+  assert.equal(api.createQueueTicket(unassigned, { dispatchMode: "shared", dispatchStrategy: "round_robin" }).doctorName, "Next available doctor");
+});

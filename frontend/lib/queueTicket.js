@@ -15,6 +15,8 @@ export const QUEUE_PASS_HEIGHT = 820;
 // D1: the backend's dispatch_mode. In "shared" dispatch (provisional) a waiting visit has no
 // doctor until it is called; any available general doctor may take it.
 export const SHARED_DISPATCH = "shared";
+// GET /queue dispatch_strategy when registration assigns the doctor in turn (RR1).
+export const ROUND_ROBIN = "round_robin";
 export const NEXT_AVAILABLE_DOCTOR = "Next available doctor";
 
 // Mirror the existing backend service mapping; this is display information only.
@@ -31,7 +33,9 @@ function sameId(left, right) {
 /** Deliberately whitelist ticket data; never carry the patient row into exports. */
 // `doctorNames` is GET /queue's doctor_display_names (counter id -> current display name). The
 // counter stays on the ticket because the public queue display announces counters ("Doctor 1").
-export function createQueueTicket(patient, { dispatchMode, doctorNames } = {}) {
+// `dispatchStrategy` is GET /queue's dispatch_strategy: "round_robin" when registration assigns the
+// doctor (RR1), so the stored doctor is shown even before the call.
+export function createQueueTicket(patient, { dispatchMode, dispatchStrategy, doctorNames } = {}) {
   if (!patient || patient.id == null || !String(patient.id).trim() || !patient.queue_number) {
     throw new Error("The saved patient record does not have a queue ticket.");
   }
@@ -39,9 +43,10 @@ export function createQueueTicket(patient, { dispatchMode, doctorNames } = {}) {
   const validDate = patient.created_at && Number.isFinite(registeredAt.getTime());
   const knownStatus = Object.prototype.hasOwnProperty.call(STATUS_LABELS, patient.status);
   // The stored doctor once called; before that the service's doctor, or none in shared dispatch.
-  // In shared dispatch a waiting visit's stored doctor is provisional (RR1 round robin may still
-  // reassign it if that doctor goes offline), so a ticket never promises one before the call.
-  const provisional = dispatchMode === SHARED_DISPATCH && patient.status === "waiting";
+  // RR1 round robin stores the doctor at registration, so its ticket names that doctor at once
+  // (it changes only if that doctor signs out or is disabled; a reprint shows the current one).
+  const roundRobin = dispatchStrategy === ROUND_ROBIN;
+  const provisional = dispatchMode === SHARED_DISPATCH && patient.status === "waiting" && !roundRobin;
   const assignedDoctor = !provisional && ["Doctor 1", "Doctor 2", "Doctor 3"].includes(patient.counter_id)
     ? patient.counter_id : dispatchMode === SHARED_DISPATCH ? NEXT_AVAILABLE_DOCTOR : doctorForService(patient.service_type);
   const displayName = assignedDoctor !== NEXT_AVAILABLE_DOCTOR && typeof doctorNames?.[assignedDoctor] === "string"
@@ -68,10 +73,13 @@ const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
 
 /** Waiting-only snapshot of the backend's WPS order, scoped to its service doctor (or the whole
  * shared queue in shared dispatch). */
-export function getPatientsAheadSnapshot(rows, patient, dispatchMode) {
+// RR1 round robin: each doctor serves its own assigned list, so only that doctor's list counts.
+export function getPatientsAheadSnapshot(rows, patient, dispatchMode, dispatchStrategy) {
   if (!Array.isArray(rows) || patient?.status !== "waiting") return null;
   const doctor = doctorForService(patient.service_type);
-  const sameQueue = (row) => dispatchMode === SHARED_DISPATCH || doctorForService(row.service_type) === doctor;
+  const assigned = dispatchStrategy === ROUND_ROBIN && patient.counter_id ? patient.counter_id : null;
+  const sameQueue = (row) => assigned ? row.counter_id === assigned
+    : dispatchMode === SHARED_DISPATCH || doctorForService(row.service_type) === doctor;
   const waiting = rows.filter(row => row.status === "waiting" && sameQueue(row))
     .slice().sort((a, b) => wpsRank(b) - wpsRank(a) || (b.priority_score || 0) - (a.priority_score || 0) ||
       new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id));
@@ -87,7 +95,7 @@ export async function fetchExistingQueueTicket(patientId) {
   if (!Array.isArray(data?.patients)) throw new Error("Ticket information could not be verified. Please retry.");
   const patient = data.patients.find(row => sameId(row.id, patientId));
   if (!patient) throw new Error("This ticket is no longer available in today's patient queue. No new registration was created.");
-  return createQueueTicket(patient, { dispatchMode: data.dispatch_mode, doctorNames: data.doctor_display_names });
+  return createQueueTicket(patient, { dispatchMode: data.dispatch_mode, dispatchStrategy: data.dispatch_strategy, doctorNames: data.doctor_display_names });
 }
 
 export function escapeTicketText(value) {

@@ -24,6 +24,10 @@ services:
         value: /var/data
       - key: VOICE_SERVICE_AUTOSTART
         value: "0"
+      # Round-robin doctor assignment (also the default when unset). Needs the RR1 and FC1
+      # database scripts installed on Supabase first, or registration and Call refuse (503).
+      - key: DOCTOR_DISPATCH_MODE
+        value: round_robin
       - key: FRONTEND_URL
         sync: false
       - key: SUPABASE_URL

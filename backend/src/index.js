@@ -85,8 +85,9 @@ app.listen(env.port, "0.0.0.0", async (error) => {
     console.error("Error seeding counters:", error.message);
   }
   // RR1: the backend is the authority on presence. A doctor whose heartbeat stopped (closed tab,
-  // lost network) is signed out by the 75-second presence window; this sweep then releases its
-  // pending patients and assigns waiting ones, even when no one is using the screens.
+  // lost network) is signed out by the 75-second presence window; this sweep then reassigns its
+  // waiting patients to the doctors still available (or holds them as pending reassignment),
+  // even when no one is using the screens.
   if (isRoundRobin()) {
     console.log(`Round-robin dispatch active; sweeping every ${env.dispatchSweepSeconds}s`);
     requestDispatch();

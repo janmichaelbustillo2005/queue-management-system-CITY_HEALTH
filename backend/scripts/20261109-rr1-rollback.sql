@@ -65,6 +65,7 @@ BEGIN
   -- The two ownership indexes RR1 added to existing tables (no data is changed by dropping them).
   DROP INDEX IF EXISTS public.counters_current_patient_once;
   DROP INDEX IF EXISTS public.patients_one_serving_visit_per_doctor;
+  DROP INDEX IF EXISTS public.patients_queue_number_unique;
   DROP TABLE IF EXISTS public.doctor_rotation_state;
   IF v_drop_history THEN
     DROP TABLE IF EXISTS public.patient_assignment_history;

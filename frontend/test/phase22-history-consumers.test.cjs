@@ -172,6 +172,7 @@ function harness(component, options = {}) {
   const modal = load("components/SettingsModal.js");
   dependencies["../components/SettingsModal"] = { __esModule: true, default: "SettingsModal", defaultQueueSettings: modal.defaultQueueSettings };
   dependencies["../components/StaffArchives"] = { StaffArchivesModal: "StaffArchivesModal", StaffConfirmDialog: "StaffConfirmDialog" };
+  dependencies["../components/StaffProfileDialog"] = { StaffProfileDialog: "StaffProfileDialog" };
   const api = load("lib/api.js");
   dependencies["./api"] = api;
   dependencies["../lib/api"] = api;

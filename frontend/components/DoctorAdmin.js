@@ -45,6 +45,8 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   const { user } = useAuth();
   const [queueRows, setQueueRows] = useState([]);
   const [counters, setCounters] = useState([]);
+  // EP1: counter id -> the assigned account's display name, from GET /queue.
+  const [doctorDisplayNames, setDoctorDisplayNames] = useState({});
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
   const [stats, setStats] = useState({ waiting: 0, serving: 0, completed: 0, total_patients: 0 });
   const [error, setError] = useState("");
@@ -473,6 +475,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       
       setQueueRows(data.patients ?? []);
       setCounters(data.counters ?? []);
+      setDoctorDisplayNames(data.doctor_display_names ?? {});
       setStorageMode(data.storage_mode ?? null);
       const shared = data.dispatch_mode === SHARED_DISPATCH;
       setDispatchMode(shared ? SHARED_DISPATCH : "service");
@@ -632,7 +635,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
 
   return (
     <SiteFrame
-      title={`${doctorName} Queue`}
+      title={`${(typeof doctorDisplayNames[doctorName] === "string" && doctorDisplayNames[doctorName].trim()) || doctorName} Queue`}
       icon="fas fa-user-md"
       accountActions={accountActions}
     >

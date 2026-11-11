@@ -31,6 +31,8 @@ export default function PatientManagementPage() {
   const router = useRouter();
   const [queueRows, setQueueRows] = useState([]);
   const [counters, setCounters] = useState([]);
+  // EP1: counter id -> the assigned account's display name, from GET /queue.
+  const [doctorNames, setDoctorNames] = useState({});
   // D1: "service" (fixed service doctors) or "shared" (one queue, the calling doctor takes the visit).
   const [dispatchMode, setDispatchMode] = useState("service");
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
@@ -93,6 +95,7 @@ export default function PatientManagementPage() {
       const patients = data.patients ?? [];
       setQueueRows(patients);
       setCounters(data.counters ?? []);
+      setDoctorNames(data.doctor_display_names ?? {});
       setDispatchMode(data.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
       if (data.queue_settings) {
         setQueueSettings(mergeQueueSettings(data.queue_settings));
@@ -102,7 +105,7 @@ export default function PatientManagementPage() {
       if (ticketReadVersion === ticketRequestRef.current && ticketPatientIdRef.current != null) {
         const patient = patients.find((row) => String(row.id) === String(ticketPatientIdRef.current));
         if (patient) {
-          setQueueTicket(createQueueTicket(patient, { dispatchMode: data.dispatch_mode }));
+          setQueueTicket(createQueueTicket(patient, { dispatchMode: data.dispatch_mode, doctorNames: data.doctor_display_names }));
         } else {
           ticketPatientIdRef.current = null;
           setQueueTicket(null);
@@ -280,7 +283,7 @@ export default function PatientManagementPage() {
               >
                 <option value="all">All Doctors</option>
                 {DOCTORS.map((d) => (
-                  <option key={d.name} value={d.name}>{d.name} ({dispatchMode === SHARED_DISPATCH ? SHARED_ASSIGNMENT : d.assignment})</option>
+                  <option key={d.name} value={d.name}>{doctorNames[d.name]?.trim() || d.name} ({dispatchMode === SHARED_DISPATCH ? SHARED_ASSIGNMENT : d.assignment})</option>
                 ))}
               </select>
             </label>
@@ -326,6 +329,7 @@ export default function PatientManagementPage() {
           doctors={visibleDoctors}
           queueRows={queueRows}
           counters={counters}
+          doctorNames={doctorNames}
           queueSettings={queueSettings}
           statusFilter={statusFilter}
           search={search}

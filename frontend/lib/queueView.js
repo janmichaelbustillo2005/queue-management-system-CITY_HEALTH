@@ -40,8 +40,14 @@ export function queueDoctorName(row, shared = false) {
   return shared ? null : serviceDoctor(row?.service_type);
 }
 
-export const queueDoctorLabel = (doctorName, status) =>
-  doctorName ?? (status === "waiting" ? "Next available" : "Unassigned");
+// EP1: `names` is GET /queue's doctor_display_names (counter id -> the assigned account's display
+// name). Counter ids stay the values used for filtering, calls and transfers; only the text shown
+// changes, and it falls back to the counter id ("Doctor 1") when no display name is set.
+export const doctorDisplayName = (names, doctorName) =>
+  (doctorName && typeof names?.[doctorName] === "string" && names[doctorName].trim()) || doctorName;
+
+export const queueDoctorLabel = (doctorName, status, names) =>
+  doctorDisplayName(names, doctorName) ?? (status === "waiting" ? "Next available" : "Unassigned");
 
 // A doctor whose counter is disabled is shown as Offline next to its name.
 export function isDoctorOnline(counters, queueSettings, doctorName) {

@@ -275,3 +275,13 @@ test("Patient Management keeps its own actions: View Ticket and head-only Cancel
   assert.equal(nodes(tree, node => node.props?.title === "More actions").length, 0, "no Superadmin three-dot menu");
   assert.equal(nodes(tree, node => typeof node.type === "string" && /^Transfer to/.test(text(node)) && node.type === "button").length, 0);
 });
+
+test("EP1: Front Desk shows the doctor's display name while actions keep the counter id", () => {
+  const rows = [{ ...patient(1), status: "waiting", counter_id: "Doctor 1" }];
+  const h = harness(rows, { props: { doctorNames: { "Doctor 1": "Dr. Juan Dela Cruz" } } });
+  const content = text(h.render());
+  assert.match(content, /Dr\. Juan Dela Cruz/);
+  assert.doesNotMatch(content, /Doctor 1(?!\d)/, "the counter id is not shown where a display name exists");
+  const plain = text(harness(rows).render());
+  assert.match(plain, /Doctor 1/, "without display names the counter id is shown, as before");
+});

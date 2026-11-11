@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import SiteFrame from "../components/SiteFrame";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { StaffArchivesModal, StaffConfirmDialog } from "../components/StaffArchives";
+import { StaffProfileDialog } from "../components/StaffProfileDialog";
 import { request } from "../lib/api";
 import { OFFERED_SERVICES, serviceName } from "../lib/services";
 import {
@@ -14,6 +15,7 @@ import {
   countQueueStatuses,
   formatQueueDate,
   formatQueueTime,
+  doctorDisplayName,
   isDoctorOnline,
   matchesQueueDoctor,
   matchesQueueSearch,
@@ -179,6 +181,10 @@ export default function HomePage() {
   const dashboardRequestRef = useRef(null);
   const [queueRows, setQueueRows] = useState([]);
   const [counters, setCounters] = useState([]);
+  // EP1: counter id -> the assigned account's display name, from GET /queue. Counter ids remain
+  // the values for filters, calls and transfers; `doctorLabel` only changes the text shown.
+  const [doctorNames, setDoctorNames] = useState({});
+  const doctorLabel = (doctorName) => doctorDisplayName(doctorNames, doctorName);
   const [dispatchMode, setDispatchMode] = useState("service");
   const sharedDispatch = dispatchMode === SHARED_DISPATCH;
   // RR1 round-robin dispatch: the backend assigns visits to doctors; staff monitor and intervene.
@@ -208,6 +214,8 @@ export default function HomePage() {
   const [archiveTarget, setArchiveTarget] = useState(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState("");
+  const [profileTarget, setProfileTarget] = useState(null);
+  const [profileNotice, setProfileNotice] = useState("");
   const [queueDoctorFilter, setQueueDoctorFilter] = useState("all");
   const [queueStatusFilter, setQueueStatusFilter] = useState(QUEUE_DEFAULT_VIEW);
   const [queueSearch, setQueueSearch] = useState("");
@@ -439,6 +447,7 @@ export default function HomePage() {
       
       setQueueRows(queueData.patients || []);
       setCounters(queueData.counters || []);
+      setDoctorNames(queueData.doctor_display_names || {});
       setDispatchMode(queueData.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
       setRoundRobin(queueData.dispatch_strategy === "round_robin" ? (queueData.dispatch || { available: false }) : null);
       setApprovedServices(Array.isArray(queueData.approved_services) ? queueData.approved_services : null);
@@ -612,6 +621,23 @@ export default function HomePage() {
     fetchUsers();
   }
 
+  // EP1 Edit Profile: the modal saves the display name; the row updates from the saved profile
+  // and the list is re-read from the database.
+  function handleProfileSaved(profile) {
+    setUsers((current) => current.map((account) => (account.id_num === profile.id_num
+      ? { ...account, display_name: profile.display_name } : account)));
+    setProfileTarget(null);
+    setProfileNotice(profile.id_num);
+    fetchUsers();
+    refreshAll(); // doctor labels on the dashboard and Queue Management, even with auto-refresh off
+  }
+
+  useEffect(() => {
+    if (!profileNotice) return undefined;
+    const timer = setTimeout(() => setProfileNotice(""), 6000);
+    return () => clearTimeout(timer);
+  }, [profileNotice]);
+
   const handleResidencySearch = async (query) => {
     setForm({ ...form, residency: query });
     if (query.length < 3) {
@@ -710,7 +736,7 @@ export default function HomePage() {
       body.counterId = mappedDoctor;
     }
     if (path === "/queue/transfer") {
-      if (!window.confirm(`Transfer ${patient.id_num} (${patient.queue_number}) from ${patient.counter_id} to ${extra.doctor}? The consultation record is kept.`)) return;
+      if (!window.confirm(`Transfer ${patient.id_num} (${patient.queue_number}) from ${doctorLabel(patient.counter_id)} to ${doctorLabel(extra.doctor)}? The consultation record is kept.`)) return;
       body.doctor = extra.doctor;
     }
     if (path === "/queue/complete") {
@@ -1127,6 +1153,20 @@ export default function HomePage() {
           </div>
         )}
 
+        {profileNotice ? (
+          <div role="status" className="mb-4 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm flex items-start gap-3">
+            <i className="fas fa-check-circle mt-0.5" aria-hidden="true" />
+            <div className="flex-1 min-w-0">
+              <p className="m-0 font-bold">Profile Updated Successfully</p>
+              <p className="m-0">The user&apos;s profile information has been saved successfully.</p>
+            </div>
+            <button type="button" onClick={() => setProfileNotice("")} aria-label="Dismiss message"
+              className="text-green-800 hover:text-green-900">
+              <i className="fas fa-times" aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+
         <div className="bg-white rounded-xl shadow-md border brand-border overflow-hidden">
           <table className="w-full text-left">
             <thead className="bg-gray-50 brand-text-muted text-xs font-bold uppercase tracking-wider">
@@ -1142,7 +1182,7 @@ export default function HomePage() {
               {users.map((u) => (
                 <tr key={u.id_num} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 font-bold brand-text">{u.id_num}</td>
-                  <td className="px-6 py-4 brand-text">{u.doctor_name || "—"}</td>
+                  <td className="px-6 py-4 brand-text">{u.display_name || u.doctor_name || "—"}</td>
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
                       u.role === 'superadmin' ? 'bg-purple-100 text-purple-700' : 
@@ -1155,16 +1195,27 @@ export default function HomePage() {
                     {u.created_at ? new Date(u.created_at).toLocaleDateString() : "Not recorded"}
                   </td>
                   <td className="px-6 py-4">
-                    <button 
-                      type="button"
-                      onClick={() => openArchiveConfirm(u)}
-                      className="text-amber-600 hover:text-amber-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      disabled={u.id_num === user.id_num}
-                      title={u.id_num === user.id_num ? "You cannot archive your own account" : "Archive account"}
-                      aria-label={`Archive ${u.id_num}`}
-                    >
-                      <i className="fas fa-archive" />
-                    </button>
+                    <div className="flex items-center gap-4 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => setProfileTarget(u)}
+                        className="brand-text-primary hover:opacity-75 transition-colors"
+                        title="Edit Profile"
+                        aria-label={`Edit Profile ${u.id_num}`}
+                      >
+                        <i className="fas fa-pen" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openArchiveConfirm(u)}
+                        className="text-amber-600 hover:text-amber-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={u.id_num === user.id_num}
+                        title={u.id_num === user.id_num ? "You cannot archive your own account" : "Archive account"}
+                        aria-label={`Archive ${u.id_num}`}
+                      >
+                        <i className="fas fa-archive" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1194,6 +1245,13 @@ export default function HomePage() {
             You can restore or permanently delete it from Archives.
           </p>
         </StaffConfirmDialog>
+
+        <StaffProfileDialog
+          open={Boolean(profileTarget)}
+          account={profileTarget}
+          onClose={() => setProfileTarget(null)}
+          onSaved={handleProfileSaved}
+        />
 
         <StaffArchivesModal
           open={archivesOpen}
@@ -1448,7 +1506,7 @@ export default function HomePage() {
                     return (
                     <div key={doctorName} data-doctor-status={doctorName} className={`border rounded-lg p-2 md:p-3 shadow-sm transition-all duration-200 ${label === "Online" ? "bg-green-50 border-green-200 hover:shadow-md" : label === "Offline" ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}>
                       <div className="text-center mb-1 md:mb-2">
-                        <h4 className="text-[10px] md:text-sm font-bold brand-text truncate" title={doctorName}>{doctorName}</h4>
+                        <h4 className="text-[10px] md:text-sm font-bold brand-text truncate" title={doctorLabel(doctorName)}>{doctorLabel(doctorName)}</h4>
                         <span className={`inline-block mt-0.5 md:mt-1 px-1.5 py-0.5 rounded text-[8px] md:text-[10px] font-bold uppercase tracking-wider ${badgeStyle}`}>
                           {label}
                         </span>
@@ -1483,7 +1541,7 @@ export default function HomePage() {
                 <div role="alert" data-rr-intervention className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
                   {Array.from(rrInterventions.values()).map((item) => {
                     const row = queueRows.find((patient) => String(patient.id) === String(item.patient_id));
-                    return <div key={item.patient_id}>{item.doctor} signed out during an active consultation ({row?.queue_number || `patient ${item.patient_id}`}). It was not moved. Contact the doctor, or transfer it to an available doctor from the table below.</div>;
+                    return <div key={item.patient_id}>{doctorLabel(item.doctor)} signed out during an active consultation ({row?.queue_number || `patient ${item.patient_id}`}). It was not moved. Contact the doctor, or transfer it to an available doctor from the table below.</div>;
                   })}
                 </div>
               )}
@@ -1503,7 +1561,7 @@ export default function HomePage() {
                     onChange={(e) => setQueueDoctorFilter(e.target.value)}
                   >
                     <option value="all">All Doctors</option>
-                    {DOCTOR_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
+                    {DOCTOR_NAMES.map((name) => <option key={name} value={name}>{doctorLabel(name)}</option>)}
                   </select>
                 </label>
                 <label className="text-xs font-semibold brand-text-muted">
@@ -1629,7 +1687,7 @@ export default function HomePage() {
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-1.5 font-semibold brand-text text-xs whitespace-nowrap">
                               <i className="fas fa-user-md text-blue-600" />
-                              {queueDoctorLabel(displayDoctor, patient.status)}
+                              {queueDoctorLabel(displayDoctor, patient.status, doctorNames)}
                             </div>
                             {displayDoctor != null && !isDoctorOnline(counters, settings, displayDoctor) ? (
                               <span className="text-[10px] font-bold uppercase tracking-wider brand-text-muted">Offline</span>
@@ -1652,8 +1710,8 @@ export default function HomePage() {
                             {patient.status === "serving" && !validServing && <div className="mt-1 text-[10px] text-amber-800">Doctor assignment missing or inconsistent</div>}
                             {patient.status === "serving" && validServing && patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">Awaiting doctor acceptance</div>}
                             {patient.status === "serving" && validServing && !patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">{patient.consultation_started_at ? "Consultation in progress" : "Ready for consultation"}</div>}
-                            {roundRobin && patient.status === "waiting" && <div className="mt-1 text-[10px] brand-text-muted">{patient.counter_id ? `Assigned to ${patient.counter_id}, waiting for the doctor to call` : "Waiting for an available doctor"}</div>}
-                            {roundRobin && patient.status === "serving" && patient.counter_id && <div className="mt-1 text-[10px] brand-text-muted">Doctor: {patient.counter_id}</div>}
+                            {roundRobin && patient.status === "waiting" && <div className="mt-1 text-[10px] brand-text-muted">{patient.counter_id ? `Assigned to ${doctorLabel(patient.counter_id)}, waiting for the doctor to call` : "Waiting for an available doctor"}</div>}
+                            {roundRobin && patient.status === "serving" && patient.counter_id && <div className="mt-1 text-[10px] brand-text-muted">Doctor: {doctorLabel(patient.counter_id)}</div>}
                             {roundRobin && rrReassigned.has(String(patient.id)) && <div className="mt-1"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-900">Reassigned</span></div>}
                             {rrInterventions.has(String(patient.id)) && <div role="alert" className="mt-1 text-[10px] font-semibold text-red-800">Doctor signed out. Needs staff review</div>}
                           </td>
@@ -1661,15 +1719,15 @@ export default function HomePage() {
                           <td className="px-2 py-2">
                             <div className="flex flex-wrap gap-1 items-center">
                               {isNextWaiting ? (
-                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} disabled={actionPending || !canCall} aria-busy={pendingActions.has(patient.id)} title={!doctorName ? "No doctor is available" : !state.enabled ? `${doctorName} counter is disabled` : state.occupied ? `${doctorName} is already assigned to a serving patient` : sharedDispatch ? `Call to ${doctorName}` : undefined} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
+                                <button type="button" onClick={() => queueAction("/queue/call", patient.id)} disabled={actionPending || !canCall} aria-busy={pendingActions.has(patient.id)} title={!doctorName ? "No doctor is available" : !state.enabled ? `${doctorLabel(doctorName)} counter is disabled` : state.occupied ? `${doctorLabel(doctorName)} is already assigned to a serving patient` : sharedDispatch ? `Call to ${doctorLabel(doctorName)}` : undefined} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-bullhorn mr-0.5" />
-                                  {pendingActions.has(patient.id) ? "Calling..." : sharedDispatch && doctorName ? `Call to ${doctorName}` : "Call"}
+                                  {pendingActions.has(patient.id) ? "Calling..." : sharedDispatch && doctorName ? `Call to ${doctorLabel(doctorName)}` : "Call"}
                                 </button>
                               ) : null}
                               {rrInterventions.has(String(patient.id)) && rrTransferTargets.map((doctor) => (
                                 <button key={doctor} type="button" onClick={() => queueAction("/queue/transfer", patient.id, { doctor })} disabled={actionPending} className="brand-button px-2 py-1 rounded text-xs whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
                                   <i className="fas fa-exchange-alt mr-0.5" />
-                                  Transfer to {doctor}
+                                  Transfer to {doctorLabel(doctor)}
                                 </button>
                               ))}
                               {!TERMINAL_QUEUE_STATUSES.includes(patient.status) ? (

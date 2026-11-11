@@ -98,6 +98,7 @@ async function harness(options = {}) {
       if (name === "../context/AuthContext") return { useAuth: () => ({ user, loading: false }) };
       if (name === "../components/SettingsModal") return { __esModule: true, default: () => {}, defaultQueueSettings: settings };
       if (name === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
+      if (name === "../components/StaffProfileDialog") return { StaffProfileDialog: () => null };
       if (name === "../lib/doctorPresence") return helpers;
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,

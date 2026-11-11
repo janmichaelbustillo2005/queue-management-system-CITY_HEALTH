@@ -7,7 +7,7 @@ import { request } from "../lib/api";
 
 // Native modal <dialog>: the page behind it is inert, Escape closes it (unless busy), and focus
 // returns to the control that opened it.
-function useModalDialog(open, onDismiss, busy) {
+export function useModalDialog(open, onDismiss, busy) {
   const ref = useRef(null);
   const dismissRef = useRef(onDismiss);
   dismissRef.current = onDismiss;
@@ -85,7 +85,7 @@ function formatArchivedAt(value) {
 export function matchesArchiveSearch(account, query) {
   const needle = String(query || "").trim().toLowerCase();
   if (!needle) return true;
-  return [account.id_num, account.doctor_name].some((value) => String(value || "").toLowerCase().includes(needle));
+  return [account.id_num, account.display_name, account.doctor_name].some((value) => String(value || "").toLowerCase().includes(needle));
 }
 
 const ACTIONS = {
@@ -229,7 +229,7 @@ export function StaffArchivesModal({ open, onClose, onChanged, refreshKey = 0 })
               ) : visible.map((account) => (
                 <tr key={account.id_num} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-3 font-bold brand-text break-all">{account.id_num}</td>
-                  <td className="px-5 py-3 brand-text">{account.doctor_name || "—"}</td>
+                  <td className="px-5 py-3 brand-text">{account.display_name || account.doctor_name || "—"}</td>
                   <td className="px-5 py-3">
                     <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
                       account.role === "superadmin" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"

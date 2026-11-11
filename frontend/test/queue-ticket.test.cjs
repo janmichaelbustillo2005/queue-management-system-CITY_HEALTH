@@ -301,3 +301,14 @@ test("cancelled PNG exports stop before fetching or downloading a ticket", async
   assert.equal(result, false);
   assert.equal(fetched, false);
 });
+
+test("EP1: the ticket shows the assigned doctor's current name with the counter the display announces", () => {
+  const { api } = helpers();
+  const named = api.createQueueTicket(patient(), { doctorNames: { "Doctor 2": "Dr. Maria Santos" } });
+  assert.equal(named.doctorName, "Dr. Maria Santos (Doctor 2)");
+  assert.equal(api.createQueueTicket(patient()).doctorName, "Doctor 2", "no name: unchanged");
+  const svg = api.createQueuePassSvg(named, "/logo.png");
+  assert.match(svg, /Assigned to Dr\. Maria Santos \(Doctor 2\)/);
+  const long = api.createQueuePassSvg({ ...named, doctorName: `${"Dr. ".padEnd(90, "x")} (Doctor 2)` }, "/logo.png");
+  assert.match(long, /textLength="630"/, "a long name is fitted inside the ticket");
+});

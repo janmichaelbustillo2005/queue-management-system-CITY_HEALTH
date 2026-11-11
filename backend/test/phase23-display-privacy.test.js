@@ -27,8 +27,9 @@ const registration = (name, service = "consultation", flags = []) => ({
 
 // Contract: the exact keys each public collection may contain. dispatch_mode (D1) is the
 // configured "service"/"shared" policy, not patient data; so are RR1's dispatch_strategy and
-// approved_services (the service keys the general doctors may take).
-const TOP_KEYS = ["all_serving", "approved_services", "counters", "dispatch_mode", "dispatch_strategy", "next_in_line", "now_serving", "queue_settings", "recent_accepted",
+// approved_services (the service keys the general doctors may take). doctor_display_names (EP1)
+// is the name a Superadmin chose to show for each doctor counter: { "Doctor 1": "<name>" } only.
+const TOP_KEYS = ["all_serving", "approved_services", "counters", "dispatch_mode", "dispatch_strategy", "doctor_display_names", "next_in_line", "now_serving", "queue_settings", "recent_accepted",
   "recent_called", "serving_count", "settings", "storage_mode", "voice_announcements", "waiting_count", "waiting_queue"];
 const WAITING_KEYS = ["completed_at", "counter_id", "id", "queue_number", "service_type", "status"];
 const WAITING_REQUIRED = ["id", "queue_number", "service_type", "status"];
@@ -159,6 +160,24 @@ for (const localFallback of [false, true]) {
     // Whatever was typed into patients.id_num (a name or an identifier) is never published.
     for (const patient of Object.values(made)) assert.ok(!serialized.includes(patient.id_num), `id_num value ${patient.id_num} leaked`);
     assertNoPatientIdNum(body);
+    // EP1: counter labels only; never account IDs or other account fields.
+    for (const [counter, name] of Object.entries(body.doctor_display_names)) {
+      assert.match(counter, /^Doctor [123]$/);
+      assert.equal(typeof name, "string");
+    }
+    assert.ok(!/"admin[123]"|"superadmin"|"frontdesk"/.test(JSON.stringify(body.doctor_display_names)), "no account IDs");
+  });
+
+  if (!localFallback) test(`${mode}: EP1 the board names a doctor counter by its saved display name, publishing nothing else of the account`, async () => {
+    const h = await setup();
+    h.database.users.find((user) => user.id_num === "admin1").display_name = "Dr. Juan Dela Cruz";
+    h.database.users.find((user) => user.id_num === "superadmin").display_name = "Clinic Head";
+    const first = (await h.request("GET", "/display", {}, null)).body;
+    assert.deepEqual(clone(first.doctor_display_names), { "Doctor 1": "Dr. Juan Dela Cruz" }, "doctor counters only");
+    assert.ok(!JSON.stringify(first).includes("Clinic Head"), "non-doctor accounts are never published");
+    // A later rename appears on the next poll.
+    h.database.users.find((user) => user.id_num === "admin1").display_name = "Nurse 1";
+    assert.deepEqual(clone((await h.request("GET", "/display", {}, null)).body.doctor_display_names), { "Doctor 1": "Nurse 1" });
   });
 
   test(`${mode}: waiting and next-in-line carry only queue-card fields and no patient name`, async () => {

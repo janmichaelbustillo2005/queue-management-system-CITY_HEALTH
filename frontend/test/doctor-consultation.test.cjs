@@ -670,3 +670,19 @@ test("RR1: with nothing assigned the doctor has nothing to call, even when the s
   assert.equal(button(tree, "Call"), undefined);
   assert.equal(inQueue(tree, 2) || inQueue(tree, 3), false);
 });
+
+test("EP1: the Doctor Queue heading shows the assigned account's display name and keeps the icon and Queue label", async () => {
+  const fallback = await harness([]);
+  assert.equal(fallback.render().props.title, "Doctor 1 Queue", "no display name set: unchanged");
+  assert.equal(fallback.render().props.icon, "fas fa-user-md");
+
+  const names = { "Doctor 1": "Dr. Juan Dela Cruz", "Doctor 2": "Dr. Other" };
+  const h = await harness([], { queueResponse: (backend) => ({ ...clone(backend), doctor_display_names: names }) });
+  assert.equal(h.render().props.title, "Dr. Juan Dela Cruz Queue");
+  assert.equal(h.render().props.icon, "fas fa-user-md");
+
+  // Renaming again is picked up on the next queue read, without a reload.
+  names["Doctor 1"] = "Dr. Maria Santos";
+  await h.flush();
+  assert.equal(h.render().props.title, "Dr. Maria Santos Queue");
+});

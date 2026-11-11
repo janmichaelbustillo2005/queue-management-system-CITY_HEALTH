@@ -99,6 +99,7 @@ function harness(name, options = {}) {
       if (dependency === "../components/PatientQueueTable") return { __esModule: true, default: "PatientQueueTable", DOCTORS: doctors };
       if (dependency === "../components/SettingsModal") return { defaultQueueSettings: {} };
       if (dependency === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
+      if (dependency === "../components/StaffProfileDialog") return { StaffProfileDialog: () => null };
       if (dependency === "../lib/queueSettings") return { mergeQueueSettings: value => value, loadLocalQueueSettings: () => ({}), fetchQueueSettings: async () => ({}) };
       if (["../components/SiteFrame", "../components/QueueTicketDialog"].includes(dependency)) {
         return dependency.split("/").pop();

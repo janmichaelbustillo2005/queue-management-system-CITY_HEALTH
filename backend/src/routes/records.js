@@ -35,6 +35,48 @@ function logFailure(level, category, code) {
   console[level](`[records] GET /api/records/${category} failed: ${safeCode}`);
 }
 
+// EP1 display names. The Records SQL labels staff by counter or user ID and patients by counter;
+// it predates users.display_name. Rows keep every stored value (IDs, counters, history) and gain
+// the account's current display name, read from users by the stable account ID. A counter is
+// named only when exactly one active doctor account is assigned to it. Any failure (EP1 not
+// installed, transport) leaves the rows exactly as the function returned them.
+async function readDisplayNames() {
+  const select = (columns) => supabase.from('users').select(columns);
+  let { data, error } = await select('id_num, role, doctor_name, display_name, archived_at');
+  if (error && /archived_at/.test(String(error.message || ''))) ({ data, error } = await select('id_num, role, doctor_name, display_name'));
+  if (error || !Array.isArray(data)) return null;
+  const byAccount = new Map();
+  const byCounter = new Map();
+  const assigned = new Map();
+  for (const user of data) {
+    const name = String(user.display_name ?? '').trim();
+    if (name) byAccount.set(String(user.id_num), name);
+    const number = String(user.doctor_name ?? '').trim().toLowerCase().match(/^(?:doctor\s*)?([123])$/)?.[1];
+    if (user.role === 'admin' && !user.archived_at && number) {
+      const counter = `Doctor ${number}`;
+      assigned.set(counter, (assigned.get(counter) || 0) + 1);
+      if (name) byCounter.set(counter, name);
+    }
+  }
+  for (const [counter, count] of assigned) if (count !== 1) byCounter.delete(counter);
+  return { byAccount, byCounter };
+}
+
+async function withDisplayNames(category, rows) {
+  let names = null;
+  try { names = await readDisplayNames(); } catch (_error) { names = null; }
+  if (!names) return rows;
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    if (category === 'staff' || category === 'accounts') {
+      const name = names.byAccount.get(String(row.id));
+      return name ? { ...row, display_name: name } : row;
+    }
+    const name = typeof row.doctor === 'string' ? names.byCounter.get(row.doctor) : undefined;
+    return name ? { ...row, doctor_display_name: name } : row;
+  });
+}
+
 router.get('/:category', async (req, res) => {
   const { category } = req.params;
   if (!['patients', 'staff', 'accounts', 'activity'].includes(category)) return res.status(404).json({ message: 'Unknown records category' });
@@ -85,6 +127,7 @@ router.get('/:category', async (req, res) => {
   if (shared) {
     data.rows = data.rows.map((row) => row?.doctor_source === 'service' ? { ...row, doctor: null, doctor_source: 'unassigned' } : row);
   }
+  if (category !== 'activity') data.rows = await withDisplayNames(category, data.rows);
   res.setHeader('Cache-Control', 'no-store');
   return res.json(data);
 });

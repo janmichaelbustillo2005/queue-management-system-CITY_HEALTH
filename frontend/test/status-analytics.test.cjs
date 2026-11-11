@@ -616,3 +616,12 @@ test("malformed or mismatched results fail safely and a manual retry recovers im
   assert.equal([...h.timers.values()].filter(timer => timer.delay === 15000).length, 1);
   h.dispose();
 });
+
+test("EP1: Doctor Performance names each counter by its current display name and keeps the counter ID", async () => {
+  const h = harness({ request: () => ({ ...response(data()), doctor_display_names: { "Doctor 1": "Dr. Juan Dela Cruz" } }) });
+  const tree = await h.settle();
+  const rows = nodes(tree, node => node.type === "th" && node.props.scope === "row").map(content);
+  assert.ok(rows.includes("Dr. Juan Dela Cruz (Doctor 1)"), rows.join(" | "));
+  assert.ok(rows.includes("Doctor 2"), "no display name: counter ID as before");
+  h.dispose();
+});

@@ -144,6 +144,13 @@ const DOCTOR_INFO_MAP = {
   "Doctor 3": { specialty: "Family Planning", badge: "FP", room: "Room 3" }
 };
 
+// EP1: the name shown and spoken for a doctor counter, from GET /display's doctor_display_names.
+// Matching, rooms, badges and announcement keys keep using the counter id ("Doctor 1").
+function doctorDisplayLabel(display, counterId) {
+  const name = display?.doctor_display_names?.[counterId];
+  return typeof name === "string" && name.trim() ? name.trim() : counterId;
+}
+
 function getAnnouncementKey(patient) {
   if (patient?.announcement_key) return patient.announcement_key;
   const eventAt = patient?.announcement_at || patient?.accepted_at;
@@ -725,7 +732,8 @@ export default function QueueDisplayPage() {
     const doctorName = patient.counter_name || "Doctor";
     const room = patient.room || resolveRoom(doctorName);
     const includeRoom = runtimeQueueSettings?.announceDoctorRoom !== false;
-    const destination = includeRoom && room ? `${doctorName}, ${room}` : doctorName;
+    const spokenDoctor = doctorDisplayLabel(displayRef.current, doctorName);
+    const destination = includeRoom && room ? `${spokenDoctor}, ${room}` : spokenDoctor;
     const spokenQueue = formatQueueForSpeech(queueNumber);
     // Public announcements identify the visit by queue number only; patient
     // names and identifiers are never spoken or sent to the voice service.
@@ -964,8 +972,8 @@ export default function QueueDisplayPage() {
             return (
               <div key={counter.id} className="queue-serving-card display-card overflow-hidden border border-[var(--display-border)] flex flex-col shadow-2xl">
                 <div className="queue-serving-card-header bg-[var(--display-card-header)] px-5 py-4 flex items-center justify-between border-b border-[var(--display-border)]">
-                  <div>
-                    <h3 className="text-lg font-bold text-white">{counter.id_num}</h3>
+                  <div className="min-w-0 pr-2">
+                    <h3 className="text-lg font-bold text-white break-words">{doctorDisplayLabel(display, counter.id_num)}</h3>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="bg-[var(--brand-primary)] text-white text-[10px] font-black px-2 py-0.5 rounded shadow-sm">
@@ -1135,9 +1143,9 @@ function WaitingQueueView({ displayData, counters, matchService, visible, visit,
         {pages.map((page) => {
           const info = shared ? { badge: "ALL", room: "Any doctor" } : DOCTOR_INFO_MAP[page.counter.id_num] || { badge: "MD", room: "TBA" };
           return (
-            <section key={page.counter.id} className="display-card queue-waiting-card shadow-2xl" style={{ height: page.layout.cardHeight, ...(shared ? { gridColumn: "1 / -1" } : {}) }} aria-label={`${page.counter.id_num} waiting queue`}>
+            <section key={page.counter.id} className="display-card queue-waiting-card shadow-2xl" style={{ height: page.layout.cardHeight, ...(shared ? { gridColumn: "1 / -1" } : {}) }} aria-label={`${doctorDisplayLabel(displayData, page.counter.id_num)} waiting queue`}>
               <div className="queue-waiting-card-header" style={{ height: page.layout.headerHeight }}>
-                <h3 className="text-lg font-bold text-white">{page.counter.id_num}</h3>
+                <h3 className="text-lg font-bold text-white truncate min-w-0" title={doctorDisplayLabel(displayData, page.counter.id_num)}>{doctorDisplayLabel(displayData, page.counter.id_num)}</h3>
                 <div className="flex items-center gap-2">
                   <span className="bg-[var(--brand-primary)] text-white text-[10px] font-black px-2 py-0.5 rounded shadow-sm">{info.badge}</span>
                   <span className="text-[10px] text-white/60 font-black uppercase">{info.room}</span>
@@ -1145,7 +1153,7 @@ function WaitingQueueView({ displayData, counters, matchService, visible, visit,
               </div>
               <div className="queue-waiting-table-wrap">
                 <p className="queue-waiting-label">Waiting Queue</p>
-                <table aria-label={`${page.counter.id_num} waiting numbers`}>
+                <table aria-label={`${doctorDisplayLabel(displayData, page.counter.id_num)} waiting numbers`}>
                   <thead><tr><th scope="col">Position</th><th scope="col">Queue Number</th><th scope="col">Status</th></tr></thead>
                   <tbody>
                     {page.rows.map((row, index) => (

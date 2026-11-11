@@ -131,3 +131,53 @@ test('D1 shared dispatch asks D1-R for shared attribution and falls back once wh
  const staff=harness(async()=>okResult,'shared');await staff.request('superadmin',{},'staff');
  assert.ok(!('dispatch' in staff.calls[0].args.p_filters),'only patient records carry it');
 });
+
+// EP1: Staff Records, User Accounts and Patient Records show the account's current display name,
+// looked up by the stable account ID; stored IDs, counters and history values are never changed.
+function namedHarness(rows, users) {
+ const auth=load('src/middleware/auth.js',{jsonwebtoken:jwt,'../config/env':{jwtSecret:secret},'../services/presenceService':{validateAuthSession:async()=>({})}});
+ let chain;
+ const router={use:(...handlers)=>chain=handlers,get:(_path,handler)=>chain.push(handler)};
+ const supabase={rpc:async()=>({data:{rows:JSON.parse(JSON.stringify(rows)),total:rows.length,page:1,limit:20}}),
+  from:(table)=>({select:async()=>{assert.equal(table,'users');return typeof users==='function'?users():{data:users,error:null};}})};
+ load('src/routes/records.js',{express:{Router:()=>router},'../middleware/auth':auth,'../config/env':{},'../lib/supabase':supabase},{console:{warn(){},error(){}}});
+ return async(category)=>{
+  const req={headers:{authorization:`Bearer ${jwt.sign({role:'superadmin',id_num:'superadmin',jti:'x'},secret)}`},params:{category},query:{}};
+  const res={code:200,headers:{},status(code){this.code=code;return this;},json(body){this.body=body;return this;},setHeader(){}};
+  async function run(i){if(chain[i]) await chain[i](req,res,()=>run(i+1));}
+  await run(0);
+  // The auth middleware does not await next(); wait for the route to answer.
+  for(let i=0;i<50&&res.body===undefined;i++) await new Promise((resolve)=>setImmediate(resolve));
+  return res;
+ };
+}
+const USERS=[
+ {id_num:'admin1',role:'admin',doctor_name:'Doctor 1',display_name:'Dr. Juan Dela Cruz',archived_at:null},
+ {id_num:'admin2',role:'admin',doctor_name:'Doctor 2',display_name:null,archived_at:null},
+ {id_num:'admin3',role:'admin',doctor_name:'Doctor 3',display_name:'Dr. Archived',archived_at:'2026-11-10T00:00:00Z'},
+ {id_num:'superadmin',role:'superadmin',doctor_name:null,display_name:'Clinic Head',archived_at:null}];
+
+test('EP1: staff and account records carry the current display name by account ID; other fields unchanged',async()=>{
+ const rows=[{id:'admin1',display_name:'Doctor 1',doctor:'Doctor 1',role:'admin'},{id:'admin2',display_name:'Doctor 2',doctor:'Doctor 2',role:'admin'},
+  {id:'superadmin',display_name:'superadmin',doctor:null,role:'superadmin'}];
+ for(const category of ['staff','accounts']) {
+  const res=await namedHarness(rows,USERS)(category);
+  assert.equal(res.code,200);
+  assert.deepEqual(JSON.parse(JSON.stringify(res.body.rows)),[{...rows[0],display_name:'Dr. Juan Dela Cruz'},rows[1],{...rows[2],display_name:'Clinic Head'}]);
+ }
+});
+
+test('EP1: patient records keep the stored counter and add its current doctor name; archived doctors are not named',async()=>{
+ const rows=[{id:1,doctor:'Doctor 1',doctor_source:'assigned'},{id:2,doctor:'Doctor 3',doctor_source:'assigned'},{id:3,doctor:null,doctor_source:'unassigned'}];
+ const res=await namedHarness(rows,USERS)('patients');
+ assert.deepEqual(JSON.parse(JSON.stringify(res.body.rows)),[{...rows[0],doctor_display_name:'Dr. Juan Dela Cruz'},rows[1],rows[2]]);
+});
+
+test('EP1: a failed or missing display-name lookup returns the records unchanged',async()=>{
+ const rows=[{id:'admin1',display_name:'Doctor 1',doctor:'Doctor 1'}];
+ for(const users of [()=>({data:null,error:{code:'42703',message:'column users.display_name does not exist'}}),()=>{throw new Error('fetch failed');}]) {
+  const res=await namedHarness(rows,users)('staff');
+  assert.equal(res.code,200);
+  assert.deepEqual(JSON.parse(JSON.stringify(res.body.rows)),rows);
+ }
+});

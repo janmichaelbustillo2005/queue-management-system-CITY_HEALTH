@@ -123,11 +123,17 @@ function TimeRow({ title, description, metric, samples, sampleWord, better, labe
   </div>;
 }
 
-function DoctorTable({ counters, loading }) {
+// EP1: a counter's current display name, keeping the counter ID it was reported under beside it.
+function doctorRowLabel(names, counterName) {
+  const name = typeof names?.[counterName] === "string" ? names[counterName].trim() : "";
+  return name ? `${name} (${counterName})` : counterName;
+}
+
+function DoctorTable({ counters, loading, names }) {
   return <div className={styles.tableWrap} tabIndex={0} role="region" aria-label="Doctor performance table"><table className={styles.counterTable}>
     <caption>Counts consultations finished during this period, including patients who registered earlier, so the total can differ from the Completed card.</caption>
     <thead><tr><th scope="col">Doctor</th><th scope="col">Patients Completed</th><th scope="col">Average Service Time</th><th scope="col">Total Service Time</th></tr></thead>
-    <tbody>{loading || !counters.length ? <tr><td colSpan={4} className={styles.tableEmpty}>{loading ? "Loading doctor performance…" : "No data available"}</td></tr> : counters.map((counter) => <tr key={counter.id}><th scope="row"><i className="fas fa-user-md" aria-hidden="true" />{counter.name}</th><td>{number(counter.total_served, 0)}</td><td>{minutes(counter.avg_service_minutes)}</td><td>{minutes(counter.total_service_minutes)}</td></tr>)}</tbody>
+    <tbody>{loading || !counters.length ? <tr><td colSpan={4} className={styles.tableEmpty}>{loading ? "Loading doctor performance…" : "No data available"}</td></tr> : counters.map((counter) => <tr key={counter.id}><th scope="row"><i className="fas fa-user-md" aria-hidden="true" />{doctorRowLabel(names, counter.name)}</th><td>{number(counter.total_served, 0)}</td><td>{minutes(counter.avg_service_minutes)}</td><td>{minutes(counter.total_service_minutes)}</td></tr>)}</tbody>
   </table></div>;
 }
 
@@ -176,7 +182,7 @@ export default function StatusAnalytics({ enabled = true }) {
         if (timedOut) throw new Error("The request timed out. Retrying automatically.");
         if (response?.error || response?.success !== true || !response?.data) throw new Error(response?.error || response?.message || "Unable to load status analytics.");
         if (!isStatusAnalyticsData(response.data, filters)) throw new Error("The server returned an invalid or mismatched status analytics result.");
-        if (!controller.signal.aborted) { hasResult = true; setResult({ key: filterKey, data: response.data }); setError(""); }
+        if (!controller.signal.aborted) { hasResult = true; setResult({ key: filterKey, data: response.data, names: response.doctor_display_names || {} }); setError(""); }
       } catch (problem) {
         if (!disposed) setError(timedOut ? "The request timed out. Retrying automatically." : problem?.message || "Unable to load status analytics.");
       } finally {
@@ -225,7 +231,7 @@ export default function StatusAnalytics({ enabled = true }) {
           samples={data?.duration_samples?.service} sampleWord="consultation" better="neutral" label={label} loading={pending} />
       </article>
     </div>
-    <article className={`${styles.panel} ${styles.tablePanel}`}><PanelHeading title="Doctor Performance" description="Consultations each doctor finished in the selected period." color="#64748b" icon="fas fa-user-md" /><DoctorTable counters={data?.counters || []} loading={pending} /></article>
+    <article className={`${styles.panel} ${styles.tablePanel}`}><PanelHeading title="Doctor Performance" description="Consultations each doctor finished in the selected period." color="#64748b" icon="fas fa-user-md" /><DoctorTable counters={data?.counters || []} names={result?.names} loading={pending} /></article>
     <details className={styles.dataNotes}><summary><i className="fas fa-info-circle" aria-hidden="true" />How to read these numbers</summary><ul>{HOW_TO_READ.map((note) => <li key={note}>{note}</li>)}</ul></details>
   </section>;
 }

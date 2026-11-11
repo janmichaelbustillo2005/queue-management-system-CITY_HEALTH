@@ -105,6 +105,7 @@ async function harness(initialRows, options = {}) {
       if (name === "../components/SiteFrame") return () => {};
       if (name === "../components/SettingsModal") return { __esModule: true, default: () => {}, defaultQueueSettings: settings };
       if (name === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
+      if (name === "../components/StaffProfileDialog") return { StaffProfileDialog: () => null };
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,
         applyCounterAvailability: value => value, clearActiveQueues: async () => ({ success: true }),
@@ -680,4 +681,31 @@ test("Queue Management keeps its own actions and does not gain Patient Managemen
   assert.deepEqual(lastFinal.map(node => node.props.title), ["More actions"], "the latest final visit keeps only the three-dot menu");
   lastFinal[0].props.onClick();
   assert.deepEqual(buttons(queueRow(h.render(), "OB-043"), "Undo").length, 1, "the three-dot menu still opens Undo");
+});
+
+test("EP1: Superadmin monitoring, filters, assignments and transfers show display names; values stay counter ids", async () => {
+  const names = { "Doctor 1": "Dr. Juan Dela Cruz", "Doctor 2": "Dr. Maria Santos" };
+  const h = await harness([serving(1, { consultation_started_at: "2026-10-10T01:02:00Z" }),
+    { ...patient(2, "prenatal", 1, "2026-10-10T01:02:00Z"), counter_id: "Doctor 2" }], {
+    counters: [doctor(1, { current_patient_id: 1 }), doctor(2), doctor(3)],
+    backendExtra: { ...roundRobin({ interventions: [{ patient_id: 1, doctor: "Doctor 1" }] }, (doctors) => {
+      Object.assign(doctors[0], { signed_in: false, serving_patient_id: 1, eligible: false });
+      Object.assign(doctors[2], { serving_patient_id: 9, eligible: false });
+    }), doctor_display_names: names } });
+  const tree = await h.flush();
+  const content = text(tree);
+  // Doctor monitoring cards.
+  assert.equal(nodes(tree, (node) => node.type === "h4" && text(node) === "Dr. Juan Dela Cruz").length, 1);
+  assert.equal(nodes(tree, (node) => node.type === "h4" && text(node) === "Doctor 3").length, 1, "no display name: counter id");
+  // Assignment text and the intervention notice.
+  assert.match(content, /Assigned to Dr\. Maria Santos, waiting for the doctor to call/);
+  assert.match(content, /Dr\. Juan Dela Cruz signed out during an active consultation/);
+  // Doctor filter: label is the display name, value is still the counter id.
+  const option = nodes(tree, (node) => node.type === "option" && node.props.value === "Doctor 2")[0];
+  assert.equal(text(option), "Dr. Maria Santos");
+  // Transfer: label shows the name, the request still names the counter.
+  const transfer = nodes(tree, (node) => node.type === "button" && /Transfer to/.test(text(node)));
+  assert.deepEqual(transfer.map((node) => text(node).trim()), ["Transfer to Dr. Maria Santos"]);
+  await transfer[0].props.onClick();
+  assert.deepEqual(h.actions, [{ route: "/queue/transfer", method: "POST", body: { patient_id: 1, doctor: "Doctor 2" } }]);
 });

@@ -307,3 +307,10 @@ test("D1 shared dispatch: a never-called visit reads as unassigned, separate fro
   assert.deepEqual(plain(view.cellsOf(uncalled).slice(2, 4)), ["Prenatal", "Unassigned (not called)"]);
   assert.deepEqual(plain(view.cellsOf(treated).slice(2, 4)), ["Prenatal", "Doctor 1"], "the treating doctor, not the service doctor");
 });
+
+test("EP1: the patient doctor cell shows the current doctor name beside the stored counter", () => {
+  const { recordCell } = loadTable();
+  assert.equal(recordCell({ doctor: "Doctor 1", doctor_source: "assigned", doctor_display_name: "Dr. Juan Dela Cruz" }, "doctor"), "Dr. Juan Dela Cruz (Doctor 1)");
+  assert.equal(recordCell({ doctor: "Doctor 2", doctor_source: "service", doctor_display_name: "Dr. Maria Santos" }, "doctor"), "Dr. Maria Santos (Doctor 2, by service)");
+  assert.equal(recordCell({ doctor: "Doctor 1", doctor_source: "assigned" }, "doctor"), "Doctor 1", "no name: unchanged");
+});

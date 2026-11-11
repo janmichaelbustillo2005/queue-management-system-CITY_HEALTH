@@ -6,6 +6,7 @@ import {
   QUEUE_STATUS_COUNTERS,
   belongsToDoctor,
   countQueueStatuses,
+  doctorDisplayName,
   formatQueueDate,
   formatQueueTime,
   isDoctorOnline,
@@ -86,7 +87,8 @@ export default function PatientQueueTable({
   onConfirm,
   onViewTicket,
   ticketLoadingId = null,
-  dispatchMode = "service"
+  dispatchMode = "service",
+  doctorNames = {}
 }) {
   const shared = dispatchMode === SHARED_DISPATCH;
 
@@ -154,7 +156,7 @@ export default function PatientQueueTable({
     if (data?.error) {
       throw new Error(data.error);
     }
-    onNotify("success", `${doctorName}: ${data.message || fallbackMessage}`);
+    onNotify("success", `${doctorDisplayName(doctorNames, doctorName)}: ${data.message || fallbackMessage}`);
     await onRefresh();
   }
 
@@ -193,12 +195,12 @@ export default function PatientQueueTable({
 
   function handleCancel(row, doctorName) {
     if (!isHead(row, doctorName)) {
-      onNotify("error", `You can only cancel the first patient in ${doctorName}'s queue.`);
+      onNotify("error", `You can only cancel the first patient in ${doctorDisplayName(doctorNames, doctorName)}'s queue.`);
       return;
     }
     onConfirm({
       title: "Cancel Patient",
-      message: `Cancel ${row.id_num} (${row.queue_number}) from ${doctorName}'s queue? Please enter a reason for canceling.`,
+      message: `Cancel ${row.id_num} (${row.queue_number}) from ${doctorDisplayName(doctorNames, doctorName)}'s queue? Please enter a reason for canceling.`,
       showReason: true,
       requireReason: true,
       onConfirm: (reason) =>
@@ -337,7 +339,7 @@ export default function PatientQueueTable({
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2 font-semibold brand-text text-sm whitespace-nowrap">
                       <i className="fas fa-user-md text-blue-600" />
-                      {queueDoctorLabel(doctorName, row.status)}
+                      {queueDoctorLabel(doctorName, row.status, doctorNames)}
                     </div>
                     {doctorName != null && !doctorStates[doctorName].online ? (
                       <span className="text-[10px] font-bold uppercase tracking-wider brand-text-muted">Offline</span>

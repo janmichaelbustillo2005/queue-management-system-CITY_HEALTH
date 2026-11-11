@@ -53,6 +53,9 @@ const {
   archiveUser,
   restoreUser,
   deleteArchivedUser,
+  getStaffProfile,
+  updateStaffProfile,
+  getDoctorDisplayNames,
   createAccountCancellationRequest,
   getAccountCancellationRequests,
   getMyAccountCancellationRequest,
@@ -186,10 +189,21 @@ router.get("/doctors/presence", authenticateToken, authorizeRole(["superadmin"])
   }
 });
 
+// EP1 doctor display names only label counters: a missing or failing lookup returns no names
+// (screens show "Doctor N") and never fails the response it is attached to.
+async function doctorDisplayNamesOrNone() {
+  try {
+    return (typeof getDoctorDisplayNames === "function" && await getDoctorDisplayNames()) || {};
+  } catch {
+    return {};
+  }
+}
+
 router.get("/queue", authenticateToken, async (_req, res) => {
   try {
-    const data = await getQueueOverview();
-    res.json({ success: true, ...data });
+    // EP1: staff screens label doctor counters with the assigned account's display name.
+    const [data, doctorDisplayNames] = await Promise.all([getQueueOverview(), doctorDisplayNamesOrNone()]);
+    res.json({ success: true, ...data, doctor_display_names: doctorDisplayNames });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -672,8 +686,10 @@ router.get("/stats", async (_req, res) => {
 
 router.get("/display", async (_req, res) => {
   try {
-    const data = await getDisplayData();
-    res.json(data);
+    // EP1: the public board names each doctor counter with its display name. Only
+    // counter id -> display name is published (no account IDs or other account fields).
+    const [data, doctorDisplayNames] = await Promise.all([getDisplayData(), doctorDisplayNamesOrNone()]);
+    res.json({ ...data, doctor_display_names: doctorDisplayNames });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -707,9 +723,10 @@ router.get("/analytics/daily-trends", authenticateToken, authorizeRole(["superad
 router.get("/analytics/status", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
     const { getStatusAnalytics } = require("../services/statusAnalyticsService");
-    const data = await getStatusAnalytics(req.query);
+    const [data, doctorDisplayNames] = await Promise.all([getStatusAnalytics(req.query), doctorDisplayNamesOrNone()]);
     res.setHeader("Cache-Control", "no-store");
-    res.json({ success: true, data });
+    // EP1: beside `data` (whose shape the page validates), counter id -> current display name.
+    res.json({ success: true, data, doctor_display_names: doctorDisplayNames });
   } catch (error) {
     res.status(error.statusCode || 503).json({ success: false, message: error.message });
   }
@@ -829,6 +846,27 @@ router.delete("/users/:id_num", authenticateToken, authorizeRole(["superadmin"])
     res.json({ success: true, message: "Archived account permanently deleted" });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+// EP1 Edit Profile. Superadmin only; changes the display name and nothing else (the service
+// rejects any other field). Archived accounts must be restored before they can be edited.
+router.get("/users/:id_num/profile", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const profile = await getStaffProfile(req.params.id_num);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, profile });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+router.put("/users/:id_num/profile", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const profile = await updateStaffProfile(req.params.id_num, req.body, req.user);
+    res.json({ success: true, profile, message: "Profile Updated Successfully" });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message, field: error.field });
   }
 });
 

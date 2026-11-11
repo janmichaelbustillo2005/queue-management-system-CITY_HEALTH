@@ -3494,46 +3494,68 @@ function isMissingArchiveColumnError(error) {
     /archived_(at|by)/i.test(String(error.message || "")));
 }
 
+// EP1 adds users.display_name: a presentation-only staff name. doctor_name stays the
+// doctor/front-desk assignment that queue routing matches against and is never edited by EP1.
+const STAFF_PROFILE_MIGRATION = "backend/scripts/20261111-ep1-staff-display-name.sql";
+
+function isMissingColumnError(error) {
+  return Boolean(error) && (error.code === "42703" || error.code === "PGRST204");
+}
+
+function isMissingDisplayNameColumnError(error) {
+  return isMissingColumnError(error) && /display_name/i.test(String(error.message || ""));
+}
+
 function toStaffAccount(u) {
   return { id_num: u.id_num, role: u.role, doctor_name: u.doctor_name ?? null,
+    display_name: u.display_name ?? null,
     archived_at: u.archived_at || null, archived_by: u.archived_by || null };
 }
 
-// Every account with its archive state, ordered by id_num. Before AR1 is installed the archive
-// columns do not exist, so no account can be archived and every account is active.
-async function readStaffAccounts() {
-  if (useLocalFallback) return localData.users.map(toStaffAccount);
+// Every account with its archive state and display name, ordered by id_num, plus which optional
+// columns exist. Before AR1 is installed the archive columns do not exist, so no account can be
+// archived and every account is active; before EP1 no account has a display name.
+async function readStaffAccountsWithColumns() {
+  if (useLocalFallback) {
+    return { accounts: localData.users.map(toStaffAccount), displayNameSupported: true };
+  }
 
   // users has no creation timestamp on the installed schema; never select or invent one.
+  let optional = ["archived_at", "archived_by", "display_name"];
   try {
-    let { data, error } = await supabase
-      .from("users")
-      .select("id_num, role, doctor_name, archived_at, archived_by")
-      .order("id_num", { ascending: true });
-
-    if (error && isMissingArchiveColumnError(error)) {
-      ({ data, error } = await supabase
+    for (;;) {
+      const { data, error } = await supabase
         .from("users")
-        .select("id_num, role, doctor_name")
-        .order("id_num", { ascending: true }));
-    }
-    if (error) {
-      enableLocalFallback(error);
-      return readStaffAccounts();
-    }
+        .select(["id_num", "role", "doctor_name", ...optional].join(", "))
+        .order("id_num", { ascending: true });
 
-    return (data || []).map(toStaffAccount);
+      if (!error) {
+        return { accounts: (data || []).map(toStaffAccount), displayNameSupported: optional.includes("display_name") };
+      }
+      if (!optional.length || !(isMissingColumnError(error) || isMissingArchiveColumnError(error))) {
+        enableLocalFallback(error);
+        return readStaffAccountsWithColumns();
+      }
+      // Drop the column(s) the error names; when it names none, fall back to the base columns.
+      const named = optional.filter((column) => new RegExp(`\\b${column}\\b`, "i").test(String(error.message || "")));
+      const missing = named.some((column) => column.startsWith("archived_")) ? [...named, "archived_at", "archived_by"] : named;
+      optional = missing.length ? optional.filter((column) => !missing.includes(column)) : [];
+    }
   } catch (err) {
     enableLocalFallback(err);
-    return readStaffAccounts();
+    return readStaffAccountsWithColumns();
   }
+}
+
+async function readStaffAccounts() {
+  return (await readStaffAccountsWithColumns()).accounts;
 }
 
 // Active staff only (the Staff Management list).
 async function getUsers() {
   return (await readStaffAccounts())
     .filter((u) => !u.archived_at)
-    .map(({ id_num, role, doctor_name }) => ({ id_num, role, doctor_name }));
+    .map(({ id_num, role, doctor_name, display_name }) => ({ id_num, role, doctor_name, display_name }));
 }
 
 // Archived staff only (the Staff Archives modal), most recently archived first.
@@ -3776,6 +3798,154 @@ async function deleteArchivedUser(id_num, actor) {
   if (data === null && useLocalFallback) return deleteArchivedUser(id_num, actor);
   logStaffAccountAction("permanently-deleted", { target: id_num, actor: actorId });
   return toStaffAccount(data);
+}
+
+// ---- EP1 display names for doctor counters ----
+// Counter id ("Doctor 1") -> the display name of the ONE active account assigned to it through
+// users.doctor_name. Counter ids stay the permanent reference for queues, dispatch and history;
+// this only labels them. No entry (the UI keeps "Doctor N") when no display name is set, the
+// assignment is ambiguous, EP1 is not installed, or the read fails. Never switches the service
+// to local fallback: it runs on every queue poll.
+function doctorCounterOf(assignment) {
+  const number = String(assignment ?? "").trim().toLowerCase().match(/^(?:doctor\s*)?(\d+)$/)?.[1];
+  const counter = number ? `Doctor ${Number(number)}` : null;
+  return DOCTOR_NAMES.includes(counter) ? counter : null;
+}
+
+function mapDoctorDisplayNames(accounts) {
+  const names = {};
+  for (const counter of DOCTOR_NAMES) {
+    const assigned = accounts.filter((u) => u.role === "admin" && !u.archived_at && doctorCounterOf(u.doctor_name) === counter);
+    const name = assigned.length === 1 ? String(assigned[0].display_name ?? "").trim() : "";
+    if (name) names[counter] = name;
+  }
+  return names;
+}
+
+async function getDoctorDisplayNames() {
+  if (useLocalFallback) return mapDoctorDisplayNames(localData.users);
+  const read = (columns) => supabase.from("users").select(columns);
+  try {
+    let { data, error } = await read("role, doctor_name, display_name, archived_at");
+    if (error && isMissingArchiveColumnError(error) && !isMissingDisplayNameColumnError(error)) {
+      ({ data, error } = await read("role, doctor_name, display_name"));
+    }
+    return error ? {} : mapDoctorDisplayNames(data || []);
+  } catch {
+    return {};
+  }
+}
+
+// ---- EP1 Edit Profile (Superadmin, Staff Management) ----
+// Only display_name is editable. User ID (primary key, referenced by sessions, requests and
+// history), role, password, doctor_name (queue assignment) and archive state are never written
+// here: they keep their own workflows. Archived accounts are edited only after a restore.
+const STAFF_PROFILE_EDITABLE = ["display_name"];
+const MAX_DISPLAY_NAME_LENGTH = 100;
+// Same set as the database CHECK's [[:cntrl:]] (C0, DEL and C1 controls).
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
+
+function profileFieldError(field, message) {
+  const error = staffError(message, 400);
+  error.field = field;
+  return error;
+}
+
+function staffProfileView(account, displayNameSupported) {
+  return { id_num: account.id_num, role: account.role, doctor_name: account.doctor_name ?? null,
+    display_name: account.display_name ?? null, display_name_supported: displayNameSupported };
+}
+
+// Trims and collapses inner whitespace. Empty clears the display name (the list then shows the
+// assignment label, as before EP1).
+function normalizeDisplayName(value) {
+  if (value === null) return null;
+  if (typeof value !== "string") throw profileFieldError("display_name", "Display name must be text.");
+  if (CONTROL_CHARACTERS.test(value.replace(/[\t\n\r ]/g, " "))) {
+    throw profileFieldError("display_name", "Display name cannot contain control characters.");
+  }
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  if ([...normalized].length > MAX_DISPLAY_NAME_LENGTH) {
+    throw profileFieldError("display_name", `Display name must be ${MAX_DISPLAY_NAME_LENGTH} characters or fewer.`);
+  }
+  return normalized;
+}
+
+function validateProfileUpdate(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw staffError("A profile update is required.", 400);
+  const protectedKeys = Object.keys(body).filter((key) => !STAFF_PROFILE_EDITABLE.includes(key));
+  if (protectedKeys.length) {
+    throw staffError("Edit Profile can only change the display name. User IDs, roles, passwords, " +
+      "doctor assignments and archive status are not changed here.", 400);
+  }
+  if (!("display_name" in body)) throw profileFieldError("display_name", "A display name value is required.");
+  return { display_name: normalizeDisplayName(body.display_name) };
+}
+
+function profileNotInstalledError() {
+  return staffError(`Staff display names are not installed. Apply ${STAFF_PROFILE_MIGRATION} to the approved Supabase project.`, 503);
+}
+
+async function findActiveStaffAccount(id_num) {
+  const { accounts, displayNameSupported } = await readStaffAccountsWithColumns();
+  const account = accounts.find((u) => u.id_num === id_num);
+  if (!account) throw staffError("Staff account not found", 404);
+  if (account.archived_at) {
+    throw staffError("This account is archived. Restore it from Archives before editing its profile.", 409);
+  }
+  return { account, displayNameSupported };
+}
+
+// The selected account's current profile, read fresh for the Edit Profile modal.
+async function getStaffProfile(id_num) {
+  const { account, displayNameSupported } = await findActiveStaffAccount(String(id_num ?? ""));
+  return staffProfileView(account, displayNameSupported);
+}
+
+async function updateStaffProfile(id_num, body, actor) {
+  const actorId = requireActor(actor);
+  const target = String(id_num ?? "");
+  const updates = validateProfileUpdate(body);
+
+  if (useLocalFallback) {
+    const user = localData.users.find((u) => u.id_num === target);
+    if (!user) throw staffError("Staff account not found", 404);
+    if (user.archived_at) throw staffError("This account is archived. Restore it from Archives before editing its profile.", 409);
+    user.display_name = updates.display_name;
+    logStaffAccountAction("profile-updated", { target, actor: actorId, detail: "fields=display_name" });
+    return staffProfileView(toStaffAccount(user), true);
+  }
+
+  // One conditional UPDATE of display_name only. Postgres re-checks archived_at IS NULL after
+  // taking the row lock, so an edit racing an archive never lands on the archived row.
+  const run = (withArchiveGuard) => {
+    let query = supabase.from("users").update(updates).eq("id_num", target);
+    if (withArchiveGuard) query = query.is("archived_at", null);
+    return query.select("id_num, role, doctor_name, display_name").maybeSingle();
+  };
+  let result;
+  try {
+    result = await run(true);
+    if (result.error && isMissingArchiveColumnError(result.error) && !isMissingDisplayNameColumnError(result.error)) {
+      result = await run(false); // AR1 not installed: no account can be archived.
+    }
+  } catch (err) {
+    // A failed write never silently switches to another storage system.
+    throw staffError(err?.message || "Failed to update the profile. Nothing was changed.", 503);
+  }
+  const { data, error } = result;
+  if (error) {
+    if (isMissingDisplayNameColumnError(error)) throw profileNotInstalledError();
+    if (error.code === "23514") throw profileFieldError("display_name", "Display name is not valid.");
+    throw staffError(error.message || "Failed to update the profile. Nothing was changed.", 500);
+  }
+  if (!data) {
+    await findActiveStaffAccount(target); // throws 404 / 409 with the reason
+    throw staffError("The profile was not updated. Refresh Staff Management and try again.", 409);
+  }
+  logStaffAccountAction("profile-updated", { target, actor: actorId, detail: "fields=display_name" });
+  return staffProfileView(toStaffAccount(data), true);
 }
 
 function mapCancellationRequest(row) {
@@ -4081,6 +4251,9 @@ module.exports = {
   archiveUser,
   restoreUser,
   deleteArchivedUser,
+  getStaffProfile,
+  updateStaffProfile,
+  getDoctorDisplayNames,
   createAccountCancellationRequest,
   getAccountCancellationRequests,
   getMyAccountCancellationRequest,

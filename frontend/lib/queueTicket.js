@@ -29,7 +29,9 @@ function sameId(left, right) {
 }
 
 /** Deliberately whitelist ticket data; never carry the patient row into exports. */
-export function createQueueTicket(patient, { dispatchMode } = {}) {
+// `doctorNames` is GET /queue's doctor_display_names (counter id -> current display name). The
+// counter stays on the ticket because the public queue display announces counters ("Doctor 1").
+export function createQueueTicket(patient, { dispatchMode, doctorNames } = {}) {
   if (!patient || patient.id == null || !String(patient.id).trim() || !patient.queue_number) {
     throw new Error("The saved patient record does not have a queue ticket.");
   }
@@ -42,11 +44,13 @@ export function createQueueTicket(patient, { dispatchMode } = {}) {
   const provisional = dispatchMode === SHARED_DISPATCH && patient.status === "waiting";
   const assignedDoctor = !provisional && ["Doctor 1", "Doctor 2", "Doctor 3"].includes(patient.counter_id)
     ? patient.counter_id : dispatchMode === SHARED_DISPATCH ? NEXT_AVAILABLE_DOCTOR : doctorForService(patient.service_type);
+  const displayName = assignedDoctor !== NEXT_AVAILABLE_DOCTOR && typeof doctorNames?.[assignedDoctor] === "string"
+    ? doctorNames[assignedDoctor].trim() : "";
   return {
     patientId: patient.id,
     queueNumber: String(patient.queue_number),
     serviceLabel: SERVICE_LABELS[patient.service_type] || "Service unavailable",
-    doctorName: assignedDoctor,
+    doctorName: displayName ? `${displayName} (${assignedDoctor})` : assignedDoctor,
     registeredDate: validDate ? registeredAt.toLocaleDateString("en-US", {
       month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila"
     }) : "Unavailable",
@@ -83,7 +87,7 @@ export async function fetchExistingQueueTicket(patientId) {
   if (!Array.isArray(data?.patients)) throw new Error("Ticket information could not be verified. Please retry.");
   const patient = data.patients.find(row => sameId(row.id, patientId));
   if (!patient) throw new Error("This ticket is no longer available in today's patient queue. No new registration was created.");
-  return createQueueTicket(patient, { dispatchMode: data.dispatch_mode });
+  return createQueueTicket(patient, { dispatchMode: data.dispatch_mode, doctorNames: data.doctor_display_names });
 }
 
 export function escapeTicketText(value) {
@@ -119,7 +123,7 @@ export function queuePassSvgContents(ticket, logoHref = SYSTEM_BRANDING.logoSrc)
       <rect x="48" y="371" width="664" height="139" rx="18" fill="#f1f7f3"/>
       <text x="380" y="410" text-anchor="middle" fill="#355347" font-size="22" font-weight="700">SERVICE</text>
       <text x="380" y="456" text-anchor="middle" fill="#0b3d2e" font-size="${serviceSize}" font-weight="700">${esc(ticket.serviceLabel)}</text>
-      <text x="380" y="492" text-anchor="middle" fill="#355347" font-size="25">${ticket.doctorName === NEXT_AVAILABLE_DOCTOR ? "Doctor assigned when called" : `Assigned to ${esc(ticket.doctorName)}`}</text>
+      <text x="380" y="492" text-anchor="middle" fill="#355347" font-size="25"${String(ticket.doctorName).length > 36 ? ' textLength="630" lengthAdjust="spacingAndGlyphs"' : ""}>${ticket.doctorName === NEXT_AVAILABLE_DOCTOR ? "Doctor assigned when called" : `Assigned to ${esc(ticket.doctorName)}`}</text>
       <path d="M25 549 H735" fill="none" stroke="#9cb9a7" stroke-width="2" stroke-dasharray="9 9"/>
       <circle cx="1" cy="549" r="14" fill="#f6f8f7"/><circle cx="759" cy="549" r="14" fill="#f6f8f7"/>
       <text x="48" y="598" fill="#355347" font-size="22" font-weight="700">REGISTERED · PHT</text>

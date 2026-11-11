@@ -148,7 +148,7 @@ export default function SiteFrame({
           {title ? (
             <div className="app-page-title">
               {icon ? <i className={icon} aria-hidden="true" /> : null}
-              <h1>{title}</h1>
+              <h1 title={typeof title === "string" ? title : undefined}>{title}</h1>
             </div>
           ) : null}
           <div className="app-header-tools">

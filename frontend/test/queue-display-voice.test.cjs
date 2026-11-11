@@ -1753,3 +1753,29 @@ test("D1 shared dispatch: the waiting view is one list in the backend's priority
   assert.equal(groups[0].counter, sharedContext.api.SHARED_WAITING_COUNTER);
   assert.deepEqual(waitingGroupIds(groups), [[7, 3]], "services are not split by doctor; serving/finished rows are excluded");
 });
+
+test("EP1: the board and the announcement use the doctor's display name; keys and the voice doctor label stay the counter", async () => {
+  const harness = createDisplayHarness();
+  harness.seed();
+  const acceptedAt = "2026-10-10T01:01:00.000Z";
+  const event = {
+    id: 202, queue_number: "PN-008", status: "serving", called_at: "2026-10-10T01:00:00.000Z", accepted_at: acceptedAt,
+    announcement_at: acceptedAt, announcement_key: "202:accepted:2026-10-10T01:01:00.000Z:key-1", event_type: "accepted", counter_name: "Doctor 2"
+  };
+  await harness.poll({ voice_announcements: [event], recent_accepted: [], doctor_display_names: { "Doctor 2": "Dr. Maria Santos" } });
+  assert.equal(harness.speech.length, 1);
+  assert.equal(harness.speech[0].text, "Now calling queue number P N 0 0 8, please proceed to Dr. Maria Santos, Room 2.");
+  assert.equal(harness.speech[0].doctor_name, "Doctor 2");
+  assert.equal(harness.speech[0].key, event.announcement_key);
+
+  const render = await waitingViewHarness();
+  const headings = (names) => waitingNodes(render({ displayData: { waiting_queue: [], doctor_display_names: names }, visible: true, visit: 1 }),
+    (node) => node.type === "h3").map((node) => node.props.children);
+  assert.deepEqual(headings({ "Doctor 1": "Nurse 1" }), ["Nurse 1", "Doctor 2", "Doctor 3"]);
+  assert.deepEqual(headings(undefined), ["Doctor 1", "Doctor 2", "Doctor 3"], "no names: unchanged");
+  render.unmount();
+});
+
+test("EP1: the serving cards are titled by display name, falling back to the counter", () => {
+  assert.match(source, /<h3 className="text-lg font-bold text-white break-words">\{doctorDisplayLabel\(display, counter\.id_num\)\}<\/h3>/);
+});

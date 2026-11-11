@@ -47,9 +47,12 @@ const {
   setCounterOnline,
   loginUser,
   getUsers,
+  getArchivedUsers,
   createUser,
   updateUser,
-  deleteUser,
+  archiveUser,
+  restoreUser,
+  deleteArchivedUser,
   createAccountCancellationRequest,
   getAccountCancellationRequests,
   getMyAccountCancellationRequest,
@@ -78,11 +81,11 @@ async function afterQueueChange() {
   return roundRobinDispatch() ? requestDispatch() : null;
 }
 
-// The doctor the dispatcher just gave this visit, for the registration confirmation.
-function assignedDoctorFor(dispatch, visitId) {
+// RR1: the doctor round robin assigned at registration, read from the saved visit itself (the
+// same counter_id every dashboard shows), for the registration confirmation.
+function assignedDoctorFor(_dispatch, visit) {
   if (!roundRobinDispatch()) return {};
-  const entry = (dispatch?.assigned || []).find((item) => Number(item.patient_id) === Number(visitId));
-  return { assigned_doctor: entry?.doctor ?? null };
+  return { assigned_doctor: visit?.counter_id ?? null };
 }
 
 function readRecordFilters(query, defaultDateFilter = "") {
@@ -217,7 +220,7 @@ router.post("/queue", authenticateToken, async (req, res) => {
       success: true,
       queue_number: row.queue_number,
       priority_score: row.priority_score,
-      ...assignedDoctorFor(dispatch, row.id),
+      ...assignedDoctorFor(dispatch, row),
       message: "Patient added successfully"
     });
   } catch (error) {
@@ -295,7 +298,7 @@ router.post("/patient-records/visits", authenticateToken, async (req, res) => {
       success: true,
       queue_number: visit.queue_number,
       priority_score: visit.priority_score,
-      ...assignedDoctorFor(dispatch, visit.id),
+      ...assignedDoctorFor(dispatch, visit),
       patient_record: record,
       patient_record_created: recordCreated
     });
@@ -787,10 +790,43 @@ router.put("/users/:id_num", authenticateToken, authorizeRole(["superadmin"]), a
   }
 });
 
+// AR1 staff archiving. Archive is a soft delete (row kept, sessions revoked, login refused);
+// permanent deletion is only possible for an account that is already archived. The database
+// functions re-check that the caller is an active Superadmin under lock.
+router.get("/users/archived", authenticateToken, authorizeRole(["superadmin"]), async (_req, res) => {
+  try {
+    const users = await getArchivedUsers();
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, users });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/users/:id_num/archive", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const user = await archiveUser(req.params.id_num, req.user);
+    // Archiving signs the account out: let round-robin dispatch release its pending visits.
+    await afterQueueChange();
+    res.json({ success: true, user, message: "Account archived" });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/users/:id_num/restore", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
+  try {
+    const user = await restoreUser(req.params.id_num, req.user);
+    res.json({ success: true, user, message: "Account restored" });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
 router.delete("/users/:id_num", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {
-    await deleteUser(req.params.id_num, req.user);
-    res.json({ success: true, message: "User deleted successfully" });
+    await deleteArchivedUser(req.params.id_num, req.user);
+    res.json({ success: true, message: "Archived account permanently deleted" });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -855,16 +891,20 @@ router.post("/account-cancellation-requests/:id/process", authenticateToken, aut
       processed_by: req.user.id_num,
       admin_notes
     });
+    if (requestRow.account_outcome === "archived") await afterQueueChange();
 
     res.json({
       success: true,
       request: requestRow,
       message: action === "approve"
-        ? "Cancellation approved. Doctor account has been removed."
+        ? (requestRow.account_outcome === "archived"
+          ? "Cancellation approved. Doctor account has been archived."
+          : "Cancellation approved. The doctor account was already archived or no longer exists.")
         : "Cancellation request rejected. Doctor account remains active."
     });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    // AR1 errors carry their own status (403 actor, 409 state, 503 migration missing).
+    res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
 

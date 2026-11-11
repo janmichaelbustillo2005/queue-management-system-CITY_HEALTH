@@ -1,0 +1,65 @@
+// lib/queueView.js: the display, counter and filter rules shared by Front Desk Patient Management
+// and Superadmin Queue Management. Read-only helpers: nothing here assigns a doctor or changes a record.
+const { before, test } = require("node:test");
+const assert = require("node:assert/strict");
+const swc = require("next/dist/build/swc");
+const { loadQueueView } = require("./queue-view-module.cjs");
+
+let q;
+const plain = (value) => JSON.parse(JSON.stringify(value)); // values from the vm realm
+before(async () => { await swc.loadBindings(); q = loadQueueView(); });
+
+const DOCTORS = ["Doctor 1", "Doctor 2", "Doctor 3"];
+const row = (overrides) => ({ id: 1, id_num: "Ana Cruz", queue_number: "GP-001", service_type: "consultation",
+  status: "waiting", counter_id: null, created_at: "2026-11-10T04:22:00Z", ...overrides });
+
+test("the shown doctor is the assigned doctor, else the service doctor; shared dispatch leaves waiting visits unassigned", () => {
+  assert.equal(q.queueDoctorName(row({ counter_id: "Doctor 3" })), "Doctor 3");
+  assert.equal(q.queueDoctorName(row({ service_type: "maternity" })), "Doctor 2");
+  assert.equal(q.queueDoctorName(row({ service_type: "family_planning" })), "Doctor 3");
+  assert.equal(q.queueDoctorName(row({ service_type: "nutrition" })), "Doctor 1", "the backend's default route");
+  assert.equal(q.queueDoctorName(row(), true), null);
+  assert.equal(q.queueDoctorLabel(null, "waiting"), "Next available");
+  assert.equal(q.queueDoctorLabel(null, "cancelled"), "Unassigned");
+  const record = row();
+  q.queueDoctorName(record);
+  assert.equal(record.counter_id, null, "display never assigns a doctor");
+});
+
+test("counters count the four statuses from the records, per dispatch mode, and ignore other statuses", () => {
+  const rows = [row({ id: 1 }), row({ id: 2, status: "serving", counter_id: "Doctor 1" }),
+    row({ id: 3, status: "completed", counter_id: "Doctor 2" }), row({ id: 4, status: "cancelled", counter_id: "Doctor 2" }),
+    row({ id: 5, status: "no-show", counter_id: "Doctor 1" }), row({ id: 6, status: "cancelled" })];
+  assert.deepEqual(plain(q.countQueueStatuses(rows, DOCTORS)), { waiting: 1, serving: 1, completed: 1, cancelled: 2 });
+  assert.deepEqual(plain(q.countQueueStatuses(rows, ["Doctor 2"])), { waiting: 0, serving: 0, completed: 1, cancelled: 1 });
+  assert.deepEqual(plain(q.countQueueStatuses(rows, DOCTORS, true)), { waiting: 1, serving: 1, completed: 1, cancelled: 2 });
+  assert.deepEqual(plain(q.countQueueStatuses(rows, ["Doctor 1"], true)), { waiting: 1, serving: 1, completed: 0, cancelled: 1 },
+    "shared dispatch: the doctor's visits plus the unassigned ones");
+  assert.deepEqual(plain(q.countQueueStatuses([], DOCTORS)), { waiting: 0, serving: 0, completed: 0, cancelled: 0 });
+});
+
+test("search matches patient name or queue number, case-insensitively; status and doctor filters", () => {
+  assert.equal(q.matchesQueueSearch(row(), "  ana "), true);
+  assert.equal(q.matchesQueueSearch(row(), "gp-001"), true);
+  assert.equal(q.matchesQueueSearch(row(), "OB"), false);
+  assert.equal(q.matchesQueueSearch(row(), ""), true);
+  assert.equal(q.matchesQueueStatus(row(), "all"), true);
+  assert.equal(q.matchesQueueStatus(row(), "serving"), false);
+  assert.equal(q.matchesQueueDoctor(row(), "Doctor 1"), true);
+  assert.equal(q.matchesQueueDoctor(row(), "Doctor 2"), false);
+  assert.equal(q.matchesQueueDoctor(row(), "Doctor 2", true), true, "shared: any doctor may take an unassigned visit");
+  assert.equal(q.matchesQueueDoctor(row({ counter_id: "Doctor 3" }), "Doctor 2", true), false);
+});
+
+test("badges, priorities and time use one set of styles and the stored timestamp", () => {
+  for (const { status, className } of q.QUEUE_STATUS_COUNTERS) assert.equal(q.queueStatusClass(status), className);
+  assert.deepEqual(plain(q.QUEUE_STATUS_COUNTERS.map(({ label }) => label)), ["Waiting", "Serving", "Completed", "Cancelled"]);
+  assert.match(q.queueStatusClass("no-show"), /red/);
+  assert.equal(q.queuePriorityClass(0), null);
+  assert.match(q.queuePriorityClass(1), /blue/);
+  assert.match(q.queuePriorityClass(3), /yellow/);
+  assert.equal(q.formatQueueTime("2026-11-10T04:22:00Z"), new Date("2026-11-10T04:22:00Z").toLocaleTimeString());
+  assert.equal(q.formatQueueTime(null), "—");
+  assert.equal(q.formatQueueTime("not a date"), "—");
+  assert.equal(q.formatQueueDate(undefined), "");
+});

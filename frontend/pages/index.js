@@ -3,8 +3,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import SiteFrame from "../components/SiteFrame";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
+import { StaffArchivesModal, StaffConfirmDialog } from "../components/StaffArchives";
 import { request } from "../lib/api";
 import { OFFERED_SERVICES, serviceName } from "../lib/services";
+import {
+  QUEUE_SEARCH_PLACEHOLDER,
+  QUEUE_SERVICE_BADGE_CLASS,
+  QUEUE_STATUS_COUNTERS,
+  QUEUE_STATUS_FILTERS,
+  countQueueStatuses,
+  formatQueueDate,
+  formatQueueTime,
+  isDoctorOnline,
+  matchesQueueDoctor,
+  matchesQueueSearch,
+  matchesQueueStatus,
+  queueDoctorLabel,
+  queueDoctorName,
+  queuePriorityClass,
+  queueStatusClass
+} from "../lib/queueView";
 import {
   captureDoctorPresence,
   doctorPresenceStatus,
@@ -22,12 +40,10 @@ import {
 } from "../lib/queueSettings";
 
 const defaultSettings = defaultQueueSettings;
-// Header title per dashboard section; the sidebar uses the same names.
-const SECTION_TITLES = {
-  home: ["Dashboard", "fas fa-home"],
-  queue: ["Queue Management", "fas fa-list"],
-  staff: ["Staff Management", "fas fa-user-cog"]
-};
+// Queue Management's default view (the Settings "show completed" and "max queues" rules), then
+// the status choices shared with Front Desk Patient Management.
+const QUEUE_DEFAULT_VIEW = "default";
+const QUEUE_STATUS_OPTIONS = [{ value: QUEUE_DEFAULT_VIEW, label: "Queue view (per Settings)" }, ...QUEUE_STATUS_FILTERS];
 // Final visit outcomes: Cancel does not apply; Undo/Re-queue are the recovery actions.
 const TERMINAL_QUEUE_STATUSES = ["completed", "cancelled", "no-show"];
 
@@ -188,6 +204,13 @@ export default function HomePage() {
   const [userForm, setUserForm] = useState({ id_num: "", password: "", role: "staff", doctor_name: "" });
   const [cancellationRequests, setCancellationRequests] = useState([]);
   const [processingRequestId, setProcessingRequestId] = useState(null);
+  const [archivesOpen, setArchivesOpen] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
+  const [queueDoctorFilter, setQueueDoctorFilter] = useState("all");
+  const [queueStatusFilter, setQueueStatusFilter] = useState(QUEUE_DEFAULT_VIEW);
+  const [queueSearch, setQueueSearch] = useState("");
   const [form, setForm] = useState({
     fullName: "",
     service_type: "",
@@ -214,14 +237,24 @@ export default function HomePage() {
 
   const filteredRows = useMemo(() => {
     let rows = queueRows ?? [];
-    if (!settings.showCompleted) {
-      rows = rows.filter((row) => !["completed", "cancelled", "no-show"].includes(row.status));
+    if (queueStatusFilter === QUEUE_DEFAULT_VIEW) {
+      if (!settings.showCompleted) {
+        rows = rows.filter((row) => !["completed", "cancelled", "no-show"].includes(row.status));
+      }
+    } else {
+      rows = rows.filter((row) => matchesQueueStatus(row, queueStatusFilter));
     }
     return rows
-      .slice()
+      .filter((row) => matchesQueueDoctor(row, queueDoctorFilter, sharedDispatch) && matchesQueueSearch(row, queueSearch))
       .sort(compareQueuePriority)
       .slice(0, Number(settings.maxQueues || 20));
-  }, [queueRows, settings]);
+  }, [queueRows, settings, queueStatusFilter, queueDoctorFilter, queueSearch, sharedDispatch]);
+  const queueFiltersActive = queueDoctorFilter !== "all" || queueStatusFilter !== QUEUE_DEFAULT_VIEW || queueSearch.trim() !== "";
+  // Same counting rules and scope as Front Desk Patient Management's counters.
+  const queueStatusCounts = useMemo(
+    () => countQueueStatuses(queueRows, queueDoctorFilter === "all" ? DOCTOR_NAMES : [queueDoctorFilter], sharedDispatch),
+    [queueRows, queueDoctorFilter, sharedDispatch]
+  );
 
   const doctorQueues = useMemo(() => {
     const states = {};
@@ -294,8 +327,8 @@ export default function HomePage() {
     }
   }, [router.isReady, router.query.section]);
 
-  // "Doctor & Counter Monitoring" links to an anchor inside the queue section,
-  // which is hidden until that section is shown; scroll once it is.
+  // A link to an anchor inside the queue section (e.g. a bookmarked #doctor-monitoring)
+  // points at content hidden until that section is shown; scroll once it is.
   const urlHash = String(router.asPath || "").split("#")[1] || "";
   useEffect(() => {
     if (activeSection === "queue" && urlHash) document.getElementById?.(urlHash)?.scrollIntoView({ block: "start" });
@@ -512,7 +545,7 @@ export default function HomePage() {
 
   async function handleProcessCancellationRequest(id, action) {
     const confirmMessage = action === "approve"
-      ? "Approve this cancellation request? The doctor account will be deleted."
+      ? "Approve this cancellation request? The doctor account will be archived: it can no longer sign in and moves to Archives."
       : "Reject this cancellation request? The doctor account will remain active.";
 
     if (!window.confirm(confirmMessage)) {
@@ -558,16 +591,25 @@ export default function HomePage() {
     }
   }
 
-  async function handleDeleteUser(id_num) {
-    if (!confirm(`Are you sure you want to delete user ${id_num}?`)) return;
-    try {
-      const data = await request(`/users/${id_num}`, { method: "DELETE" });
-      if (data.success) {
-        fetchUsers();
-      }
-    } catch (err) {
-      setError("Failed to delete user");
+  // Archive (soft delete). Permanent deletion is only offered inside the Archives modal.
+  function openArchiveConfirm(account) {
+    setArchiveError("");
+    setArchiveTarget(account);
+  }
+
+  async function handleArchiveUser() {
+    if (!archiveTarget || archiveBusy) return;
+    setArchiveBusy(true);
+    setArchiveError("");
+    const data = await request(`/users/${encodeURIComponent(archiveTarget.id_num)}/archive`, { method: "POST" })
+      .catch((err) => ({ error: err.message }));
+    setArchiveBusy(false);
+    if (!data?.success) {
+      setArchiveError(data?.error || data?.message || "Failed to archive the account. Nothing was changed.");
+      return;
     }
+    setArchiveTarget(null);
+    fetchUsers();
   }
 
   const handleResidencySearch = async (query) => {
@@ -734,8 +776,6 @@ export default function HomePage() {
 
   return (
     <SiteFrame
-      title={SECTION_TITLES[activeSection][0]}
-      icon={SECTION_TITLES[activeSection][1]}
       onSettings={() => setSettingsOpen(true)}
     >
       <SettingsModal
@@ -750,10 +790,6 @@ export default function HomePage() {
 
       <div className={`container mx-auto max-w-6xl px-3 md:px-4 ${activeSection === "home" ? "" : "hidden"}`}>
         <div className="mb-4 md:mb-8">
-            <h2 className="text-xl md:text-3xl font-bold brand-text mb-4 md:mb-6 flex items-center">
-            <i className="fas fa-home mr-2 md:mr-3 brand-text-primary" />
-            Superadmin Dashboard
-          </h2>
           <div className="dashboard-stat-grid" aria-label="Today's queue statistics">
             {dashboardCards.map((card) => (
               <article key={card.key} className={`dashboard-stat-card dashboard-stat-${card.tone}`} aria-label={card.title}
@@ -913,18 +949,24 @@ export default function HomePage() {
       </div>
 
       <div className={`container mx-auto max-w-6xl px-3 md:px-4 ${activeSection === "staff" ? "" : "hidden"}`}>
-        <div className="mb-8 flex items-center justify-between">
-          <h2 className="text-xl md:text-3xl font-bold brand-text flex items-center">
-            <i className="fas fa-user-cog mr-3 brand-text-primary" />
-            Staff Management
-          </h2>
-          <button 
-            onClick={() => setShowUserForm(!showUserForm)}
-            className="brand-button px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
-          >
-            <i className={`fas ${showUserForm ? 'fa-times' : 'fa-plus'}`} />
-            {showUserForm ? 'Cancel' : 'Add New Staff'}
-          </button>
+        <div className="mb-8 flex items-center justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button 
+              onClick={() => setShowUserForm(!showUserForm)}
+              className="brand-button px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <i className={`fas ${showUserForm ? 'fa-times' : 'fa-plus'}`} />
+              {showUserForm ? 'Cancel' : 'Add New Staff'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setArchivesOpen(true)}
+              className="brand-button px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <i className="fas fa-archive" />
+              Archives
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-md border brand-border overflow-hidden mb-8">
@@ -935,7 +977,7 @@ export default function HomePage() {
                 Doctor Cancellation Requests
               </h3>
               <p className="text-xs brand-text-muted mt-1 mb-0">
-                Review doctor account cancellation requests. Approving deletes the account; rejecting keeps it active.
+                Review doctor account cancellation requests. Approving archives the account; rejecting keeps it active.
               </p>
             </div>
             <button
@@ -1059,7 +1101,7 @@ export default function HomePage() {
                     value={userForm.role}
                     onChange={(e) => setUserForm({...userForm, role: e.target.value})}
                   >
-                    <option value="staff">Staff / Nurse</option>
+                    <option value="staff">Frontdesk</option>
                     <option value="doctor">Doctor</option>
                     <option value="superadmin">Superadmin</option>
                   </select>
@@ -1114,11 +1156,14 @@ export default function HomePage() {
                   </td>
                   <td className="px-6 py-4">
                     <button 
-                      onClick={() => handleDeleteUser(u.id_num)}
-                      className="text-red-500 hover:text-red-700 transition-colors"
+                      type="button"
+                      onClick={() => openArchiveConfirm(u)}
+                      className="text-amber-600 hover:text-amber-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       disabled={u.id_num === user.id_num}
+                      title={u.id_num === user.id_num ? "You cannot archive your own account" : "Archive account"}
+                      aria-label={`Archive ${u.id_num}`}
                     >
-                      <i className="fas fa-trash-alt" />
+                      <i className="fas fa-archive" />
                     </button>
                   </td>
                 </tr>
@@ -1129,6 +1174,32 @@ export default function HomePage() {
             <div className="p-12 text-center brand-text-muted italic">No staff accounts found</div>
           )}
         </div>
+
+        <StaffConfirmDialog
+          open={Boolean(archiveTarget)}
+          tone="archive"
+          title="Archive Staff Account?"
+          confirmLabel="Archive Account"
+          busyLabel="Archiving…"
+          busy={archiveBusy}
+          error={archiveError}
+          onConfirm={handleArchiveUser}
+          onCancel={() => { if (!archiveBusy) setArchiveTarget(null); }}
+        >
+          <p className="m-0">
+            Are you sure you want to archive <strong className="brand-text">{archiveTarget?.id_num}</strong>?
+          </p>
+          <p className="m-0">
+            The account will be removed from the active staff list and will no longer be allowed to log in.
+            You can restore or permanently delete it from Archives.
+          </p>
+        </StaffConfirmDialog>
+
+        <StaffArchivesModal
+          open={archivesOpen}
+          onClose={() => setArchivesOpen(false)}
+          onChanged={fetchUsers}
+        />
       </div>
 
       <div className={`container mx-auto max-w-6xl px-3 md:px-4 ${activeSection === "queue" ? "" : "hidden"}`}>
@@ -1382,11 +1453,8 @@ export default function HomePage() {
                           {label}
                         </span>
                         <div className="mt-1 text-[9px] md:text-[11px] brand-text-muted">Counter: {counter ? (counter.is_online ? "Enabled" : "Disabled") : "Unknown"}</div>
-                        {label === "Online" && <div className="text-[9px] md:text-[11px] font-semibold brand-text">{occupied ? "Serving" : rrDoctor(doctorName)?.pending_patient_id != null ? "Busy (patient assigned)" : "Available"}</div>}
-                      {rrDoctor(doctorName)?.pending_patient_id != null && (() => {
-                        const pending = queueRows.find((row) => String(row.id) === String(rrDoctor(doctorName).pending_patient_id));
-                        return <div className="text-center text-[9px] md:text-[11px] brand-text-muted">Assigned, not yet called: <span className="font-semibold brand-text">{pending?.queue_number || rrDoctor(doctorName).pending_patient_id}</span></div>;
-                      })()}
+                        {label === "Online" && <div className="text-[9px] md:text-[11px] font-semibold brand-text">{occupied ? "Serving" : "Available"}</div>}
+                      {rrDoctor(doctorName) && <div data-rr-waiting={doctorName} className="text-center text-[9px] md:text-[11px] brand-text-muted">Assigned, waiting: <span className="font-semibold brand-text">{Number(rrDoctor(doctorName).waiting_count) || 0}</span>{roundRobin?.next_doctor === doctorName ? " · Next in rotation" : ""}</div>}
                       </div>
                       {occupied && <div className="text-center text-[9px] md:text-[11px] brand-text-muted">
                         {assigned?.status === "waiting" ? "Reserved: " : "Serving: "}<span className="font-semibold brand-text">{currentName}</span>
@@ -1403,12 +1471,12 @@ export default function HomePage() {
 
               {roundRobin && !roundRobin.available && (
                 <div role="alert" className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  Automatic doctor assignment is unavailable: {roundRobin.error || "dispatch status could not be read"}. Patients stay in the shared queue unassigned.
+                  Automatic doctor assignment is unavailable: {roundRobin.error || "dispatch status could not be read"}. Registration is paused until it is restored; no patient is assigned to an unavailable doctor.
                 </div>
               )}
               {roundRobin?.available && roundRobin.all_unavailable && (
                 <div role="alert" data-rr-all-unavailable className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
-                  All doctors are signed out or disabled. Registered patients wait in the shared queue and are assigned automatically when a doctor signs in.
+                  No Available Doctors: all doctors are signed out or unavailable, so new registrations are refused until a doctor is online and available. Patients already waiting are assigned automatically when a doctor signs in.
                 </div>
               )}
               {rrInterventions.size > 0 && (
@@ -1426,12 +1494,69 @@ export default function HomePage() {
                 </div>
               )}
 
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-3" data-queue-filters>
+                <label className="text-xs font-semibold brand-text-muted">
+                  Doctor
+                  <select
+                    className="mt-1 w-full px-3 py-2 border brand-input rounded-lg text-sm bg-white"
+                    value={queueDoctorFilter}
+                    onChange={(e) => setQueueDoctorFilter(e.target.value)}
+                  >
+                    <option value="all">All Doctors</option>
+                    {DOCTOR_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold brand-text-muted">
+                  Status
+                  <select
+                    className="mt-1 w-full px-3 py-2 border brand-input rounded-lg text-sm bg-white"
+                    value={queueStatusFilter}
+                    onChange={(e) => setQueueStatusFilter(e.target.value)}
+                  >
+                    {QUEUE_STATUS_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold brand-text-muted">
+                  Search
+                  <input
+                    type="text"
+                    className="mt-1 w-full px-3 py-2 border brand-input rounded-lg text-sm"
+                    placeholder={QUEUE_SEARCH_PLACEHOLDER}
+                    value={queueSearch}
+                    onChange={(e) => setQueueSearch(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQueueDoctorFilter("all");
+                    setQueueStatusFilter(QUEUE_DEFAULT_VIEW);
+                    setQueueSearch("");
+                  }}
+                  disabled={!queueFiltersActive}
+                  className="px-3 py-2 border brand-border rounded-lg text-sm font-semibold brand-text brand-hover-subtle disabled:opacity-50"
+                >
+                  <i className="fas fa-undo me-1" />
+                  Reset Filters
+                </button>
+              </div>
+
+              <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
+                <span className="text-xs brand-text-muted">({filteredRows.length} shown)</span>
+                <div className="flex flex-wrap gap-2 text-xs font-semibold" data-queue-counters>
+                  {QUEUE_STATUS_COUNTERS.map(({ status, label, className }) => (
+                    <span key={status} data-counter={status} className={`px-2.5 py-1 rounded-full ${className}`}>{label} {queueStatusCounts[status]}</span>
+                  ))}
+                </div>
+              </div>
+
               <div className="overflow-x-auto rounded-md border brand-border max-w-full">
-                <table className="w-full min-w-[600px] md:min-w-[720px] table-auto text-left">
+                <table className="w-full min-w-[680px] md:min-w-[820px] table-auto text-left">
                   <thead>
                     <tr className="bg-gray-50 border-b brand-border">
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Queue</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide" suppressHydrationWarning>Patient Info</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Doctor</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Service</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide text-center">Priority</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Status</th>
@@ -1453,13 +1578,8 @@ export default function HomePage() {
                         (sharedDispatch || !patient.counter_id || patient.counter_id === getServiceDoctor(patient.service_type));
                       const canCall = isNextWaiting && state.enabled && !state.occupied;
                       const validServing = patient.status === "serving" && !inconsistentServing.some((row) => row.id === patient.id);
-                      const statusClass = patient.status === "waiting"
-                        ? "bg-yellow-100 text-yellow-800"
-                        : patient.status === "serving"
-                          ? "bg-teal-100 text-teal-900"
-                          : patient.status === "completed"
-                            ? "bg-green-100 text-green-800"
-                            : "bg-red-100 text-red-800";
+                      const statusClass = queueStatusClass(patient.status);
+                      const displayDoctor = queueDoctorName(patient, sharedDispatch);
 
                       return (
                         <tr key={patient.id} className={`hover:bg-gray-50/80 ${canCall ? "bg-yellow-50 border-l-2 border-yellow-400" : ""}`}>
@@ -1470,6 +1590,9 @@ export default function HomePage() {
                           <td className="px-2 py-2">
                             <div className="flex flex-col">
                               <span className="text-sm font-semibold brand-text">{patient.id_num}</span>
+                              {formatQueueDate(patient.created_at) && (
+                                <span className="text-[10px] brand-text-muted mt-0.5">Registered {formatQueueDate(patient.created_at)}</span>
+                              )}
                               <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                                 {patient.sex && (
                                   <span className="text-[10px] brand-text-primary font-bold uppercase tracking-wider">
@@ -1479,7 +1602,7 @@ export default function HomePage() {
                                 {patient.birthdate && (
                                   <span className="text-[10px] brand-text-muted">
                                     <i className="fas fa-birthday-cake mr-1" />
-                                    {new Date(patient.birthdate).toLocaleDateString()}
+                                    {formatQueueDate(patient.birthdate)}
                                   </span>
                                 )}
                                 {patient.mobile_number && (
@@ -1504,15 +1627,20 @@ export default function HomePage() {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium brand-bg-subtle brand-text-primary border brand-border" title={patient.service_type}>{serviceName(patient.service_type)}</span>
+                            <div className="flex items-center gap-1.5 font-semibold brand-text text-xs whitespace-nowrap">
+                              <i className="fas fa-user-md text-blue-600" />
+                              {queueDoctorLabel(displayDoctor, patient.status)}
+                            </div>
+                            {displayDoctor != null && !isDoctorOnline(counters, settings, displayDoctor) ? (
+                              <span className="text-[10px] font-bold uppercase tracking-wider brand-text-muted">Offline</span>
+                            ) : null}
+                          </td>
+                          <td className="px-2 py-2">
+                            <span className={`px-1.5 py-0.5 text-[10px] ${QUEUE_SERVICE_BADGE_CLASS}`} title={patient.service_type}>{serviceName(patient.service_type)}</span>
                           </td>
                           <td className="px-2 py-2 text-center">
-                            {(patient.priority_score || 0) >= 3 ? (
-                              <span className="inline-flex items-center gap-1 text-yellow-700 bg-yellow-100 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                                <i className="fas fa-star" /> {patient.priority_score}
-                              </span>
-                            ) : (patient.priority_score || 0) > 0 ? (
-                              <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-100 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                            {queuePriorityClass(patient.priority_score) ? (
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${queuePriorityClass(patient.priority_score)}`}>
                                 <i className="fas fa-star" /> {patient.priority_score}
                               </span>
                             ) : (
@@ -1520,7 +1648,7 @@ export default function HomePage() {
                             )}
                           </td>
                           <td className="px-2 py-2">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>{patient.status}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${statusClass}`}>{patient.status}</span>
                             {patient.status === "serving" && !validServing && <div className="mt-1 text-[10px] text-amber-800">Doctor assignment missing or inconsistent</div>}
                             {patient.status === "serving" && validServing && patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">Awaiting doctor acceptance</div>}
                             {patient.status === "serving" && validServing && !patient.awaiting_accept && <div className="mt-1 text-[10px] brand-text-muted">{patient.consultation_started_at ? "Consultation in progress" : "Ready for consultation"}</div>}
@@ -1529,7 +1657,7 @@ export default function HomePage() {
                             {roundRobin && rrReassigned.has(String(patient.id)) && <div className="mt-1"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-900">Reassigned</span></div>}
                             {rrInterventions.has(String(patient.id)) && <div role="alert" className="mt-1 text-[10px] font-semibold text-red-800">Doctor signed out. Needs staff review</div>}
                           </td>
-                          <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{new Date(patient.created_at).toLocaleTimeString()}</td>
+                          <td className="px-2 py-2 text-xs brand-text-muted whitespace-nowrap">{formatQueueTime(patient.created_at)}</td>
                           <td className="px-2 py-2">
                             <div className="flex flex-wrap gap-1 items-center">
                               {isNextWaiting ? (
@@ -1586,7 +1714,7 @@ export default function HomePage() {
                       <tr>
                         <td colSpan="8" className="px-2 py-6 text-center brand-text-muted text-sm">
                           <i className="fas fa-inbox text-2xl mb-1 block opacity-60" />
-                          No patients in queue
+                          {queueFiltersActive ? "No patients match this view" : "No patients in queue"}
                         </td>
                       </tr>
                     )}

@@ -1,4 +1,4 @@
-// RR1 round-robin dispatch on REAL PostgreSQL 17 with independent connections (the c1f5w1
+// RR1 round-robin assignment at registration on REAL PostgreSQL 17 with independent connections (the c1f5w1
 // fixture: a disposable loopback cluster only; Supabase targets are refused). Each race is forced
 // by holding a real row lock on another connection and waiting until the contenders are queued
 // behind it (pg_stat_activity), so the database, not the test's timing, decides the outcome.
@@ -26,7 +26,7 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
   beforeEach(async () => {
     await db.observer.query(`UPDATE public.counters SET current_patient_id = NULL, is_online = true;
       DELETE FROM public.patients; DELETE FROM public.patient_assignment_history; DELETE FROM public.staff_auth_sessions;
-      UPDATE public.doctor_rotation_state SET last_doctor = NULL, last_patient_id = NULL;`);
+      UPDATE public.doctor_rotation_state SET last_doctor = NULL, last_patient_id = NULL, rotation_date = NULL;`);
     h = await f.backend(db, { doctorDispatchMode: "round_robin" });
     other = await f.backend(db, { doctorDispatchMode: "round_robin" });
     tokens = await f.signInAll(h);
@@ -54,31 +54,71 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     return { release: async () => { await client.query("COMMIT"); await client.end(); } };
   }
   const settle = (promises) => Promise.allSettled(promises);
-  // Pending-assignment invariants, on top of the fixture's patient/counter invariants.
+  // Ownership invariants on top of the fixture's patient/counter invariants: one visit per ticket,
+  // and a waiting visit belongs to at most one known doctor.
   async function assertSingleOwnership() {
     await f.assertConsistent(db);
     const { rows: [row] } = await db.observer.query(`SELECT
-      (SELECT count(*) FROM (SELECT counter_id FROM public.patients WHERE status::text = 'waiting' AND counter_id IS NOT NULL
-        GROUP BY 1 HAVING count(*) > 1) d)::int AS doctor_with_two_pending,
-      (SELECT count(*) FROM public.patients p WHERE p.status::text = 'waiting' AND p.counter_id IS NOT NULL AND EXISTS (
-        SELECT 1 FROM public.patients s WHERE s.status::text = 'serving' AND s.counter_id = p.counter_id))::int AS busy_doctor_with_pending`);
-    assert.deepEqual(row, { doctor_with_two_pending: 0, busy_doctor_with_pending: 0 });
+      (SELECT count(*) FROM (SELECT queue_number FROM public.patients GROUP BY 1 HAVING count(*) > 1) d)::int AS duplicate_tickets,
+      (SELECT count(*) FROM public.patients p WHERE p.status::text = 'waiting' AND p.counter_id IS NOT NULL
+        AND p.counter_id NOT IN ('Doctor 1', 'Doctor 2', 'Doctor 3'))::int AS waiting_with_unknown_doctor`);
+    assert.deepEqual(row, { duplicate_tickets: 0, waiting_with_unknown_doctor: 0 });
+  }
+  // register_visit_round_robin on its own connection, as a separate backend request would run it.
+  async function registerDirect(ticket) {
+    const client = await db.connect(`rr1-register-${ticket}`);
+    try {
+      await client.query("SET ROLE service_role");
+      return (await client.query(`SELECT (r).counter_id AS doctor FROM (SELECT public.register_visit_round_robin($1::jsonb,
+          date_trunc('day', now() AT TIME ZONE 'Asia/Manila') AT TIME ZONE 'Asia/Manila',
+          (date_trunc('day', now() AT TIME ZONE 'Asia/Manila') + interval '1 day') AT TIME ZONE 'Asia/Manila') AS r) s`,
+        [JSON.stringify({ queue_number: ticket, id_num: `Synthetic ${ticket}`, service_type: "medical_consultation", priority_score: 1 })])).rows[0].doctor;
+    } finally { await client.end(); }
   }
 
   // ---- R1 ---------------------------------------------------------------------------------
-  test("R1: four dispatch passes from two backends queued on the rotation lock assign each doctor exactly once", async () => {
-    for (let i = 0; i < 6; i += 1) await visit(`R1-${i}`, { minutesAgo: 10 - i });
+  test("R1: six registrations queued on the rotation lock are assigned D1, D2, D3, D1, D2, D3 in commit order", async () => {
+    const blocker = await holdRotation();
+    const registrations = Array.from({ length: 6 }, (_, i) => registerDirect(`R1-${i}`));
+    await f.waitForLockWaiters(db, 6);
+    await blocker.release();
+    const results = await settle(registrations);
+    assert.deepEqual(results.map((r) => r.status), Array(6).fill("fulfilled"), JSON.stringify(results.map((r) => r.reason?.message)));
+    assert.deepEqual((await history("round_robin_assignment")).map((row) => row.new_doctor), [...DOCTORS, ...DOCTORS]);
+    assert.deepEqual(results.map((r) => r.value).sort(), [...DOCTORS, ...DOCTORS].sort());
+    await assertSingleOwnership();
+  });
+
+  test("R1b: registrations through two backends at once never share a rotation position or a ticket", async () => {
+    const responses = await Promise.all(Array.from({ length: 6 }, (_, i) =>
+      f.post(i % 2 ? other : h, tokens.frontdesk, "/queue", { fullName: `R1b ${i}`, service_type: "medical_consultation" })));
+    assert.deepEqual(responses.map((r) => r.status), Array(6).fill(200), JSON.stringify(responses.map((r) => r.body?.message)));
+    assert.deepEqual((await history("round_robin_assignment")).map((row) => row.new_doctor), [...DOCTORS, ...DOCTORS]);
+    await assertSingleOwnership();
+  });
+
+  test("R1c: dispatch passes from two backends assign each unassigned visit exactly once, in rotation", async () => {
+    for (let i = 0; i < 6; i += 1) await visit(`R1C-${i}`, { minutesAgo: 10 - i });
     const blocker = await holdRotation();
     const passes = [dispatch(h), dispatch(other), dispatch(h), dispatch(other)];
     await f.waitForLockWaiters(db, 4);
     await blocker.release();
     const results = await settle(passes);
     assert.deepEqual(results.map((r) => r.status), Array(4).fill("fulfilled"), JSON.stringify(results.map((r) => r.reason?.message)));
-    assert.equal(results.reduce((sum, r) => sum + r.value.assigned.length, 0), 3, "three assignments in total");
+    assert.equal(results.reduce((sum, r) => sum + r.value.assigned.length, 0), 6, "six assignments in total");
     const assigned = await history("round_robin_assignment");
-    assert.deepEqual(assigned.map((row) => row.new_doctor).sort(), DOCTORS);
-    assert.equal(new Set(assigned.map((row) => row.patient_id)).size, 3, "no visit assigned twice");
+    assert.deepEqual(assigned.map((row) => row.new_doctor), [...DOCTORS, ...DOCTORS]);
+    assert.equal(new Set(assigned.map((row) => row.patient_id)).size, 6, "no visit assigned twice");
     await assertSingleOwnership();
+  });
+
+  test("R1d: a doctor signing out while a registration waits for the rotation lock is not assigned", async () => {
+    const blocker = await holdRotation();
+    const pending = registerDirect("R1D-1");
+    await f.waitForLockWaiters(db, 1);
+    await signOut("Doctor 1");   // committed while the registration is queued; it reads presence after its locks
+    await blocker.release();
+    assert.equal(await pending, "Doctor 2");
   });
 
   // ---- R2 ---------------------------------------------------------------------------------
@@ -122,7 +162,8 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
       const client = await db.connect(`rr1-call-${account}`);
       try {
         await client.query("SET ROLE service_role");
-        return await client.query("SELECT id FROM public.call_patient_visit_rr($1, $2, $3, $4)", [p1, doctor, account, revision]);
+        return await client.query(`SELECT id FROM public.call_patient_visit_rr($1, $2, $3, $4,
+          now() - interval '1 day', now() + interval '1 day', now(), false)`, [p1, doctor, account, revision]);
       } finally { await client.end(); }
     };
     const counters = await f.holdCounters(db);
@@ -192,7 +233,7 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
   });
 
   // ---- R7 ---------------------------------------------------------------------------------
-  test("R7: availability switched off while a dispatch runs leaves that doctor with no pending visit", async () => {
+  test("R7: availability switched off while a dispatch runs leaves that doctor with no waiting visit", async () => {
     for (let i = 0; i < 3; i += 1) await visit(`R7-${i}`, { minutesAgo: 5 - i });
     const counters = await f.holdCounters(db);
     const racing = [dispatch(other), f.post(h, tokens.superadmin, "/counters/availability", { doctors: { "Doctor 2": false } })];
@@ -214,8 +255,8 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     assert.equal((await f.post(h, tokens.admin1, "/queue/call", { patient_id: serving })).status, 200);
     await signOut("Doctor 1");
     await db.observer.query("UPDATE public.staff_auth_sessions SET revoked_at = NULL WHERE user_id_num = 'admin2'");
-    // Doctor 1 serves `serving` and has no pending; give it `pending` as a stale assignment to release.
-    await db.observer.query("UPDATE public.patients SET counter_id = 'Doctor 1' WHERE id = $1", [pending]);
+    // Doctor 1 serves `serving` and still holds `pending`, which must be released exactly once.
+    assert.equal(await doctorOf(pending), "Doctor 1");
     const blocker = await holdRotation();
     const sweeps = [dispatch(h), dispatch(other), dispatch(h), dispatch(other), dispatch(h)];
     await f.waitForLockWaiters(db, 5);
@@ -238,11 +279,12 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     for (let round = 0; round < 10; round += 1) {
       const work = [];
       for (let i = 0; i < 4; i += 1) {
-        work.push(note(f.post(i % 2 ? h : other, tokens.frontdesk, "/queue", { fullName: `R9 ${round}-${i}`, service_type: ["consultation", "prenatal", "family_planning", "checkup"][i] })));
+        work.push(note(f.post(i % 2 ? h : other, tokens.frontdesk, "/queue", { fullName: `R9 ${round}-${i}`, service_type: ["medical_consultation", "maternal_healthcare", "family_planning", "child_healthcare"][i] })));
       }
       work.push(note(dispatch(h)), note(dispatch(other)));
       for (const doctor of DOCTORS) {
-        const own = await one("SELECT id AS value FROM public.patients WHERE status = 'waiting' AND counter_id = $1 LIMIT 1", [doctor]);
+        // The head of the doctor's own list (all Regular: first come, first served).
+        const own = await one("SELECT id AS value FROM public.patients WHERE status = 'waiting' AND counter_id = $1 ORDER BY created_at, id LIMIT 1", [doctor]);
         const serving = await one("SELECT id AS value FROM public.patients WHERE status = 'serving' AND counter_id = $1 LIMIT 1", [doctor]);
         const token = tokens[ACCOUNT[doctor]];
         if (serving) {

@@ -133,8 +133,8 @@ const links = (user) => {
 
 test("each role sees one organized menu of its own sections", () => {
   assert.deepEqual(plain(menu(accounts.superadmin)), [
-    ["Overview", ["Dashboard"]],
-    ["Queue Operations", ["Queue Management", "Doctor & Counter Monitoring", "Historical Backlog", "Live Queue Display"]],
+    ["Overview", ["Overview"]],
+    ["Queue Operations", ["Queue Management", "Historical Backlog", "Live Queue Display"]],
     ["Records Management", ["Patient Records", "Staff Records", "User Accounts"]],
     ["Reports & Analytics", ["Analytics"]],
     ["Simulation Mode", ["Algorithm Simulation"]],
@@ -190,8 +190,8 @@ test("the highlighted item follows the URL, including Records categories and the
   const active = (user, url, ready) => navigationFor(resolveAccount(user)).flatMap(group => group.items)
     .filter(item => item.isActive?.(location(url, ready))).map(item => item.label);
   const cases = [
-    ["/?section=home", "Dashboard"], ["/", "Dashboard"], ["/?section=unknown", "Dashboard"],
-    ["/?section=queue", "Queue Management"], ["/?section=queue#doctor-monitoring", "Doctor & Counter Monitoring"],
+    ["/?section=home", "Overview"], ["/", "Overview"], ["/?section=unknown", "Overview"],
+    ["/?section=queue", "Queue Management"], ["/?section=queue#doctor-monitoring", "Queue Management"],
     ["/?section=staff", "Staff Management"], ["/?section=settings", "System Settings"],
     ["/records", "Patient Records"], ["/records?category=patients", "Patient Records"],
     ["/records?category=staff", "Staff Records"], ["/records?category=accounts", "User Accounts"],
@@ -595,7 +595,7 @@ test("Records renders inside the shared shell and keeps its Super Admin guard", 
   };
   const ok = mount();
   assert.equal(ok.tree.type, ok.SiteFrame);
-  assert.equal(ok.tree.props.title, "Records Management");
+  assert.equal(ok.tree.props.title, undefined);
   assert.equal(ok.tree.props.sidebarLinks, undefined);
   const doctor = mount({ user: accounts.admin1 });
   assert.deepEqual(doctor.router.replaced, ["/login"]);

@@ -12,7 +12,7 @@ export default function AlgorithmSimulationPage() {
   const router = useRouter();
   useEffect(() => { if (!loading && user?.role!=='superadmin') router.replace('/login'); },[loading,user,router]);
   if (loading || user?.role!=='superadmin') return <div role="status">Loading Algorithm Simulation…</div>;
-  return <SiteFrame title="Algorithm Simulation · Synthetic Data Only" icon="fas fa-project-diagram">
+  return <SiteFrame>
     <AlgorithmSimulation/>
   </SiteFrame>;
 }

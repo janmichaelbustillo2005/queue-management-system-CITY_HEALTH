@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
 
 let componentCode;
 before(async () => {
@@ -62,6 +63,7 @@ function harness(rows, options = {}) {
         return options.request ? options.request(route, init) : { success: true };
       } };
       if (isServicesModule(name)) return loadServices();
+      if (isQueueViewModule(name)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });
@@ -235,4 +237,41 @@ test("frontdesk cancellation of a carryover visit frees the doctor to call today
   assert.equal((await backend.service.getPatientById(next.id)).status, "serving");
   assert.equal((await backend.service.getQueueOverview()).counters[0].current_patient_id, next.id);
   assert.equal(h.notices.some(([type]) => type === "error"), false);
+});
+
+// Synchronized with Superadmin Queue Management (see queue-view-fixture.cjs): same columns,
+// same cell values for the same record, same counters. Actions stay this page's own.
+const viewFixture = require("./queue-view-fixture.cjs");
+const tableRow = (tree, queueNumber) => nodes(tree, node => node.type === "tr" &&
+  nodes(node, child => child.type === "span" && text(child) === queueNumber).length > 0)[0];
+
+test("Patient Management shows the shared columns, including the registration Time, before its own Actions", () => {
+  const tree = harness(viewFixture.ROWS, { props: { statusFilter: "all" } }).render();
+  assert.deepEqual(nodes(tree, node => node.type === "th").map(node => text(node)), viewFixture.HEADERS);
+  assert.equal(nodes(tree, node => node.type === "col").length, viewFixture.HEADERS.length);
+});
+
+test("Patient Management shows each record's queue, patient, doctor, service, priority, status and time as Queue Management does", () => {
+  const tree = harness(viewFixture.ROWS, { props: { statusFilter: "all" } }).render();
+  for (const [queueNumber, expected] of Object.entries(viewFixture.EXPECTED)) {
+    assert.deepEqual(viewFixture.readCells(tableRow(tree, queueNumber), { text, nodes }), expected, queueNumber);
+  }
+});
+
+test("Patient Management counters count Waiting, Serving, Completed and Cancelled from the loaded records", () => {
+  const h = harness(viewFixture.ROWS);
+  const counters = () => Object.fromEntries(nodes(h.render(), node => node.props?.["data-counter"])
+    .map(node => [node.props["data-counter"], Number(text(node).replace(/\D+/g, ""))]));
+  assert.deepEqual(counters(), viewFixture.COUNTS);
+  h.props.queueRows = viewFixture.ROWS.map(row => row.id === 7 ? { ...row, status: "serving", counter_id: "Doctor 1" } : row);
+  assert.deepEqual(counters(), { ...viewFixture.COUNTS, waiting: 0, serving: 2 }, "a status change updates the counters");
+});
+
+test("Patient Management keeps its own actions: View Ticket and head-only Cancel, nothing from Queue Management", () => {
+  const tree = harness(viewFixture.ROWS, { props: { statusFilter: "all", onViewTicket() {} } }).render();
+  assert.equal(buttons(tree, "View Ticket").length, 3);
+  assert.equal(buttons(tree, "Cancel").length, 1, "only the serving head of Doctor 1 (its waiting patient waits for its turn)");
+  for (const label of ["Call", "Undo", "Re-queue"]) assert.equal(buttons(tree, label).length, 0, label);
+  assert.equal(nodes(tree, node => node.props?.title === "More actions").length, 0, "no Superadmin three-dot menu");
+  assert.equal(nodes(tree, node => typeof node.type === "string" && /^Transfer to/.test(text(node)) && node.type === "button").length, 0);
 });

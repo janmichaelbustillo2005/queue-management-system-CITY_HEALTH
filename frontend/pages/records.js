@@ -83,7 +83,7 @@ export default function RecordsPage() {
     : { heading:'Details', label:'Activity', icon:'fas fa-history', onClick:row=>inspect(row) };
   const failure = error ? describeRecordsError(error) : null;
   if (loading || user?.role!=='superadmin') return <div role="status">Loading authorized records…</div>;
-  return <SiteFrame title="Records Management" icon="fas fa-folder">
+  return <SiteFrame>
     <div className="w-full min-w-0 max-w-7xl mx-auto px-3 space-y-4">
       <nav aria-label="Records categories" className="flex flex-wrap gap-2">{[['patients','Patient Records'],['staff','Staff Records'],['accounts','User Accounts']].map(([key,label])=><button key={key} aria-current={category===key?'page':undefined} className={`px-4 py-2 rounded ${category===key?'brand-button':'bg-white border brand-border'}`} onClick={()=>router.push(`/records?category=${key}`)}>{label}</button>)}</nav>
       <p className="text-sm brand-text-muted">{category==='patients' ? 'Each row is a stored visit and its ticket history. The current schema has no separate patient profile; this read-only view creates no duplicate identities or visits.' : 'Staff and user accounts share the existing account identity. Presence expires after 75 seconds; account status, authentication and counter availability are separate. Account disabling and account creation dates are not stored in the current schema.'}</p>

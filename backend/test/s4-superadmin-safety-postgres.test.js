@@ -2,6 +2,7 @@
 // /users routes on disposable PostgreSQL 17 (helpers/c1f5w1Fixture.js). A Superadmin cannot
 // delete the account it is signed in with, and no request may delete or demote the last
 // Superadmin. Invalid roles and short passwords are refused with 400 before anything is stored.
+// AR1: permanent deletion is only possible for an archived account, so deletes archive first.
 const assert = require("node:assert/strict");
 const { describe, test, before, after, beforeEach } = require("node:test");
 const f = require("./helpers/c1f5w1Fixture");
@@ -11,7 +12,7 @@ after(f.stopCluster);
 
 describe("S4: Superadmin account safety", { skip: f.unavailable }, () => {
   let db; let h; let tokens;
-  before(async () => { db = await f.createDatabase("s4_superadmin_safety", []); });
+  before(async () => { db = await f.createDatabase("s4_superadmin_safety", ["add-account-cancellation-requests.sql", "20261110-ar1-staff-archive.sql"]); });
   beforeEach(async () => {
     await db.observer.query("DELETE FROM public.users WHERE id_num NOT IN ('admin1','admin2','admin3','frontdesk','superadmin')");
     await db.observer.query("UPDATE public.users SET role = 'superadmin' WHERE id_num = 'superadmin'");
@@ -25,7 +26,7 @@ describe("S4: Superadmin account safety", { skip: f.unavailable }, () => {
 
   test("the only Superadmin can neither delete itself nor be demoted", async () => {
     const self = await call("DELETE", "/users/:id_num", { id: "superadmin" });
-    assert.equal(self.status, 400);
+    assert.equal(self.status, 409);
     assert.match(self.body.message, /own account/);
     const demote = await call("PUT", "/users/:id_num", { id: "superadmin", body: { role: "admin" } });
     assert.equal(demote.status, 400);
@@ -37,6 +38,7 @@ describe("S4: Superadmin account safety", { skip: f.unavailable }, () => {
     expectOk(await call("POST", "/users", { body: { id_num: "synthetic-sa2", password: "synthetic-sa2-pass", role: "superadmin" } }));
     expectOk(await call("PUT", "/users/:id_num", { id: "synthetic-sa2", body: { role: "admin", doctor_name: null } }));
     expectOk(await call("PUT", "/users/:id_num", { id: "synthetic-sa2", body: { role: "superadmin", doctor_name: null } }));
+    expectOk(await call("POST", "/users/:id_num/archive", { id: "synthetic-sa2" }));
     expectOk(await call("DELETE", "/users/:id_num", { id: "synthetic-sa2" }));
     assert.equal(await superadmins(), 1);
     const last = await call("PUT", "/users/:id_num", { id: "superadmin", body: { role: "admin" } });
@@ -66,6 +68,7 @@ describe("S4: Superadmin account safety", { skip: f.unavailable }, () => {
     expectOk(await call("PUT", "/users/:id_num", { id: "synthetic-doc", body: { password: "synthetic-doc-new", role: "admin", doctor_name: "Doctor 2" } }));
     assert.equal((await h.request("POST", "/auth/login", { body: { id_num: "synthetic-doc", password: "synthetic-doc-new" } })).status, 200);
     assert.equal((await call("DELETE", "/users/:id_num", { id: "synthetic-doc", token: tokens.admin1 })).status, 403);
+    expectOk(await call("POST", "/users/:id_num/archive", { id: "synthetic-doc" }));
     expectOk(await call("DELETE", "/users/:id_num", { id: "synthetic-doc" }));
   });
 

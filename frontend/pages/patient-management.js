@@ -8,16 +8,10 @@ import { useAuth } from "../context/AuthContext";
 import { request } from "../lib/api";
 import { createQueueTicket, fetchExistingQueueTicket } from "../lib/queueTicket";
 import { fetchQueueSettings, loadLocalQueueSettings, mergeQueueSettings } from "../lib/queueSettings";
+import { QUEUE_SEARCH_PLACEHOLDER, QUEUE_STATUS_FILTERS } from "../lib/queueView";
 
-const STATUS_OPTIONS = [
-  { value: "active", label: "Active Queue" },
-  { value: "all", label: "All registered patients" },
-  { value: "waiting", label: "Waiting" },
-  { value: "serving", label: "Serving" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "no-show", label: "No-show" }
-];
+// This page's default view, then the status choices shared with Superadmin Queue Management.
+const STATUS_OPTIONS = [{ value: "active", label: "Active Queue" }, ...QUEUE_STATUS_FILTERS];
 
 const DOCTOR_ACCOUNTS = ["admin1", "admin2", "admin3"];
 
@@ -229,8 +223,6 @@ export default function PatientManagementPage() {
 
   return (
     <SiteFrame
-      title="Patient Management"
-      icon="fas fa-hospital-user"
       contentClassName="frontdesk-page"
     >
       <div className="w-full max-w-7xl mx-auto px-3 md:px-6 py-4">
@@ -309,7 +301,7 @@ export default function PatientManagementPage() {
               <input
                 type="text"
                 className="mt-1 w-full px-3 py-2 border brand-input rounded-lg text-sm"
-                placeholder="Patient name or queue number"
+                placeholder={QUEUE_SEARCH_PLACEHOLDER}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />

@@ -498,8 +498,6 @@ export default function FillUpFormPage() {
 
   return (
     <SiteFrame
-      title="Patient Registration"
-      icon="fas fa-user-plus"
       contentClassName="frontdesk-page"
     >
       <div className="frontdesk-fullpage-wrapper">

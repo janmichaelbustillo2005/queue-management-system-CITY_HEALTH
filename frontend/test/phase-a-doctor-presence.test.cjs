@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
 
 let componentCode, helperCode;
 before(async () => {
@@ -96,6 +97,7 @@ async function harness(options = {}) {
       if (name === "next/router") return { useRouter: () => router };
       if (name === "../context/AuthContext") return { useAuth: () => ({ user, loading: false }) };
       if (name === "../components/SettingsModal") return { __esModule: true, default: () => {}, defaultQueueSettings: settings };
+      if (name === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
       if (name === "../lib/doctorPresence") return helpers;
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,
@@ -116,6 +118,7 @@ async function harness(options = {}) {
         return { success: true };
       } };
       if (isServicesModule(name)) return loadServices();
+      if (isQueueViewModule(name)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });

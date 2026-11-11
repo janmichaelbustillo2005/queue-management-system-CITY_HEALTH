@@ -399,7 +399,7 @@ async function getQueueOverview() {
     storage_mode: getQueueStorageMode(),
     dispatch_mode: publicDispatchMode(),
     dispatch_strategy: isRoundRobin() ? DISPATCH_ROUND_ROBIN : null,
-    approved_services: isSharedDispatch() ? [...APPROVED_GENERAL_SERVICES] : null,
+    approved_services: isSharedDispatch() ? [...dispatchServices()] : null,
     // RR1: doctor states, open interventions and assignment history, read from the database.
     ...(dispatch ? { dispatch } : {}),
     // effective_priority is the WPS rank key at read time (equal to priority_score without aging).
@@ -441,6 +441,15 @@ const OFFERED_SERVICES = Object.freeze(["medical_consultation", "maternal_health
   "marriage_preparation", "environmental_health", "food_safety"]);
 const FORMER_SERVICES = Object.freeze(["consultation", "checkup", "prenatal", "maternity"]);
 const KNOWN_SERVICES = Object.freeze([...OFFERED_SERVICES, ...FORMER_SERVICES]);
+// RR1: round robin assigns every offered service (and the former keys earlier visits carry) to
+// the general doctors in turn. Must match the database's qms_rr_approved_services() (a test
+// compares them). Shared (D1) dispatch keeps APPROVED_GENERAL_SERVICES.
+const ROUND_ROBIN_SERVICES = KNOWN_SERVICES;
+
+// The services the current shared-queue dispatch accepts.
+function dispatchServices() {
+  return isRoundRobin() ? ROUND_ROBIN_SERVICES : APPROVED_GENERAL_SERVICES;
+}
 const DOCTOR_NAMES = ["Doctor 1", "Doctor 2", "Doctor 3"];
 const DISPATCH_SHARED = "shared";
 const UNASSIGNED_DOCTOR = "Unassigned";
@@ -497,11 +506,18 @@ function getDoctorOfflineMessage(doctorName) {
 
 async function ensureDoctorAvailableForService(serviceType) {
   if (isSharedDispatch()) {
-    // Registration assigns no doctor: any enabled doctor may take the visit when it is called.
-    if (!CONFIGURED_SERVICES.includes(serviceType)) throw registrationError("Select one of the offered services.");
-    // RR1: with every doctor signed out the visit still joins the shared queue and waits; the
-    // dispatcher assigns it once a doctor is available, and Frontdesk sees the notice meanwhile.
-    if (isRoundRobin()) return null;
+    if (!dispatchServices().includes(serviceType)) throw registrationError("Select one of the offered services.");
+    // RR1: registration assigns the doctor (register_visit_round_robin decides, under its lock).
+    // This early check only spares Frontdesk a saved patient record when no doctor is online and
+    // available; the database check at insert time is the one that counts.
+    if (isRoundRobin()) {
+      if (useLocalFallback) throw consultationError(RR_REQUIRED, 503);
+      const status = await getRoundRobinStatus();
+      if (!status.available) throw consultationError(status.error || RR_REQUIRED, 503);
+      if (status.all_unavailable) throw noAvailableDoctorError();
+      return null;
+    }
+    // D1 shared: registration assigns no doctor; any enabled doctor may take it when it is called.
     const counters = await getCounters();
     if (!counters.some((c) => DOCTOR_NAMES.includes(c.id_num) && c.is_online !== false)) {
       throw registrationError("No doctor is currently available. Ask Super Admin to enable a doctor counter before registering patients.");
@@ -634,7 +650,26 @@ async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, p
       // Re-query max on each attempt so concurrent inserts / collisions advance correctly
       const queueNumber = await getNextQueueNumber(serviceType, attempts);
       const priorityScore = computePriorityScore(vulnerabilityFlags);
-      
+
+      // RR1: the visit and its round-robin doctor are saved together by the database.
+      if (isRoundRobin()) {
+        if (useLocalFallback) throw consultationError(RR_REQUIRED, 503);
+        const data = await insertRoundRobinVisit({
+          queue_number: queueNumber, id_num: idNum, service_type: serviceType,
+          mobile_number: mobileNumber || null, residency: residency || null, philhealth_id: philhealthId || null,
+          birthdate: birthdate || null, sex: sex || null, priority_score: priorityScore,
+          vulnerability_flags: vulnerabilityFlags, source,
+          ...(patientRecordId != null ? { patient_record_id: patientRecordId } : {})
+        });
+        try {
+          const stats = await getQueueStats();
+          sendQueueCreatedNotification(mobileNumber, queueNumber, serviceType, Math.max(0, stats.waiting - 1));
+        } catch (notificationError) {
+          console.warn("Queue entry saved; creation notification could not be prepared:", notificationError.message);
+        }
+        return { ...data, priority_score: priorityScore, vulnerability_flags: vulnerabilityFlags };
+      }
+
       if (useLocalFallback) {
         const patient = {
           id: localData.nextPatientId++,
@@ -1115,7 +1150,7 @@ const CALL_RPC_REQUIRED = {
 };
 
 function getCallRpcName(shared, aging) {
-  // RR1: the dispatcher already ranked (WPS or WPS-A) when it assigned the visit.
+  // RR1: one Call; it ranks the doctor's own list with or without aging (p_aging).
   if (isRoundRobin()) return "call_patient_visit_rr";
   return CALL_RPCS[shared ? "shared" : "service"][aging ? "aging" : "plain"];
 }
@@ -1126,7 +1161,7 @@ function resolveRoundRobinCallDoctor(patient, who) {
   if (who.kind !== "doctor") {
     throw consultationError("In round-robin dispatch only the assigned doctor calls a patient.", 403);
   }
-  if (!CONFIGURED_SERVICES.includes(patient.service_type)) {
+  if (!ROUND_ROBIN_SERVICES.includes(patient.service_type)) {
     throw consultationError("This visit's service is not configured for doctor assignment", 400);
   }
   if (patient.counter_id !== who.counter.id_num) {
@@ -1178,16 +1213,17 @@ async function assertDoctorSignedIn(doctorName) {
 // unconfirmed call (the assigned doctor can still accept a serving visit that has no acceptance state).
 // The aging functions rank at `rankedAt`, the instant the backend ranked.
 async function callPatientVisitRpc(patient, doctorName, actor, { start, end }, rankedAt, rpcName = "call_patient_visit") {
+  const roundRobinCall = rpcName === "call_patient_visit_rr";
   const aging = rpcName.endsWith("_wps_a");
-  // RR1's Call takes no queue window: it does not rank (the dispatcher did).
-  const ranked = rpcName !== "call_patient_visit_rr";
   let result;
   try {
     result = await supabase.rpc(rpcName, {
       p_patient_id: patient.id, p_doctor_name: doctorName, p_user_id_num: actor?.id_num ?? null,
       p_expected_revision: patient.visit_state_revision,
-      ...(ranked ? { p_queue_start: start, p_queue_end: end } : {}),
-      ...(aging ? { p_ranked_at: new Date(rankedAt).toISOString() } : {})
+      p_queue_start: start, p_queue_end: end,
+      ...(aging || roundRobinCall ? { p_ranked_at: new Date(rankedAt).toISOString() } : {}),
+      // RR1's Call ranks the doctor's own list, with WPS-A when aging is on.
+      ...(roundRobinCall ? { p_aging: wpsAging() } : {})
     });
   } catch {
     throw consultationError(UNCONFIRMED_CALL_MESSAGE, 503);
@@ -1312,12 +1348,18 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
     }
     // One ranking instant for Node and the database, so aging is computed the same way in both.
     const rankedAt = Date.now();
-    // RR1: the visit is the one the dispatcher assigned to this doctor (ranked when assigned).
-    const nextPatient = roundRobin ? patient : shared
+    // RR1: the head (WPS/WPS-A) of the doctor's OWN assigned list. Round robin chose the doctor;
+    // it never changes who that doctor serves first.
+    const nextPatient = roundRobin
+      ? waitingPatients.filter((p) => p.counter_id === doctorName &&
+          !counters.some((c) => Number(c.current_patient_id) === Number(p.id))).sort(compareWaitingPriority(rankedAt))[0]
+      : shared
       ? getSharedQueueHead(waitingPatients, doctorName, rankedAt)
       : waitingPatients.filter((p) => getDoctorForService(p.service_type) === doctorName).sort(compareWaitingPriority(rankedAt))[0];
     if (!nextPatient || Number(nextPatient.id) !== patientId) {
-      throw new Error(shared
+      throw new Error(roundRobin
+        ? `Call the next patient assigned to ${doctorName} according to queue priority`
+        : shared
         ? "Call the next patient in the shared queue according to priority"
         : `Call the next eligible patient for ${doctorName} according to queue priority`);
     }
@@ -1552,6 +1594,43 @@ function rpcFailure(error, fallbackMessage) {
   const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
     ["P0001", "22023"].includes(error.code) ? 400 : error.code === "55P03" ? 409 : 503;
   return consultationError(error.message || fallbackMessage, status);
+}
+
+const NO_AVAILABLE_DOCTOR_MESSAGE = "No Available Doctors: there are currently no online and available doctors to receive patients. Please try again when a doctor becomes available.";
+const UNCONFIRMED_REGISTRATION_MESSAGE = "The registration could not be confirmed. Refresh the queue to check whether the patient was added before retrying.";
+
+function noAvailableDoctorError() {
+  const error = consultationError(NO_AVAILABLE_DOCTOR_MESSAGE, 409);
+  error.reason = "no_available_doctor";
+  return error;
+}
+
+// Inserts a visit and assigns it to the next eligible doctor in one database transaction. A
+// duplicate queue number comes back as code 23505 (createQueueEntry retries with the next
+// number); no eligible doctor means no visit and an unchanged rotation.
+async function insertRoundRobinVisit(visit) {
+  const { start, end } = getTodayRange();
+  let result;
+  try {
+    result = await supabase.rpc("register_visit_round_robin", { p_visit: visit, p_queue_start: start, p_queue_end: end });
+  } catch {
+    throw consultationError(UNCONFIRMED_REGISTRATION_MESSAGE, 503);
+  }
+  const { data, error } = result || {};
+  if (error) {
+    if (error.code === "23505") {
+      const duplicate = new Error(error.message || "Duplicate queue number");
+      duplicate.code = "23505";
+      throw duplicate;
+    }
+    if (error.hint === "no_available_doctor") throw noAvailableDoctorError();
+    throw rpcFailure(error, "Failed to create queue entry");
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.id || row.status !== "waiting" || !DOCTOR_NAMES.includes(row.counter_id) || row.queue_number !== visit.queue_number) {
+    throw consultationError(UNCONFIRMED_REGISTRATION_MESSAGE, 503);
+  }
+  return row;
 }
 
 async function runRoundRobinDispatch() {
@@ -2898,7 +2977,7 @@ async function getDisplayData() {
     // RR1: who assigns doctors, and the services the general doctors are approved to take. Policy
     // values, never patient data; the registration page uses them to describe the assignment.
     dispatch_strategy: isRoundRobin() ? DISPATCH_ROUND_ROBIN : null,
-    approved_services: isSharedDispatch() ? [...APPROVED_GENERAL_SERVICES] : null,
+    approved_services: isSharedDispatch() ? [...dispatchServices()] : null,
     queue_settings: getQueueSettings(),
     voice_announcements: voiceAnnouncements,
     recent_accepted: recentAccepted,
@@ -3342,6 +3421,7 @@ async function loginUser(id_num, password) {
     }
     
     console.log("Password match (local)");
+    if (user.archived_at) throw archivedLoginError();
     return {
       id_num: user.id_num,
       role: user.role,
@@ -3382,6 +3462,12 @@ async function loginUser(id_num, password) {
       throw new Error("Invalid username or password");
     }
 
+    // AR1: archived accounts keep their credentials but may not sign in. Checked only after the
+    // password matches, so the archive state is never disclosed to someone without it. Archiving
+    // also rotates auth_revision, so a login verified just before the archive cannot create a
+    // session either.
+    if (data.archived_at) throw archivedLoginError();
+
     return {
       id_num: data.id_num,
       role: data.role,
@@ -3399,32 +3485,62 @@ async function loginUser(id_num, password) {
   }
 }
 
-async function getUsers() {
-  if (useLocalFallback) {
-    return localData.users.map(u => ({
-      id_num: u.id_num,
-      role: u.role,
-      doctor_name: u.doctor_name
-    }));
-  }
+// AR1 staff archiving (backend/scripts/20261110-ar1-staff-archive.sql). Archived accounts keep
+// their users row (archived_at set) and are listed only by getArchivedUsers.
+const STAFF_ARCHIVE_MIGRATION = "backend/scripts/20261110-ar1-staff-archive.sql";
+
+function isMissingArchiveColumnError(error) {
+  return Boolean(error) && (error.code === "42703" || error.code === "PGRST204" ||
+    /archived_(at|by)/i.test(String(error.message || "")));
+}
+
+function toStaffAccount(u) {
+  return { id_num: u.id_num, role: u.role, doctor_name: u.doctor_name ?? null,
+    archived_at: u.archived_at || null, archived_by: u.archived_by || null };
+}
+
+// Every account with its archive state, ordered by id_num. Before AR1 is installed the archive
+// columns do not exist, so no account can be archived and every account is active.
+async function readStaffAccounts() {
+  if (useLocalFallback) return localData.users.map(toStaffAccount);
 
   // users has no creation timestamp on the installed schema; never select or invent one.
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("users")
-      .select("id_num, role, doctor_name")
+      .select("id_num, role, doctor_name, archived_at, archived_by")
       .order("id_num", { ascending: true });
 
+    if (error && isMissingArchiveColumnError(error)) {
+      ({ data, error } = await supabase
+        .from("users")
+        .select("id_num, role, doctor_name")
+        .order("id_num", { ascending: true }));
+    }
     if (error) {
       enableLocalFallback(error);
-      return getUsers();
+      return readStaffAccounts();
     }
 
-    return data || [];
+    return (data || []).map(toStaffAccount);
   } catch (err) {
     enableLocalFallback(err);
-    return getUsers();
+    return readStaffAccounts();
   }
+}
+
+// Active staff only (the Staff Management list).
+async function getUsers() {
+  return (await readStaffAccounts())
+    .filter((u) => !u.archived_at)
+    .map(({ id_num, role, doctor_name }) => ({ id_num, role, doctor_name }));
+}
+
+// Archived staff only (the Staff Archives modal), most recently archived first.
+async function getArchivedUsers() {
+  return (await readStaffAccounts())
+    .filter((u) => u.archived_at)
+    .sort((a, b) => String(b.archived_at).localeCompare(String(a.archived_at)) || a.id_num.localeCompare(b.id_num));
 }
 
 const STAFF_ROLES = ["admin", "superadmin"];
@@ -3448,14 +3564,10 @@ function validateAccountInput({ id_num, password, role }, { creating }) {
   }
 }
 
-// Never leave the clinic without a Superadmin: the last one cannot be deleted or demoted.
+// Never leave the clinic without a Superadmin: the last ACTIVE one cannot be demoted (archive,
+// restore and permanent deletion enforce the same rule in the AR1 database functions).
 async function assertNotLastSuperadmin(id_num) {
-  const users = useLocalFallback ? localData.users : await (async () => {
-    const { data, error } = await supabase.from("users").select("id_num, role").eq("role", "superadmin");
-    if (error) throw formatError(error, "Failed to check Superadmin accounts");
-    return data || [];
-  })();
-  const superadmins = users.filter((user) => user.role === "superadmin");
+  const superadmins = (await readStaffAccounts()).filter((user) => user.role === "superadmin" && !user.archived_at);
   if (superadmins.length <= 1 && superadmins.some((user) => user.id_num === id_num)) {
     throw accountError("This is the last Superadmin account. Create another Superadmin before removing or demoting it.");
   }
@@ -3544,29 +3656,126 @@ async function updateUser(id_num, { password, role, doctor_name }) {
   return data;
 }
 
-async function deleteUser(id_num, actor = null) {
-  if (actor?.id_num != null && actor.id_num === id_num) {
-    throw accountError("You cannot delete your own account while signed in with it.");
+function staffError(message, statusCode) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function archivedLoginError() {
+  return staffError("This account has been archived and can no longer sign in. Contact a Super Admin.", 403);
+}
+
+// Maps an AR1 RPC failure (see the migration's error codes) to an HTTP-ready error.
+function staffArchiveRpcError(error, fallback) {
+  if (["PGRST202", "42883", "42703", "PGRST204"].includes(error?.code)) {
+    return staffError(`Staff archiving is not installed. Apply ${STAFF_ARCHIVE_MIGRATION} to the approved Supabase project.`, 503);
   }
-  await assertNotLastSuperadmin(id_num);
+  if (error?.code === "23503") {
+    return staffError("This account is still referenced by other records, so it cannot be permanently deleted. It remains archived.", 409);
+  }
+  const status = { "22023": 400, "42501": 403, P0002: 404, P0001: 409 }[error?.code];
+  return staffError(error?.message || fallback, status || 500);
+}
+
+// One audit line per account lifecycle change in the existing server log (there is no separate
+// audit table). The account rows and cancellation requests also keep archived_at/archived_by
+// and processed_at/processed_by.
+function logStaffAccountAction(action, { target, actor, detail } = {}) {
+  console.info(`[${new Date().toISOString()}] staff-account ${action} target=${target} actor=${actor || "unknown"}${detail ? ` ${detail}` : ""}`);
+}
+
+async function staffArchiveRpc(name, args, fallback) {
+  let result;
+  try {
+    result = await supabase.rpc(name, args);
+  } catch (err) {
+    enableLocalFallback(err);
+    return null;
+  }
+  if (result?.error) throw staffArchiveRpcError(result.error, fallback);
+  return result?.data ?? null;
+}
+
+function requireActor(actor) {
+  if (!actor?.id_num) throw staffError("The acting account is required.", 400);
+  return actor.id_num;
+}
+
+// Local development memory (no Supabase configured) mirrors the AR1 database rules.
+function localStaffAction(id_num, actorId, { allowSelf = false } = {}) {
+  const actor = localData.users.find((u) => u.id_num === actorId);
+  if (!actor || actor.role !== "superadmin" || actor.archived_at) {
+    throw staffError("Only an active Superadmin can archive, restore or delete staff accounts", 403);
+  }
+  if (!allowSelf && id_num === actorId) {
+    throw staffError("You cannot archive or delete your own account while signed in with it.", 409);
+  }
+  const user = localData.users.find((u) => u.id_num === id_num);
+  if (!user) throw staffError("Staff account not found", 404);
+  return user;
+}
+
+function localArchive(user, actorId) {
+  if (user.archived_at) throw staffError("This account is already archived.", 409);
+  if (user.role === "superadmin" &&
+      !localData.users.some((u) => u.role === "superadmin" && !u.archived_at && u.id_num !== user.id_num)) {
+    throw staffError("This is the last active Superadmin account. Create another Superadmin before archiving it.", 409);
+  }
+  user.archived_at = new Date().toISOString();
+  user.archived_by = actorId;
+  return toStaffAccount(user);
+}
+
+// Soft delete: the row and its credentials are kept, sessions are revoked, login is refused.
+async function archiveUser(id_num, actor) {
+  const actorId = requireActor(actor);
   if (useLocalFallback) {
-    const index = localData.users.findIndex(u => u.id_num === id_num);
-    if (index !== -1) {
-      localData.users.splice(index, 1);
+    const account = localArchive(localStaffAction(id_num, actorId), actorId);
+    logStaffAccountAction("archived", { target: id_num, actor: actorId });
+    return account;
+  }
+  const data = await staffArchiveRpc("archive_staff_account", { p_id_num: id_num, p_actor: actorId }, "Failed to archive account");
+  if (data === null && useLocalFallback) return archiveUser(id_num, actor);
+  logStaffAccountAction("archived", { target: id_num, actor: actorId });
+  return toStaffAccount(data);
+}
+
+async function restoreUser(id_num, actor) {
+  const actorId = requireActor(actor);
+  if (useLocalFallback) {
+    const user = localStaffAction(id_num, actorId, { allowSelf: true });
+    if (!user.archived_at) throw staffError("This account is not archived.", 409);
+    user.archived_at = null;
+    user.archived_by = null;
+    logStaffAccountAction("restored", { target: id_num, actor: actorId });
+    return toStaffAccount(user);
+  }
+  const data = await staffArchiveRpc("restore_staff_account", { p_id_num: id_num, p_actor: actorId }, "Failed to restore account");
+  if (data === null && useLocalFallback) return restoreUser(id_num, actor);
+  logStaffAccountAction("restored", { target: id_num, actor: actorId });
+  return toStaffAccount(data);
+}
+
+// Permanent deletion, available only for an account that is already archived.
+async function deleteArchivedUser(id_num, actor) {
+  const actorId = requireActor(actor);
+  if (useLocalFallback) {
+    const user = localStaffAction(id_num, actorId);
+    if (!user.archived_at) {
+      throw staffError("Only archived accounts can be permanently deleted. Archive the account first.", 409);
     }
-    return { success: true };
+    if (localData.cancellationRequests.some((r) => r.doctor_id_num === id_num && r.status === "pending")) {
+      throw staffError("This account has a pending cancellation request. Approve or reject it before permanently deleting the account.", 409);
+    }
+    localData.users.splice(localData.users.indexOf(user), 1);
+    logStaffAccountAction("permanently-deleted", { target: id_num, actor: actorId });
+    return toStaffAccount(user);
   }
-  
-  const { error } = await supabase
-    .from("users")
-    .delete()
-    .eq("id_num", id_num);
-
-  if (error) {
-    throw formatError(error, "Failed to delete user");
-  }
-
-  return { success: true };
+  const data = await staffArchiveRpc("delete_archived_staff_account", { p_id_num: id_num, p_actor: actorId }, "Failed to delete account");
+  if (data === null && useLocalFallback) return deleteArchivedUser(id_num, actor);
+  logStaffAccountAction("permanently-deleted", { target: id_num, actor: actorId });
+  return toStaffAccount(data);
 }
 
 function mapCancellationRequest(row) {
@@ -3739,16 +3948,36 @@ async function processAccountCancellationRequest(id, { action, processed_by, adm
       throw new Error("Only pending cancellation requests can be processed");
     }
 
+    // AR1: approval archives the account (never deletes it); validate before changing anything.
+    let accountOutcome = null;
+    if (normalizedAction === "approve") {
+      const user = localData.users.find((u) => u.id_num === existing.doctor_id_num);
+      if (!user) accountOutcome = "account_not_found";
+      else if (user.archived_at) accountOutcome = "already_archived";
+      else {
+        localArchive(localStaffAction(existing.doctor_id_num, processed_by), processed_by);
+        accountOutcome = "archived";
+      }
+    }
+
     existing.status = newStatus;
     existing.processed_at = processedAt;
     existing.processed_by = processed_by || null;
     existing.admin_notes = admin_notes || null;
 
-    if (normalizedAction === "approve") {
-      await deleteUser(existing.doctor_id_num);
-    }
+    if (accountOutcome) logCancellationApproval(existing, accountOutcome, processed_by);
+    return { ...mapCancellationRequest(existing), ...(accountOutcome ? { account_outcome: accountOutcome } : {}) };
+  }
 
-    return mapCancellationRequest(existing);
+  // AR1: approve the request and archive the account in one database transaction.
+  if (normalizedAction === "approve") {
+    const data = await staffArchiveRpc("approve_account_cancellation_request", {
+      p_request_id: Number(id), p_actor: processed_by || null, p_admin_notes: admin_notes || null
+    }, "Failed to process cancellation request");
+    if (data === null && useLocalFallback) return processAccountCancellationRequest(id, { action, processed_by, admin_notes });
+    const request = mapCancellationRequest(data.request);
+    logCancellationApproval(request, data.account_outcome, processed_by);
+    return { ...request, account_outcome: data.account_outcome };
   }
 
   const { data: existing, error: fetchError } = await supabase
@@ -3776,18 +4005,25 @@ async function processAccountCancellationRequest(id, { action, processed_by, adm
       admin_notes: admin_notes || null
     })
     .eq("id", id)
+    // Only while still pending: a concurrent approval (which archives the account) wins.
+    .eq("status", "pending")
     .select("*")
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw formatError(error, "Failed to process cancellation request");
   }
-
-  if (normalizedAction === "approve") {
-    await deleteUser(existing.doctor_id_num);
+  if (!data) {
+    throw new Error("Only pending cancellation requests can be processed");
   }
 
   return mapCancellationRequest(data);
+}
+
+function logCancellationApproval(request, accountOutcome, actor) {
+  logStaffAccountAction("cancellation-approved", {
+    target: request.doctor_id_num, actor, detail: `request=${request.id} account=${accountOutcome}`
+  });
 }
 
 module.exports = {
@@ -3800,6 +4036,7 @@ module.exports = {
   transferConsultation,
   isRoundRobin,
   APPROVED_GENERAL_SERVICES,
+  ROUND_ROBIN_SERVICES,
   OFFERED_SERVICES,
   FORMER_SERVICES,
   cancelPatient,
@@ -3838,9 +4075,12 @@ module.exports = {
   undoPatientAction,
   loginUser,
   getUsers,
+  getArchivedUsers,
   createUser,
   updateUser,
-  deleteUser,
+  archiveUser,
+  restoreUser,
+  deleteArchivedUser,
   createAccountCancellationRequest,
   getAccountCancellationRequests,
   getMyAccountCancellationRequest,

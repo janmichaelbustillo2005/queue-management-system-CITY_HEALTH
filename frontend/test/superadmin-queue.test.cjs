@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
 
 let componentCode;
 let presenceHelpers;
@@ -103,6 +104,7 @@ async function harness(initialRows, options = {}) {
       if (name === "../context/AuthContext") return { useAuth: () => ({ user, loading: false }) };
       if (name === "../components/SiteFrame") return () => {};
       if (name === "../components/SettingsModal") return { __esModule: true, default: () => {}, defaultQueueSettings: settings };
+      if (name === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,
         applyCounterAvailability: value => value, clearActiveQueues: async () => ({ success: true }),
@@ -119,6 +121,7 @@ async function harness(initialRows, options = {}) {
       } };
       if (name === "../lib/doctorPresence") return presenceHelpers;
       if (isServicesModule(name)) return loadServices();
+      if (isQueueViewModule(name)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });
@@ -521,13 +524,13 @@ test("Superadmin dashboard shows the section named in the URL, so links, history
   const h = await harness([], { section: "home" });
   const sections = () => nodes(h.render(), node => /\bmax-w-6xl\b/.test(node.props?.className || "") && /\bcontainer\b/.test(node.props.className));
   const shown = () => sections().map(node => !/\bhidden\b/.test(node.props.className));
-  assert.equal(h.render().props.title, "Dashboard");
+  assert.equal(h.render().props.title, undefined);
   // Section containers in page order: home, staff, queue. (Staff loads accounts this harness does not serve.)
   assert.deepEqual(shown(), [true, false, false]);
   for (const [section, title, visible] of [
-    ["queue", "Queue Management", [false, false, true]],
-    ["unknown-value", "Dashboard", [true, false, false]],
-    ["queue", "Queue Management", [false, false, true]]
+    ["queue", undefined, [false, false, true]],
+    ["unknown-value", undefined, [true, false, false]],
+    ["queue", undefined, [false, false, true]]
   ]) {
     h.router.query = { section };
     await h.flush();
@@ -543,7 +546,7 @@ function roundRobin(dispatch = {}, adjust = () => {}) {
   const value = { dispatch_mode: "shared", dispatch_strategy: "round_robin", dispatch: {
     available: true, all_unavailable: false, interventions: [], history: [], doctors: [1, 2, 3].map((number) => ({
       doctor_name: `Doctor ${number}`, enabled: true, signed_in: true, last_seen_at: "2026-10-10T01:00:00Z",
-      serving_patient_id: null, pending_patient_id: null, eligible: true })), ...dispatch } };
+      serving_patient_id: null, waiting_count: 0, eligible: true })), ...dispatch } };
   adjust(value.dispatch.doctors);
   return value;
 }
@@ -551,15 +554,16 @@ function roundRobin(dispatch = {}, adjust = () => {}) {
 test("RR1: staff see each visit's assigned doctor and reassignment, and have no Call action", async () => {
   const assigned = { ...patient(2, "prenatal", 1, "2026-10-10T01:02:00Z"), counter_id: "Doctor 2" };
   const h = await harness([assigned, patient(3, "checkup", 1, "2026-10-10T01:03:00Z")], { backendExtra: roundRobin(
-    { history: [{ patient_id: 2, reason: "doctor_unavailable" }, { patient_id: 2, reason: "round_robin_reassignment" }] },
-    (doctors) => { doctors[1].pending_patient_id = 2; doctors[1].eligible = false; }) });
+    { next_doctor: "Doctor 3", history: [{ patient_id: 2, reason: "doctor_unavailable" }, { patient_id: 2, reason: "round_robin_reassignment" }] },
+    (doctors) => { doctors[1].waiting_count = 1; }) });
   const tree = await h.flush();
   const content = text(tree);
   assert.match(content, /Assigned to Doctor 2, waiting for the doctor to call/);
   assert.match(content, /Waiting for an available doctor/);
   assert.match(content, /Reassigned/);
-  assert.match(content, /Busy \(patient assigned\)/);
-  assert.match(content, /Assigned, not yet called: TEST-2/);
+  // Each doctor shows its own waiting list size; a busy doctor still takes its turn.
+  assert.match(text(nodes(tree, (node) => node.props?.["data-rr-waiting"] === "Doctor 2")[0]), /Assigned, waiting: 1$/);
+  assert.match(text(nodes(tree, (node) => node.props?.["data-rr-waiting"] === "Doctor 3")[0]), /Assigned, waiting: 0 · Next in rotation/);
   assert.equal(nodes(tree, (node) => node.type === "button" && /Call/.test(text(node))).length, 0);
 });
 
@@ -594,4 +598,86 @@ test("RR1: Patient Management shows the readable service name, never the stored 
   const h = await harness([patient(4, "family_planning")], { backendExtra: roundRobin() });
   const cells = nodes(h.render(), (node) => node.type === "span" && node.props.title === "family_planning");
   assert.deepEqual(cells.map(text), ["Family planning"]);
+});
+
+// Synchronized with Front Desk Patient Management (see queue-view-fixture.cjs): same columns,
+// same cell values for the same record, same counters, same search/status/doctor filters.
+// The Superadmin actions (Call, Transfer, Cancel, three-dot Undo) are unchanged.
+const viewFixture = require("./queue-view-fixture.cjs");
+const queueTable = tree => nodes(tree, node => node.type === "table" &&
+  nodes(node, child => child.type === "th" && text(child) === "Patient Info").length > 0)[0];
+const queueRow = (tree, queueNumber) => nodes(queueTable(tree), node => node.type === "tr" &&
+  nodes(node, child => child.type === "span" && text(child) === queueNumber).length > 0)[0];
+const shownQueueNumbers = tree => nodes(queueTable(tree), node => node.type === "span" && node.props.className?.includes("queue-number")).map(text);
+const filterControl = (tree, index) => nodes(nodes(tree, node => node.props?.["data-queue-filters"])[0],
+  node => node.type === "select" || node.type === "input")[index];
+
+test("Queue Management shows the shared columns, including the assigned Doctor, before its own Actions", async () => {
+  const h = await harness(viewFixture.ROWS);
+  assert.deepEqual(nodes(queueTable(h.render()), node => node.type === "th").map(node => text(node)), viewFixture.HEADERS);
+});
+
+test("Queue Management shows each record's queue, patient, doctor, service, priority, status and time as Patient Management does", async () => {
+  const h = await harness(viewFixture.ROWS);
+  const tree = h.render();
+  for (const [queueNumber, expected] of Object.entries(viewFixture.EXPECTED)) {
+    assert.deepEqual(viewFixture.readCells(queueRow(tree, queueNumber), { text, nodes }), expected, queueNumber);
+  }
+});
+
+test("Queue Management counters count Waiting, Serving, Completed and Cancelled from the loaded records", async () => {
+  const h = await harness(viewFixture.ROWS);
+  const counters = () => Object.fromEntries(nodes(h.render(), node => node.props?.["data-counter"])
+    .map(node => [node.props["data-counter"], Number(text(node).replace(/\D+/g, ""))]));
+  assert.deepEqual(counters(), viewFixture.COUNTS);
+  h.backend.patients = h.backend.patients.map(row => row.id === 43 ? { ...row, status: "waiting", counter_id: null, completed_at: null } : row);
+  // The section's Refresh reads the database again; counters follow the new records.
+  const section = nodes(h.render(), node => node.type === "div" && node.props.className?.includes("max-w-6xl") &&
+    nodes(node, child => child.props?.["data-queue-counters"]).length > 0)[0];
+  const refresh = nodes(section, node => node.type === "button" && text(node).trim() === "Refresh")[0];
+  await refresh.props.onClick();
+  await h.flush();
+  assert.deepEqual(counters(), { ...viewFixture.COUNTS, waiting: 2, cancelled: 0 });
+});
+
+test("Queue Management search, status and doctor filters match Patient Management, and Reset restores the Settings view", async () => {
+  const h = await harness(viewFixture.ROWS);
+  assert.deepEqual(shownQueueNumbers(h.render()), ["GP-007", "OB-043", "GP-008"], "existing weighted-priority order");
+  filterControl(h.render(), 1).props.onChange({ target: { value: "cancelled" } });
+  assert.deepEqual(shownQueueNumbers(h.render()), ["OB-043"]);
+  filterControl(h.render(), 1).props.onChange({ target: { value: "all" } });
+  filterControl(h.render(), 2).props.onChange({ target: { value: "serving person" } });
+  assert.deepEqual(shownQueueNumbers(h.render()), ["GP-008"], "search by patient name");
+  filterControl(h.render(), 2).props.onChange({ target: { value: "ob-043" } });
+  assert.deepEqual(shownQueueNumbers(h.render()), ["OB-043"], "search by queue number");
+  filterControl(h.render(), 2).props.onChange({ target: { value: "" } });
+  filterControl(h.render(), 0).props.onChange({ target: { value: "Doctor 1" } });
+  assert.deepEqual(shownQueueNumbers(h.render()), ["GP-007", "GP-008"]);
+  const counters = Object.fromEntries(nodes(h.render(), node => node.props?.["data-counter"])
+    .map(node => [node.props["data-counter"], Number(text(node).replace(/\D+/g, ""))]));
+  assert.deepEqual(counters, { waiting: 1, serving: 1, completed: 0, cancelled: 0 }, "counters follow the doctor filter, as on Patient Management");
+  const reset = nodes(h.render(), node => node.type === "button" && text(node).trim() === "Reset Filters")[0];
+  assert.equal(reset.props.disabled, false);
+  reset.props.onClick();
+  assert.deepEqual(shownQueueNumbers(h.render()), ["GP-007", "OB-043", "GP-008"]);
+  assert.equal(nodes(h.render(), node => node.type === "button" && text(node).trim() === "Reset Filters")[0].props.disabled, true);
+});
+
+test("Queue Management's default view still follows Settings: final visits hidden when Show completed is off", async () => {
+  const h = await harness(viewFixture.ROWS, { settings: { showCompleted: false } });
+  assert.deepEqual(shownQueueNumbers(h.render()), ["GP-007", "GP-008"]);
+  filterControl(h.render(), 1).props.onChange({ target: { value: "cancelled" } });
+  assert.deepEqual(shownQueueNumbers(h.render()), ["OB-043"], "an explicit Cancelled filter still finds it");
+});
+
+test("Queue Management keeps its own actions and does not gain Patient Management's View Ticket", async () => {
+  const h = await harness(viewFixture.ROWS);
+  const tree = h.render();
+  assert.equal(buttons(tree, "View Ticket").length, 0);
+  assert.equal(nodes(queueRow(tree, "GP-007"), node => node.type === "button" && /Call/.test(text(node))).length, 1, "the waiting head keeps its Call button");
+  assert.equal(nodes(queueTable(tree), node => node.type === "button" && /Cancel/.test(text(node))).length, 2, "Cancel on the waiting and serving visits only");
+  const lastFinal = nodes(queueRow(tree, "OB-043"), node => node.type === "button");
+  assert.deepEqual(lastFinal.map(node => node.props.title), ["More actions"], "the latest final visit keeps only the three-dot menu");
+  lastFinal[0].props.onClick();
+  assert.deepEqual(buttons(queueRow(h.render(), "OB-043"), "Undo").length, 1, "the three-dot menu still opens Undo");
 });

@@ -50,7 +50,11 @@ function createPgRestClient(pool, { onRequest } = {}) {
     lt(column, value) { return this.compare(column, "<", value); }
     lte(column, value) { return this.compare(column, "<=", value); }
     like(column, value) { return this.compare(column, "LIKE", value); }
-    in(column, values) { this.where.push(`t.${quoteIdent(column)} = ANY(${this.bind(values)})`); return this; }
+    // Compared as text, like PostgREST's in.(...) filter, so enum and array-typed values bind on PGlite too.
+    in(column, values) {
+      this.where.push(`t.${quoteIdent(column)}::text IN (SELECT pg_catalog.jsonb_array_elements_text(${this.bind(JSON.stringify(values.map(String)))}::jsonb))`);
+      return this;
+    }
     is(column, value) {
       if (![null, true, false].includes(value)) throw new Error(`Unsupported is(${value})`);
       this.where.push(`t.${quoteIdent(column)} IS ${value === null ? "NULL" : String(value).toUpperCase()}`);

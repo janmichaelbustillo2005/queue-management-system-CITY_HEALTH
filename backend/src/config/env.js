@@ -33,9 +33,9 @@ function readJwtSecret(value) {
 // D1: how a waiting visit reaches a doctor. "service" (the default, unchanged behavior) routes
 // each service to its fixed doctor. "shared" (Model A, provisional, pending administrator and
 // adviser approval) keeps one Weighted-Priority queue and stores the doctor chosen at Call; it
-// needs backend/scripts/20261029-d1-shared-call.sql. "round_robin" (RR1, provisional) keeps the
-// same shared queue but the backend assigns the next WPS/WPS-A patient to signed-in, free doctors
-// in turn and releases a signed-out doctor's pending patients; it needs
+// needs backend/scripts/20261029-d1-shared-call.sql. "round_robin" (RR1, provisional) assigns each
+// registration to the next online and available doctor in turn (per operating day), refuses it
+// when there is none, and reassigns a signed-out doctor's not-yet-called patients; it needs
 // backend/scripts/20261109-rr1-round-robin-dispatch.sql. Any other value stops the backend.
 const DOCTOR_DISPATCH_MODES = ["service", "shared", "round_robin"];
 

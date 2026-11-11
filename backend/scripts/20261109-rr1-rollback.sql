@@ -8,8 +8,8 @@
 --      drops only the functions and the rotation pointer. To drop the history too, set
 --      v_drop_history to true below after exporting it.
 --
--- Waiting visits that still hold a round-robin assignment keep it. In "shared" mode they stay
--- callable only by that doctor; in "service" mode C1 refuses a visit stored for a doctor other
+-- Waiting visits that still hold a round-robin assignment keep it (with round robin, every visit
+-- registered that day has one). In "shared" mode they stay callable only by that doctor; in "service" mode C1 refuses a visit stored for a doctor other
 -- than its service's doctor. Before switching to "service", either finish those visits or
 -- release them (reviewed, optional):
 --   SELECT p.id, p.queue_number, p.counter_id FROM public.patients AS p
@@ -30,29 +30,38 @@ DECLARE
 BEGIN
   FOREACH v_fn IN ARRAY ARRAY[
     pg_catalog.to_regprocedure('public.dispatch_round_robin(timestamptz,timestamptz,timestamptz,boolean)'),
+    pg_catalog.to_regprocedure('public.register_visit_round_robin(jsonb,timestamptz,timestamptz)'),
+    pg_catalog.to_regprocedure('public.call_patient_visit_rr(bigint,text,text,uuid,timestamptz,timestamptz,timestamptz,boolean)'),
+    -- An earlier draft's Call signature, if that draft was ever installed.
     pg_catalog.to_regprocedure('public.call_patient_visit_rr(bigint,text,text,uuid)'),
     pg_catalog.to_regprocedure('public.transfer_active_consultation(bigint,text,text,uuid,timestamptz,timestamptz)'),
     pg_catalog.to_regprocedure('public.get_round_robin_dispatch_status(timestamptz,timestamptz)'),
     pg_catalog.to_regprocedure('public.qms_rr_doctor_state(timestamptz,timestamptz)'),
-    pg_catalog.to_regprocedure('public.qms_rr_approved_services()')] LOOP
+    pg_catalog.to_regprocedure('public.qms_rr_approved_services()'),
+    pg_catalog.to_regprocedure('public.qms_rr_next_doctor(text,text[])'),
+    pg_catalog.to_regprocedure('public.qms_rr_effective_priority(integer,timestamptz,timestamptz,boolean)')] LOOP
     CONTINUE WHEN v_fn IS NULL;
     SELECT pg_catalog.string_agg(p.oid::pg_catalog.regprocedure::TEXT, ', ') INTO v_callers
       FROM pg_catalog.pg_proc AS p
-      WHERE p.oid <> v_fn AND p.proname NOT IN ('dispatch_round_robin', 'call_patient_visit_rr',
+      WHERE p.oid <> v_fn AND p.proname NOT IN ('register_visit_round_robin', 'dispatch_round_robin', 'call_patient_visit_rr',
           'transfer_active_consultation', 'get_round_robin_dispatch_status', 'qms_rr_doctor_state',
-          'qms_rr_approved_services')
+          'qms_rr_approved_services', 'qms_rr_next_doctor', 'qms_rr_effective_priority')
         AND p.prosrc ~ ('\m' || (SELECT pr.proname FROM pg_catalog.pg_proc AS pr WHERE pr.oid = v_fn) || '\M');
     IF v_callers IS NOT NULL THEN
       RAISE EXCEPTION 'RR1 rollback refused: % is used by [%]. Nothing was changed.', v_fn, v_callers;
     END IF;
   END LOOP;
 
+  DROP FUNCTION IF EXISTS public.register_visit_round_robin(JSONB, TIMESTAMPTZ, TIMESTAMPTZ);
   DROP FUNCTION IF EXISTS public.dispatch_round_robin(TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN);
+  DROP FUNCTION IF EXISTS public.call_patient_visit_rr(BIGINT, TEXT, TEXT, UUID, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN);
   DROP FUNCTION IF EXISTS public.call_patient_visit_rr(BIGINT, TEXT, TEXT, UUID);
   DROP FUNCTION IF EXISTS public.transfer_active_consultation(BIGINT, TEXT, TEXT, UUID, TIMESTAMPTZ, TIMESTAMPTZ);
   DROP FUNCTION IF EXISTS public.get_round_robin_dispatch_status(TIMESTAMPTZ, TIMESTAMPTZ);
   DROP FUNCTION IF EXISTS public.qms_rr_doctor_state(TIMESTAMPTZ, TIMESTAMPTZ);
   DROP FUNCTION IF EXISTS public.qms_rr_approved_services();
+  DROP FUNCTION IF EXISTS public.qms_rr_next_doctor(TEXT, TEXT[]);
+  DROP FUNCTION IF EXISTS public.qms_rr_effective_priority(INTEGER, TIMESTAMPTZ, TIMESTAMPTZ, BOOLEAN);
   -- The two ownership indexes RR1 added to existing tables (no data is changed by dropping them).
   DROP INDEX IF EXISTS public.counters_current_patient_once;
   DROP INDEX IF EXISTS public.patients_one_serving_visit_per_doctor;

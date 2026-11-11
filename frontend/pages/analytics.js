@@ -158,8 +158,6 @@ export default function AnalyticsPage() {
     <>
       <Script src={CHART_JS_URL} strategy="beforeInteractive" />
       <SiteFrame
-        title="Analytics"
-        icon="fas fa-chart-bar"
         onSettings={() => setSettingsOpen(true)}
       >
         <SettingsModal

@@ -68,13 +68,12 @@ const onRecords = (at, category) => at.path === "/records" && (category === "pat
 
 const SUPERADMIN_GROUPS = [
   { id: "overview", label: "Overview", items: [
-    link("dashboard", "Dashboard", "fas fa-home", "/?section=home", (at) => onDashboard(at, "home"))
+    link("dashboard", "Overview", "fas fa-home", "/?section=home", (at) => onDashboard(at, "home"))
   ] },
   { id: "queue-operations", label: "Queue Operations", items: [
-    link("queue", "Queue Management", "fas fa-list", "/?section=queue",
-      (at) => onDashboard(at, "queue") && at.hash !== "doctor-monitoring"),
-    link("monitoring", "Doctor & Counter Monitoring", "fas fa-user-md", "/?section=queue#doctor-monitoring",
-      (at) => onDashboard(at, "queue") && at.hash === "doctor-monitoring"),
+    // Doctor / counter monitoring is part of Queue Management (its panel keeps the
+    // #doctor-monitoring anchor, so old bookmarks still open and highlight this item).
+    link("queue", "Queue Management", "fas fa-list", "/?section=queue", (at) => onDashboard(at, "queue")),
     link("historical-backlog", "Historical Backlog", "fas fa-history", "/queue-backlog", (at) => at.path === "/queue-backlog"),
     liveDisplay
   ] },

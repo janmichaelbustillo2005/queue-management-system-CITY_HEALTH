@@ -68,7 +68,7 @@ export default function QueueBacklogPage() {
     { label:'Cancel visit', icon:'fas fa-ban', tone:'danger', describe:row=>`Cancel visit ${row.queue_number}`, onClick:row=>{ setNotice(''); setDialog({ id:row.id, mode:'cancel' }); } }
   ];
   if (loading || user?.role!=='superadmin') return <div role="status">Loading authorized backlog…</div>;
-  return <SiteFrame title="Historical Backlog" icon="fas fa-history">
+  return <SiteFrame>
     <div className="w-full min-w-0 max-w-7xl mx-auto px-3 space-y-4">
       <section className="bg-white rounded shadow p-4 flex flex-wrap items-start justify-between gap-4" aria-labelledby="backlog-heading">
         <div className="min-w-0 flex-1" style={{ minWidth:'16rem' }}>

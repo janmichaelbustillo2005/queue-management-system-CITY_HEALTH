@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
 
 let componentCode, presenceCode;
 before(async () => {
@@ -88,6 +89,7 @@ async function harness(options = {}) {
       if (name === "../components/SiteFrame") return SiteFrame;
       if (name === "../context/AuthContext") return { useAuth: () => ({ user, loading: false }) };
       if (name === "../components/SettingsModal") return { __esModule: true, default: () => {}, defaultQueueSettings: settings };
+      if (name === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
       if (name === "../lib/doctorPresence") return presenceHelpers;
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,
@@ -107,6 +109,7 @@ async function harness(options = {}) {
         return { success: true };
       } };
       if (isServicesModule(name)) return loadServices();
+      if (isQueueViewModule(name)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });
@@ -204,7 +207,10 @@ test("the replacement is one five-card dashboard group and preserves navigation 
   assert.ok(cards.every(card => /\bdashboard-stat-card\b/.test(card.props.className)));
   assert.equal(nodes(tree, node => node.type === "h3" && ["Queue Management", "Analytics", "Records"].includes(text(node))).length, 0);
   // Navigation now comes from the shared shell for the signed-in role; the page only names its section.
-  assert.equal(tree.props.title, "Dashboard");
+  // Superadmin pages show no header title, no "Superadmin Dashboard" heading and no home icons.
+  assert.equal(tree.props.title, undefined);
+  assert.doesNotMatch(text(tree), /Superadmin Dashboard/);
+  assert.equal(nodes(tree, node => /\bfa-home\b/.test(node.props?.className || "")).length, 0);
   assert.equal(tree.props.sidebarLinks, undefined);
   assert.equal(typeof tree.props.onSettings, "function");
   assert.match(text(tree), /Recent Activity/);

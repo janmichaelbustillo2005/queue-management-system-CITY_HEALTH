@@ -386,7 +386,7 @@ test("the page is Superadmin-only and the simulation never touches the API or da
   }
   const { tree, router } = route({ id_num: "superadmin", role: "superadmin" });
   assert.deepEqual(router.replaced, []);
-  assert.match(tree.props.title, /Synthetic Data Only/);
+  assert.equal(tree.props.title, undefined, "the page names itself through its own Synthetic Data Only banner");
   for (const name of ["lib", "component", "page"]) {
     const source = fs.readFileSync(path.join(ROOT, SOURCES[name]), "utf8");
     assert.doesNotMatch(source, /lib\/api|request\(|fetch\(|supabase|localStorage/i, SOURCES[name]);

@@ -1,6 +1,20 @@
 import { useMemo } from "react";
 import { request } from "../lib/api";
 import { serviceName } from "../lib/services";
+import {
+  QUEUE_SERVICE_BADGE_CLASS,
+  QUEUE_STATUS_COUNTERS,
+  belongsToDoctor,
+  countQueueStatuses,
+  formatQueueDate,
+  formatQueueTime,
+  isDoctorOnline,
+  isUnassigned,
+  matchesQueueSearch,
+  queueDoctorLabel,
+  queuePriorityClass,
+  queueStatusClass
+} from "../lib/queueView";
 
 export const DOCTORS = [
   { name: "Doctor 1", assignment: "Consultation, Check-up" },
@@ -15,31 +29,10 @@ export const SHARED_DISPATCH = "shared";
 export const SHARED_ASSIGNMENT = "All services";
 const SHARED_LANE = "Shared queue";
 
-const SERVICE_TO_DOCTOR = {
-  consultation: "Doctor 1",
-  checkup: "Doctor 1",
-  laboratory: "Doctor 1",
-  dental: "Doctor 1",
-  prenatal: "Doctor 2",
-  maternity: "Doctor 2",
-  obgyne: "Doctor 2",
-  family_planning: "Doctor 3"
-};
-
 const STATUS_RANK = { serving: 0, waiting: 1, cancelled: 2, "no-show": 2, completed: 3 };
 
-function matchesDoctor(serviceType, doctorName) {
-  if (!serviceType || !doctorName) return false;
-  // Any other service follows the backend's existing default route (getDoctorForService): Doctor 1.
-  return (SERVICE_TO_DOCTOR[serviceType] || "Doctor 1") === doctorName;
-}
-
-function belongsToDoctor(row, doctorName, shared = false) {
-  if (shared) return row.counter_id === doctorName;
-  return row.counter_id ? row.counter_id === doctorName : matchesDoctor(row.service_type, doctorName);
-}
-
-const isUnassigned = (row) => !String(row?.counter_id ?? "").trim();
+// Service-to-doctor routing, counters, badges, search and time formatting are shared with the
+// Superadmin Queue Management table (lib/queueView.js); the actions below are this page's own.
 
 // The backend's WPS rank key (effective_priority includes WPS-A aging when enabled).
 const wpsRank = (row) => row.effective_priority ?? row.priority_score ?? 0;
@@ -79,16 +72,7 @@ function buildSharedQueue(queueRows) {
     .sort(compareQueue);
 }
 
-function isDoctorOnline(counters, queueSettings, doctorName) {
-  const counter = (counters ?? []).find((c) => c.id_num === doctorName);
-  if (counter) return counter.is_online !== false;
-  if (doctorName === "Doctor 1") return queueSettings.doctor1Online !== false;
-  if (doctorName === "Doctor 2") return queueSettings.doctor2Online !== false;
-  if (doctorName === "Doctor 3") return queueSettings.doctor3Online !== false;
-  return true;
-}
-
-const COLUMN_WIDTHS = ["10%", "21%", "13%", "15%", "9%", "11%", "21%"];
+const COLUMN_WIDTHS = ["9%", "20%", "12%", "14%", "8%", "10%", "9%", "18%"];
 
 export default function PatientQueueTable({
   doctors,
@@ -148,15 +132,9 @@ export default function PatientQueueTable({
       }
     }
 
-    const term = search.trim().toLowerCase();
     const doctorOrder = [null, ...doctors.map((d) => d.name)];
     return Array.from(byId.values())
-      .filter(
-        ({ row }) =>
-          !term ||
-          String(row.id_num || "").toLowerCase().includes(term) ||
-          String(row.queue_number || "").toLowerCase().includes(term)
-      )
+      .filter(({ row }) => matchesQueueSearch(row, search))
       .sort((a, b) => {
         const rankDiff = (STATUS_RANK[a.row.status] ?? 4) - (STATUS_RANK[b.row.status] ?? 4);
         if (rankDiff !== 0) return rankDiff;
@@ -166,24 +144,10 @@ export default function PatientQueueTable({
       });
   }, [doctors, doctorStates, queueRows, statusFilter, search, shared, sharedQueue]);
 
-  const counts = useMemo(() => {
-    const rows = queueRows ?? [];
-    const total = { waiting: 0, serving: 0, completed: 0, cancelled: 0 };
-    if (shared) {
-      const visible = (row) => isUnassigned(row) || doctors.some(({ name }) => row.counter_id === name);
-      for (const status of Object.keys(total)) {
-        total[status] = rows.filter((row) => row.status === status && visible(row)).length;
-      }
-      return total;
-    }
-    for (const { name } of doctors) {
-      total.waiting += rows.filter((row) => row.status === "waiting" && matchesDoctor(row.service_type, name)).length;
-      total.serving += rows.filter((row) => row.status === "serving" && belongsToDoctor(row, name)).length;
-      total.completed += rows.filter((row) => row.status === "completed" && row.counter_id === name).length;
-      total.cancelled += rows.filter((row) => row.status === "cancelled" && belongsToDoctor(row, name)).length;
-    }
-    return total;
-  }, [doctors, queueRows, shared]);
+  const counts = useMemo(
+    () => countQueueStatuses(queueRows, doctors.map(({ name }) => name), shared),
+    [doctors, queueRows, shared]
+  );
 
   async function postAction(doctorName, path, body, fallbackMessage) {
     const data = await request(path, { method: "POST", body: JSON.stringify(body) });
@@ -295,16 +259,15 @@ export default function PatientQueueTable({
           <h2 className="font-bold brand-text text-base m-0">All Patients</h2>
           <span className="text-xs brand-text-muted">({visibleRows.length} shown)</span>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs font-semibold">
-          <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Waiting {counts.waiting}</span>
-          <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">Serving {counts.serving}</span>
-          <span className="px-2.5 py-1 rounded-full bg-green-50 text-green-700">Completed {counts.completed}</span>
-          <span className="px-2.5 py-1 rounded-full bg-gray-200 brand-text">Cancelled {counts.cancelled}</span>
+        <div className="flex flex-wrap gap-2 text-xs font-semibold" data-queue-counters>
+          {QUEUE_STATUS_COUNTERS.map(({ status, label, className }) => (
+            <span key={status} data-counter={status} className={`px-2.5 py-1 rounded-full ${className}`}>{label} {counts[status]}</span>
+          ))}
         </div>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-left table-fixed min-w-[700px]">
+        <table className="w-full text-left table-fixed min-w-[820px]">
           <colgroup>
             {COLUMN_WIDTHS.map((width, idx) => (
               <col key={idx} style={{ width }} />
@@ -313,18 +276,19 @@ export default function PatientQueueTable({
           <thead>
             <tr className="brand-bg-subtle">
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Queue</th>
-              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Patient</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Patient Info</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Doctor</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Service</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Priority</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Status</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Time</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-4 py-10 text-center brand-text-muted">
+                <td colSpan="8" className="px-4 py-10 text-center brand-text-muted">
                   <i className="fas fa-inbox text-3xl mb-2 block" />
                   No patients match this view
                 </td>
@@ -337,8 +301,8 @@ export default function PatientQueueTable({
                   </td>
                   <td className="px-4 py-4">
                     <div className="font-semibold brand-text truncate" title={row.id_num}>{row.id_num}</div>
-                    {row.created_at && (
-                      <div className="text-[10px] brand-text-muted mt-1">Registered {new Date(row.created_at).toLocaleDateString()}</div>
+                    {formatQueueDate(row.created_at) && (
+                      <div className="text-[10px] brand-text-muted mt-1">Registered {formatQueueDate(row.created_at)}</div>
                     )}
                     <div className="flex flex-wrap gap-2 mt-1">
                       {row.sex && (
@@ -349,7 +313,7 @@ export default function PatientQueueTable({
                       {row.birthdate && (
                         <span className="text-[10px] brand-text-muted">
                           <i className="fas fa-birthday-cake me-1" />
-                          {new Date(row.birthdate).toLocaleDateString()}
+                          {formatQueueDate(row.birthdate)}
                         </span>
                       )}
                       {row.mobile_number && (
@@ -357,29 +321,36 @@ export default function PatientQueueTable({
                           <i className="fas fa-phone-alt me-1" /> {row.mobile_number}
                         </span>
                       )}
+                      {row.philhealth_id && (
+                        <span className="text-[10px] text-blue-600 font-medium">
+                          <i className="fas fa-id-card me-1" /> {row.philhealth_id}
+                        </span>
+                      )}
                     </div>
+                    {row.residency && (
+                      <div className="text-[10px] brand-text-muted mt-1 truncate" title={row.residency}>
+                        <i className="fas fa-map-marker-alt me-1" />
+                        {row.residency}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2 font-semibold brand-text text-sm whitespace-nowrap">
                       <i className="fas fa-user-md text-blue-600" />
-                      {doctorName ?? (row.status === "waiting" ? "Next available" : "Unassigned")}
+                      {queueDoctorLabel(doctorName, row.status)}
                     </div>
                     {doctorName != null && !doctorStates[doctorName].online ? (
                       <span className="text-[10px] font-bold uppercase tracking-wider brand-text-muted">Offline</span>
                     ) : null}
                   </td>
                   <td className="px-4 py-4">
-                    <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-bold uppercase tracking-wider">
+                    <span className={`px-2.5 py-1 text-xs ${QUEUE_SERVICE_BADGE_CLASS}`} title={row.service_type}>
                       {serviceName(row.service_type)}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-center">
-                    {(row.priority_score || 0) >= 3 ? (
-                      <span className="inline-flex items-center gap-1 text-yellow-700 bg-yellow-100 text-xs font-bold px-2 py-0.5 rounded-full">
-                        <i className="fas fa-star" /> {row.priority_score}
-                      </span>
-                    ) : (row.priority_score || 0) > 0 ? (
-                      <span className="inline-flex items-center gap-1 text-blue-700 bg-blue-100 text-xs font-bold px-2 py-0.5 rounded-full">
+                    {queuePriorityClass(row.priority_score) ? (
+                      <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${queuePriorityClass(row.priority_score)}`}>
                         <i className="fas fa-star" /> {row.priority_score}
                       </span>
                     ) : (
@@ -387,19 +358,11 @@ export default function PatientQueueTable({
                     )}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                        row.status === "serving" ? "bg-emerald-100 text-emerald-700" :
-                        row.status === "waiting" ? "bg-amber-100 text-amber-700" :
-                        row.status === "no-show" ? "bg-red-100 text-red-700" :
-                        row.status === "cancelled" ? "bg-gray-200 brand-text" :
-                        row.status === "completed" ? "bg-green-50 text-green-700" :
-                        "bg-gray-100 brand-text-muted"
-                      }`}
-                    >
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${queueStatusClass(row.status)}`}>
                       {row.status}
                     </span>
                   </td>
+                  <td className="px-4 py-4 text-xs brand-text-muted whitespace-nowrap">{formatQueueTime(row.created_at)}</td>
                   <td className="px-4 py-4 text-right">
                     <div className="flex justify-end gap-2 flex-wrap">
                       {onViewTicket ? (

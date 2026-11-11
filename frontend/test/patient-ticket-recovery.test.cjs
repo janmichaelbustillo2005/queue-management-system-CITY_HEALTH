@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
 
 const code = {};
 before(async () => {
@@ -97,11 +98,13 @@ function harness(name, options = {}) {
       };
       if (dependency === "../components/PatientQueueTable") return { __esModule: true, default: "PatientQueueTable", DOCTORS: doctors };
       if (dependency === "../components/SettingsModal") return { defaultQueueSettings: {} };
+      if (dependency === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
       if (dependency === "../lib/queueSettings") return { mergeQueueSettings: value => value, loadLocalQueueSettings: () => ({}), fetchQueueSettings: async () => ({}) };
       if (["../components/SiteFrame", "../components/QueueTicketDialog"].includes(dependency)) {
         return dependency.split("/").pop();
       }
       if (isServicesModule(dependency)) return loadServices();
+      if (isQueueViewModule(dependency)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${dependency}`);
     }
   });
@@ -176,7 +179,7 @@ test("Frontdesk reopens the exact saved patient, with no registration or queue m
   assert.doesNotMatch(JSON.stringify(h.dialog().props.ticket), /private|birthdate|priority_score/);
   assert.equal(JSON.stringify(saved), before);
   assert.deepEqual(h.requests, []);
-  assert.equal(h.render().props.title, "Patient Management", "navigation comes from the shared shell sidebar");
+  assert.equal(h.render().props.title, undefined, "navigation comes from the shared shell sidebar");
   h.dialog().props.onClose();
   assert.equal(h.dialog(), undefined);
 });

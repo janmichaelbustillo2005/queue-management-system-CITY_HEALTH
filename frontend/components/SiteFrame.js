@@ -145,10 +145,12 @@ export default function SiteFrame({
             </button>
           ) : null}
           <OfficeIdentity variant="header" />
-          <div className="app-page-title">
-            {icon ? <i className={icon} aria-hidden="true" /> : null}
-            <h1>{title}</h1>
-          </div>
+          {title ? (
+            <div className="app-page-title">
+              {icon ? <i className={icon} aria-hidden="true" /> : null}
+              <h1>{title}</h1>
+            </div>
+          ) : null}
           <div className="app-header-tools">
             <span className="app-header-clock">{dateTime}</span>
             {account ? (

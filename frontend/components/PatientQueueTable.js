@@ -6,8 +6,11 @@ import {
   CONFIRMATION_CONFIRMED_CLASS,
   CONFIRMATION_PENDING_CLASS,
   CONFIRMATION_PENDING_LABEL,
+  QUEUE_AGING_BADGE_CLASS,
   QUEUE_SERVICE_BADGE_CLASS,
   QUEUE_STATUS_COUNTERS,
+  WPS_AGING_HEADER_LABEL,
+  WPS_AGING_HEADER_TITLE,
   belongsToDoctor,
   confirmationDetail,
   countQueueStatuses,
@@ -19,6 +22,8 @@ import {
   isDoctorOnline,
   isUnassigned,
   matchesQueueSearch,
+  queueAgingBonus,
+  queueAgingTitle,
   queueDoctorLabel,
   queuePriorityClass,
   queueStatusClass
@@ -97,7 +102,9 @@ export default function PatientQueueTable({
   dispatchMode = "service",
   doctorNames = {},
   // FC1: true for a Frontdesk account, the only role that may confirm a patient's presence.
-  canConfirm = false
+  canConfirm = false,
+  // WPS-A: the backend's wps.aging flag from GET /queue.
+  wpsAging = false
 }) {
   const shared = dispatchMode === SHARED_DISPATCH;
 
@@ -347,7 +354,14 @@ export default function PatientQueueTable({
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Patient Info</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Doctor</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Service</th>
-              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Priority</th>
+              <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">
+                Priority
+                {wpsAging && (
+                  <span data-wps-aging-on title={WPS_AGING_HEADER_TITLE} className={`ml-1 inline-block px-1.5 py-0.5 rounded-full text-[10px] normal-case tracking-normal ${QUEUE_AGING_BADGE_CLASS}`}>
+                    {WPS_AGING_HEADER_LABEL}
+                  </span>
+                )}
+              </th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Status</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Time</th>
               <th className="px-4 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-right">Actions</th>
@@ -423,6 +437,11 @@ export default function PatientQueueTable({
                       </span>
                     ) : (
                       <span className="brand-text-muted text-xs">—</span>
+                    )}
+                    {queueAgingBonus(row) > 0 && (
+                      <span data-aging-bonus={queueAgingBonus(row)} title={queueAgingTitle(row)} className={`ml-1 inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${QUEUE_AGING_BADGE_CLASS}`}>
+                        <i className="fas fa-hourglass-half" /> +{queueAgingBonus(row)}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-4 text-center">

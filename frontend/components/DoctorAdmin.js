@@ -5,6 +5,14 @@ import { request } from "../lib/api";
 import { serviceName } from "../lib/services";
 import { defaultQueueSettings } from "./SettingsModal";
 import { fetchQueueSettings, loadLocalQueueSettings, mergeQueueSettings } from "../lib/queueSettings";
+import {
+  QUEUE_AGING_BADGE_CLASS,
+  WPS_AGING_HEADER_LABEL,
+  WPS_AGING_HEADER_TITLE,
+  isWpsAgingOn,
+  queueAgingBonus,
+  queueAgingTitle
+} from "../lib/queueView";
 
 const iconButtonClass =
   "inline-flex items-center justify-center w-8 h-8 text-white rounded-lg text-sm transition-colors shadow-sm";
@@ -67,6 +75,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   // RR1 round-robin dispatch: the backend assigns each waiting visit to one doctor, so this
   // dashboard lists only the visit assigned to this doctor (never the whole shared queue).
   const [roundRobin, setRoundRobin] = useState(false);
+  const [wpsAging, setWpsAging] = useState(false);
   const [recallCooldown, setRecallCooldown] = useState(false);
   const [pendingActions, setPendingActions] = useState({});
   const pendingActionsRef = useRef(new Set());
@@ -488,6 +497,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       setDispatchMode(shared ? SHARED_DISPATCH : "service");
       const assignedByRotation = data.dispatch_strategy === "round_robin";
       setRoundRobin(assignedByRotation);
+      setWpsAging(isWpsAgingOn(data));
       if (data.queue_settings) {
         setQueueSettings(mergeQueueSettings(data.queue_settings));
       }
@@ -772,7 +782,14 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                   <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Queue</th>
                   <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Patient</th>
                   <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider">Service</th>
-                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Priority</th>
+                  <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">
+                    Priority
+                    {wpsAging && (
+                      <span data-wps-aging-on title={WPS_AGING_HEADER_TITLE} className={`ml-1 inline-block px-1.5 py-0.5 rounded-full text-[10px] normal-case tracking-normal ${QUEUE_AGING_BADGE_CLASS}`}>
+                        {WPS_AGING_HEADER_LABEL}
+                      </span>
+                    )}
+                  </th>
                   <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-center">Status</th>
                   <th className="px-6 py-4 text-xs font-bold brand-text-muted uppercase tracking-wider text-right">Actions</th>
                 </tr>
@@ -852,6 +869,11 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                           </span>
                         ) : (
                           <span className="brand-text-muted text-xs">—</span>
+                        )}
+                        {queueAgingBonus(row) > 0 && (
+                          <span data-aging-bonus={queueAgingBonus(row)} title={queueAgingTitle(row)} className={`ml-1 inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${QUEUE_AGING_BADGE_CLASS}`}>
+                            <i className="fas fa-hourglass-half" /> +{queueAgingBonus(row)}
+                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">

@@ -28,6 +28,10 @@ services:
       # database scripts installed on Supabase first, or registration and Call refuse (503).
       - key: DOCTOR_DISPATCH_MODE
         value: round_robin
+      # WPS-A: +1 priority per full 10 minutes waited, at most +2. Round robin applies it through
+      # the RR1 and FC1 functions already required above; no other database script is needed.
+      - key: WPS_AGING
+        value: "1"
       - key: FRONTEND_URL
         sync: false
       - key: SUPABASE_URL

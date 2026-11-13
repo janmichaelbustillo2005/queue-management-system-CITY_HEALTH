@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
 
 let componentCode, componentCodeWithHandlers;
 before(async () => {
@@ -97,6 +98,7 @@ async function harness(initialRows, options = {}) {
         return options.request ? options.request(route, init, backend) : { success: true };
       } };
       if (isServicesModule(name)) return loadServices();
+      if (isQueueViewModule(name)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });

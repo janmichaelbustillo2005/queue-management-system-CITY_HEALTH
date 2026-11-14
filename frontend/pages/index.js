@@ -35,7 +35,13 @@ import {
   queuePageKey,
   queueRequestedPage,
   queuePriorityClass,
-  queueStatusClass
+  queueStatusClass,
+  QUEUE_AGING_BADGE_CLASS,
+  WPS_AGING_HEADER_LABEL,
+  WPS_AGING_HEADER_TITLE,
+  isWpsAgingOn,
+  queueAgingBonus,
+  queueAgingTitle
 } from "../lib/queueView";
 import {
   captureDoctorPresence,
@@ -202,6 +208,8 @@ export default function HomePage() {
   const sharedDispatch = dispatchMode === SHARED_DISPATCH;
   // RR1 round-robin dispatch: the backend assigns visits to doctors; staff monitor and intervene.
   const [roundRobin, setRoundRobin] = useState(null);
+  // WPS-A: whether the backend ranks waiting visits with aging (GET /queue wps.aging).
+  const [wpsAging, setWpsAging] = useState(false);
   // Shared/round-robin dispatch: the services the general doctors are approved to take (else null).
   const [approvedServices, setApprovedServices] = useState(null);
   const [doctorPresence, setDoctorPresence] = useState(null);
@@ -479,6 +487,7 @@ export default function HomePage() {
       setDoctorNames(queueData.doctor_display_names || {});
       setDispatchMode(queueData.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
       setRoundRobin(queueData.dispatch_strategy === "round_robin" ? (queueData.dispatch || { available: false }) : null);
+      setWpsAging(isWpsAgingOn(queueData));
       setApprovedServices(Array.isArray(queueData.approved_services) ? queueData.approved_services : null);
       setDashboardCountersReady(Array.isArray(queueData.counters));
       if (queueData.queue_settings) {
@@ -1616,7 +1625,14 @@ export default function HomePage() {
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide" suppressHydrationWarning>Patient Info</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Doctor</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Service</th>
-                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide text-center">Priority</th>
+                      <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide text-center">
+                        Priority
+                        {wpsAging && (
+                          <span data-wps-aging-on title={WPS_AGING_HEADER_TITLE} className={`ml-1 inline-block px-1.5 py-0.5 rounded-full text-[10px] normal-case tracking-normal ${QUEUE_AGING_BADGE_CLASS}`}>
+                            {WPS_AGING_HEADER_LABEL}
+                          </span>
+                        )}
+                      </th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Status</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Time</th>
                       <th className="px-2 py-2 text-xs font-semibold brand-text-muted uppercase tracking-wide">Actions</th>
@@ -1703,6 +1719,11 @@ export default function HomePage() {
                               </span>
                             ) : (
                               <span className="brand-text-muted text-[10px]">—</span>
+                            )}
+                            {queueAgingBonus(patient) > 0 && (
+                              <span data-aging-bonus={queueAgingBonus(patient)} title={queueAgingTitle(patient)} className={`ml-1 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${QUEUE_AGING_BADGE_CLASS}`}>
+                                <i className="fas fa-hourglass-half" /> +{queueAgingBonus(patient)}
+                              </span>
                             )}
                           </td>
                           <td className="px-2 py-2">

@@ -108,7 +108,7 @@ test("the page shows the official office identity, the real building photo and t
   assert.match(all, /Cabadbaran City Health Office/);
   assert.match(all, /and Family Planning Center/);
   assert.match(all, /Welcome back/);
-  assert.match(all, /Sign in to access the Smart Queue Management System\./);
+  assert.match(all, /Sign in to access the Queue Management System\./);
   assert.match(text(nodes(page.tree, node => node.type === Head)[0]), /Sign in \| Cabadbaran City Health Office and Family Planning Center/);
   assert.doesNotMatch(all, /City Health Log-In Form|Smart Queuing System|Hospital|City Healthcare System|Municipal Health Office/);
   const photo = nodes(page.tree, node => node.type === "img")[0];

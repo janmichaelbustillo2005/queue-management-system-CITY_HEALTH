@@ -1,6 +1,7 @@
-// Weighted-Priority Scheduling (WPS) order for waiting visits, with optional 10-minute Aging
-// (WPS-A, proposed; off unless WPS_AGING is enabled). The constants and rules match the WPS-A
-// call function in backend/scripts/20261029-wps-a-call-aging.sql; a test compares the two.
+// Weighted-Priority Scheduling (WPS) order for waiting visits, with 10-minute Aging (WPS-A, on
+// when WPS_AGING is enabled; render.yaml enables it for the hosted backend). The constants and
+// rules match qms_rr_effective_priority in backend/scripts/20261109-rr1-round-robin-dispatch.sql
+// (round robin) and the rollback modes' WPS-A call functions; tests compare them.
 //   effective = priority_score + min(MAX_BONUS, floor(waited / STEP)), waited = rankedAt -
 //   created_at in whole milliseconds (a visit registered after rankedAt gets no bonus).
 //   Order: effective DESC, priority_score DESC (a protected category wins a tie), created_at

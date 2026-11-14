@@ -146,6 +146,26 @@ export function queuePriorityClass(score) {
   return null;
 }
 
+// WPS-A aging, as the backend reports it on GET /queue: `wps.aging` says whether aging is on, and
+// each waiting visit's `effective_priority` is its rank key at read time. The bonus shown is the
+// difference from the stored score (0 to +2); the screens never compute aging themselves.
+export const isWpsAgingOn = (queueData) => queueData?.wps?.aging === true;
+
+export function queueAgingBonus(row) {
+  if (row?.status !== "waiting") return 0;
+  const bonus = Number(row.effective_priority) - (Number(row.priority_score) || 0);
+  return Number.isInteger(bonus) && bonus > 0 ? Math.min(2, bonus) : 0;
+}
+
+export const QUEUE_AGING_BADGE_CLASS = "bg-violet-100 text-violet-800";
+export const WPS_AGING_HEADER_LABEL = "Aging on";
+export const WPS_AGING_HEADER_TITLE = "WPS-A aging is on: a waiting patient gains +1 priority for every full 10 minutes since registration, at most +2.";
+
+export function queueAgingTitle(row) {
+  const bonus = queueAgingBonus(row);
+  return `Aging bonus +${bonus} (waited ${bonus * 10}+ minutes). Ranked as ${Number(row.priority_score) || 0} + ${bonus} = ${Number(row.effective_priority)}.`;
+}
+
 // The status choices both pages offer after their own default view.
 export const QUEUE_STATUS_FILTERS = [
   { value: "all", label: "All registered patients" },

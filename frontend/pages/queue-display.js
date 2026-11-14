@@ -922,7 +922,7 @@ export default function QueueDisplayPage() {
           <SystemLogo variant="display" />
           <div className="queue-display-title">
             <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">
-              {display?.settings?.department_name || "CHO & Family Planning Center"} Smart Queuing System
+              {display?.settings?.department_name || "CHO & Family Planning Center"} Queue Management System
             </h1>
             <p className="text-xs md:text-sm text-white/70 font-bold uppercase tracking-widest">
               CHO CABADBARAN CITY
@@ -1090,7 +1090,7 @@ export default function QueueDisplayPage() {
 
       <footer className="px-6 py-6 border-t border-[var(--display-border)] bg-[var(--display-card-header)] text-center">
         <p className="text-[10px] text-white/60 font-bold uppercase tracking-[0.2em] mb-2">
-          © {new Date().getFullYear()} CHO CABADBARAN CITY Smart Queuing System. All rights reserved.
+          © {new Date().getFullYear()} CHO CABADBARAN CITY Queue Management System. All rights reserved.
         </p>
         <p className="text-[9px] text-white/60 font-bold uppercase tracking-[0.4em]">
           Please listen for your name and queue number to be called.

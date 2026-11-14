@@ -91,16 +91,18 @@ const env = {
   frontendUrls: readFrontendUrls(process.env.FRONTEND_URL),
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-  smsSenderName: process.env.SMS_SENDER_NAME || "Smart Queuing System",
+  smsSenderName: process.env.SMS_SENDER_NAME || "Queue Management System",
   smsGatewayAddress: process.env.SMS_GATEWAY_ADDRESS || "",
   gatewayApiToken: (process.env.GATEWAY_API_TOKEN || "").trim(),
   jwtSecret: readJwtSecret(process.env.JWT_SECRET),
   // RES2: Google Places address search for the Residency bar (Places API (New)). Server-side only;
   // off when unset, and the form then uses its verified barangay list and manual entry.
   googleMapsApiKey: (process.env.GOOGLE_MAPS_API_KEY || "").trim(),
-  // WPS-A (Weighted-Priority Scheduling with 10-minute Aging), proposed and off by default. It needs
-  // the call_patient_visit_wps_a database function (backend/scripts/20261029-wps-a-call-aging.sql)
-  // and policy approval; without the function, Calls are refused rather than ranked two ways.
+  // WPS-A (Weighted-Priority Scheduling with 10-minute Aging): on when WPS_AGING is 1/true/yes/on
+  // (render.yaml turns it on for the hosted backend), off when unset. In round_robin dispatch the
+  // RR1/FC1 Call and dispatcher functions apply it themselves (p_aging); the rollback modes need
+  // call_patient_visit_wps_a ("service") or call_patient_visit_shared_wps_a ("shared"), and without
+  // that function their Calls are refused rather than ranked two ways.
   wpsAging: ["1", "true", "yes", "on"].includes(String(process.env.WPS_AGING || "").trim().toLowerCase()),
   // I2 Finding 8: when the C1 call_patient_visit function cannot be used, Call refuses (503,
   // nothing changed). Only a database that never had C1 (e.g. a local copy before

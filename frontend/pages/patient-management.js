@@ -8,7 +8,7 @@ import { useAuth } from "../context/AuthContext";
 import { request } from "../lib/api";
 import { createQueueTicket, fetchExistingQueueTicket } from "../lib/queueTicket";
 import { fetchQueueSettings, loadLocalQueueSettings, mergeQueueSettings } from "../lib/queueSettings";
-import { QUEUE_SEARCH_PLACEHOLDER, QUEUE_STATUS_FILTERS } from "../lib/queueView";
+import { QUEUE_SEARCH_PLACEHOLDER, QUEUE_STATUS_FILTERS, isWpsAgingOn } from "../lib/queueView";
 
 // This page's default view, then the status choices shared with Superadmin Queue Management.
 const STATUS_OPTIONS = [{ value: "active", label: "Active Queue" }, ...QUEUE_STATUS_FILTERS];
@@ -35,6 +35,7 @@ export default function PatientManagementPage() {
   const [doctorNames, setDoctorNames] = useState({});
   // D1: "service" (fixed service doctors) or "shared" (one queue, the calling doctor takes the visit).
   const [dispatchMode, setDispatchMode] = useState("service");
+  const [wpsAging, setWpsAging] = useState(false);
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState({ type: "", text: "" });
@@ -101,6 +102,7 @@ export default function PatientManagementPage() {
       setCounters(data.counters ?? []);
       setDoctorNames(data.doctor_display_names ?? {});
       setDispatchMode(data.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service");
+      setWpsAging(isWpsAgingOn(data));
       if (data.queue_settings) {
         setQueueSettings(mergeQueueSettings(data.queue_settings));
       }
@@ -345,6 +347,7 @@ export default function PatientManagementPage() {
           ticketLoadingId={ticketLoadingId}
           dispatchMode={dispatchMode}
           canConfirm={canConfirm}
+          wpsAging={wpsAging}
         />
       </div>
 

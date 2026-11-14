@@ -104,3 +104,17 @@ test("a page belongs to the filters it was chosen under; changed filters start a
   assert.equal(q.queueRequestedPage({ key, page: 3 }, q.queuePageKey("all", "Doctor 1", "ben")), 1);
   assert.equal(q.queueRequestedPage(undefined, key), 1);
 });
+
+test("WPS-A: the aging bonus is the backend's effective_priority minus the stored score, for waiting visits only", () => {
+  assert.equal(q.isWpsAgingOn({ wps: { aging: true } }), true);
+  assert.equal(q.isWpsAgingOn({ wps: { aging: false } }), false);
+  assert.equal(q.isWpsAgingOn({}), false, "an older backend without the flag counts as off");
+  assert.equal(q.queueAgingBonus(row({ priority_score: 1, effective_priority: 1 })), 0);
+  assert.equal(q.queueAgingBonus(row({ priority_score: 1, effective_priority: 2 })), 1);
+  assert.equal(q.queueAgingBonus(row({ priority_score: 3, effective_priority: 5 })), 2);
+  assert.equal(q.queueAgingBonus(row({ priority_score: 1, effective_priority: 9 })), 2, "never shown above the +2 cap");
+  assert.equal(q.queueAgingBonus(row({ priority_score: 4 })), 0, "no effective_priority, no bonus");
+  assert.equal(q.queueAgingBonus(row({ status: "serving", priority_score: 1, effective_priority: 3 })), 0);
+  assert.equal(q.queueAgingTitle(row({ priority_score: 2, effective_priority: 3 })),
+    "Aging bonus +1 (waited 10+ minutes). Ranked as 2 + 1 = 3.");
+});

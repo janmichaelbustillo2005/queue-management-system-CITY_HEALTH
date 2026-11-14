@@ -70,12 +70,14 @@ describe("WPS-A aging with round-robin dispatch (isolated PGlite, real backend)"
     return tokens[idNum];
   }
   // A synthetic waiting visit of today, assigned to `doctor`, registered `minutesAgo` minutes ago.
-  async function visit(ticket, score, minutesAgo, { doctor = "Doctor 1", confirmed = true } = {}) {
+  // `createdAt` (an exact timestamp) replaces `minutesAgo`, to give two visits the same instant.
+  async function visit(ticket, score, minutesAgo, { doctor = "Doctor 1", confirmed = true, createdAt = null } = {}) {
     const { rows: [row] } = await db.query(`INSERT INTO public.patients (id_num, queue_number, service_type, status, priority_score,
         vulnerability_flags, counter_id, created_at, confirmed_at, confirmed_by)
-      VALUES ($1, $2, 'medical_consultation', 'waiting', $3, '[]', $4, clock_timestamp() - ($5 * interval '1 minute'),
+      VALUES ($1, $2, 'medical_consultation', 'waiting', $3, '[]', $4,
+        COALESCE($7::timestamptz, clock_timestamp() - ($5 * interval '1 minute')),
         CASE WHEN $6 THEN clock_timestamp() END, CASE WHEN $6 THEN 'frontdesk' END) RETURNING id`,
-      [`Synthetic ${ticket}`, ticket, score, doctor, minutesAgo, confirmed]);
+      [`Synthetic ${ticket}`, ticket, score, doctor, minutesAgo, confirmed, createdAt]);
     return Number(row.id);
   }
   const ticketOf = async (id) => (await db.query("SELECT queue_number FROM public.patients WHERE id = $1", [id])).rows[0].queue_number;
@@ -118,9 +120,12 @@ describe("WPS-A aging with round-robin dispatch (isolated PGlite, real backend)"
   test("the database formula: +1 per full 10 minutes, at most +2, nothing when off or not yet registered", async () => {
     await db.exec("RESET ROLE");   // qms_rr_effective_priority is closed to the API roles
     const cases = [
-      [1, "10:00:00", "10:00:00", true, 1], [1, "10:00:00", "10:09:59.999", true, 1],
-      [1, "10:00:00", "10:10:00", true, 2], [1, "10:00:00", "10:19:59.999", true, 2],
-      [1, "10:00:00", "10:20:00", true, 3], [1, "10:00:00", "13:00:00", true, 3],
+      // The checkpoints 0, 9, 10, 19, 20 and 30 minutes, then the edges just below 10 and 20.
+      [1, "10:00:00", "10:00:00", true, 1], [1, "10:00:00", "10:09:00", true, 1],
+      [1, "10:00:00", "10:10:00", true, 2], [1, "10:00:00", "10:19:00", true, 2],
+      [1, "10:00:00", "10:20:00", true, 3], [1, "10:00:00", "10:30:00", true, 3],
+      [1, "10:00:00", "10:09:59.999", true, 1], [1, "10:00:00", "10:19:59.999", true, 2],
+      [1, "10:00:00", "13:00:00", true, 3],
       [4, "10:00:00", "10:35:00", true, 6], [7, "10:00:00", "10:15:00", true, 8],
       [1, "10:00:00", "13:00:00", false, 1], [3, "10:05:00", "10:00:00", true, 3],
       // Both instants are cut to whole milliseconds first (date_trunc in SQL, Date.parse in Node):
@@ -230,5 +235,64 @@ describe("WPS-A aging with round-robin dispatch (isolated PGlite, real backend)"
       (SELECT count(*) FROM public.patients WHERE status = 'serving')::int AS serving,
       (SELECT count(*) FROM public.counters WHERE current_patient_id IS NOT NULL)::int AS held`);
     assert.deepEqual(rows[0], { serving: 1, held: 1 });
+  });
+
+  test("each doctor's queue is ranked on its own: another doctor's aged patient never changes this doctor's head", { skip: tooEarly() }, async () => {
+    const h = backend(true);
+    for (const idNum of ["admin1", "admin2"]) await signIn(h, idNum);
+    const regular = await visit("GP-701", 1, 25);                          // Doctor 1, aged 3
+    const senior = await visit("GP-702", 4, 0);                            // Doctor 1, 4
+    const pregnant = await visit("GP-703", 3, 20, { doctor: "Doctor 2" }); // Doctor 2, aged 5
+    const doctor1 = as(h, "admin1");
+    const notOwn = await doctor1.call(pregnant);
+    assert.equal(notOwn.status, 403, notOwn.body.message);
+    assert.match(notOwn.body.message, /not assigned to Doctor 1/);
+    assert.match((await doctor1.call(regular)).body.message, /according to queue priority/);
+    assert.equal((await doctor1.call(senior)).status, 200, "Doctor 1's head is its Senior");
+    assert.equal((await as(h, "admin2").call(pregnant)).status, 200, "Doctor 2's head is its Pregnant patient");
+  });
+
+  test("round robin with aging on: six registrations among three eligible doctors go 1, 2, 3, 1, 2, 3", async () => {
+    const h = backend(true);
+    for (const idNum of ["frontdesk", "admin1", "admin2", "admin3"]) await signIn(h, idNum);
+    const flags = [[], ["senior"], ["pwd"], [], ["pregnant"], ["solo_parent"]];
+    const assigned = [];
+    for (const [i, vulnerabilityFlags] of flags.entries()) {
+      const response = await h.request("POST", "/queue", { token: tokens.frontdesk,
+        body: { fullName: `Synthetic Patient ${i + 1}`, service_type: "medical_consultation", vulnerabilityFlags } });
+      assert.equal(response.status, 200, response.body.message);
+      assigned.push(response.body.assigned_doctor);
+    }
+    assert.deepEqual(assigned, ["Doctor 1", "Doctor 2", "Doctor 3", "Doctor 1", "Doctor 2", "Doctor 3"]);
+    const { rows } = await db.query("SELECT counter_id, priority_score FROM public.patients ORDER BY id");
+    assert.deepEqual(rows.map((row) => row.counter_id), assigned, "the saved doctor matches the response");
+    assert.deepEqual(rows.map((row) => row.priority_score), [1, 4, 3, 1, 3, 1], "priority does not choose the doctor");
+    const { rows: log } = await db.query("SELECT reason FROM public.patient_assignment_history ORDER BY id");
+    assert.ok(log.length === 6 && log.every((row) => row.reason === "round_robin_assignment"));
+  });
+
+  test("ties: equal aged and base scores go to the earlier registration, then to the lower record ID", { skip: tooEarly() }, async () => {
+    const h = backend(true);
+    await signIn(h, "admin1");
+    const sameInstant = new Date(Date.now() - 24 * 60 * 1000).toISOString();   // both waited 24 min: 1 + 2
+    const laterId = await visit("GP-801", 1, 0, { createdAt: sameInstant });
+    const evenLaterId = await visit("GP-802", 1, 0, { createdAt: sameInstant });
+    const earlier = await visit("GP-803", 1, 27);                              // 1 + 2, registered earlier
+    assert.ok(laterId < evenLaterId, "record IDs increase with insertion");
+    assert.deepEqual(await serveInOrder(h, [evenLaterId, laterId, earlier]), ["GP-803", "GP-801", "GP-802"]);
+  });
+
+  test("two Calls at once for two different patients: the doctor serves exactly one, the head", { skip: tooEarly() }, async () => {
+    const h = backend(true);
+    await signIn(h, "admin1");
+    const head = await visit("GP-901", 2, 15);   // aged 3
+    const second = await visit("GP-902", 2, 5);  // 2
+    const doctor = as(h, "admin1");
+    const responses = await Promise.all([doctor.call(head), doctor.call(second)]);
+    assert.deepEqual(responses.map((response) => response.status), [200, 400]);
+    const { rows } = await db.query(`SELECT queue_number FROM public.patients WHERE status = 'serving'`);
+    assert.deepEqual(rows.map((row) => row.queue_number), ["GP-901"]);
+    const { rows: held } = await db.query("SELECT count(*)::int AS n FROM public.counters WHERE current_patient_id IS NOT NULL");
+    assert.equal(held[0].n, 1);
   });
 });

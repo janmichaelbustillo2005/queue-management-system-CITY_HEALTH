@@ -91,7 +91,7 @@ const env = {
   frontendUrls: readFrontendUrls(process.env.FRONTEND_URL),
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-  smsSenderName: process.env.SMS_SENDER_NAME || "Smart Queuing System",
+  smsSenderName: process.env.SMS_SENDER_NAME || "Queue Management System",
   smsGatewayAddress: process.env.SMS_GATEWAY_ADDRESS || "",
   gatewayApiToken: (process.env.GATEWAY_API_TOKEN || "").trim(),
   jwtSecret: readJwtSecret(process.env.JWT_SECRET),

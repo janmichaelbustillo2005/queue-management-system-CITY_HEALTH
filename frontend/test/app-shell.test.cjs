@@ -562,7 +562,7 @@ test("the office identity uses one wording, with the system name only in the sid
   const header = SystemLogo.OfficeIdentity({ variant: "header" });
   const sidebar = SystemLogo.OfficeIdentity({ variant: "sidebar" });
   assert.equal(text(header), "Cabadbaran City Health Officeand Family Planning Center");
-  assert.equal(text(sidebar), "Cabadbaran City Health Officeand Family Planning CenterSmart Queue Management System");
+  assert.equal(text(sidebar), "Cabadbaran City Health Officeand Family Planning CenterQueue Management System");
   const logo = nodes(header, node => node.type === SystemLogo.default)[0];
   assert.equal(logo.props.decorative, true, "the name beside it already identifies the office");
   assert.equal(SystemLogo.default({ variant: "login" }).props.alt, "Cabadbaran City Health Office and Family Planning Center official logo");

@@ -111,7 +111,19 @@ for (const localFallback of [false, true]) {
     const before = await cancel(h, patient, 2);
     const busy = await active(h, 2);
     const countersBefore = clone((await h.service.getQueueOverview()).counters);
-    assert.equal((await h.request("POST", "/queue/undo", { patient_id: patient.id })).status, 200);
+    const undone = await h.request("POST", "/queue/undo", { patient_id: patient.id });
+    if (localFallback) {
+      // OC1 strict rule (2026-11-13): the restored visit keeps its confirmation, so it would be a
+      // second active patient for Doctor 2, which is serving `busy`. Development memory refuses it
+      // as the database trigger does (oc1-one-confirmation-postgres.test.js); nothing changes.
+      assert.equal(undone.status, 409, undone.body.message);
+      assert.match(undone.body.message, /^Undo was not applied\. Doctor 2 already has an active patient/);
+      assert.equal((await h.service.getPatientById(patient.id)).status, "cancelled");
+      assert.deepEqual(clone((await h.service.getQueueOverview()).counters), countersBefore);
+      return;
+    }
+    // The fake database models the Undo RPC without the OC1 trigger.
+    assert.equal(undone.status, 200);
     cleanWaiting(await h.service.getPatientById(patient.id), before);
     assert.deepEqual(clone((await h.service.getQueueOverview()).counters), countersBefore);
     const called = await h.request("POST", "/queue/call", { patient_id: patient.id });

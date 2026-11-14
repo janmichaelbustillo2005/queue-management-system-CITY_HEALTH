@@ -6,11 +6,12 @@ import SiteFrame from "../components/SiteFrame";
 import DailyTrends from "../components/DailyTrends";
 import StatusAnalytics from "../components/StatusAnalytics";
 import { DetailedInsights } from "../components/AnalyticsInsights";
+import ServiceAnalytics from "../components/ServiceAnalytics";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { request } from "../lib/api";
 import { SERVICE_FILTER_OPTIONS } from "../lib/services";
 import { getDefaultHistoryFilters } from "../lib/historyFilters";
-import { TAB_CHARTS, buildAnalyticsCharts, hasChartData, serviceLabel } from "../lib/analyticsCharts";
+import { TAB_CHARTS, buildAnalyticsCharts, hasChartData } from "../lib/analyticsCharts";
 import {
   clearActiveQueues,
   exportQueueData,
@@ -55,6 +56,8 @@ export default function AnalyticsPage() {
   const [filters, setFilters] = useState({ status: "", service: "", doctor: "", dateFilter: "range", date: "", startDate: "", endDate: "" });
   const [defaultsReady, setDefaultsReady] = useState(false);
   const [data, setData] = useState(emptyAnalyticsData);
+  // "loading" | "ready" | "error", for the By Service cards' loading and error states.
+  const [loadState, setLoadState] = useState("loading");
 
   useEffect(() => {
     let cancelled = false;
@@ -118,6 +121,7 @@ export default function AnalyticsPage() {
   async function loadAnalytics(nextFilters = filters) {
     const sequence = ++loadSequence.current;
     setData(emptyAnalyticsData);
+    setLoadState("loading");
     setApiError(null);
     try {
       const params = new URLSearchParams(nextFilters);
@@ -125,8 +129,12 @@ export default function AnalyticsPage() {
       if (sequence !== loadSequence.current) return;
       if (response.error) throw new Error(response.error);
       setData(response);
+      setLoadState("ready");
     } catch (error) {
-      if (sequence === loadSequence.current) setApiError(error.message || "Failed to load analytics");
+      if (sequence === loadSequence.current) {
+        setApiError(error.message || "Failed to load analytics");
+        setLoadState("error");
+      }
     }
   }
 
@@ -259,13 +267,7 @@ export default function AnalyticsPage() {
 
             {activeTab === "all" && (
               <>
-                <SummaryTable
-                  title="By Service"
-                  icon="fas fa-table"
-                  firstColumn="Service"
-                  rows={(data?.tableData ?? []).map((row) => ({ key: row.service_type, name: serviceLabel(row.service_type), ...row }))}
-                  totals={data?.totals}
-                />
+                <ServiceAnalytics tableData={data?.tableData} totals={data?.totals} wait={data?.insights?.wait} status={loadState} />
                 <SummaryTable
                   title="By Doctor"
                   icon="fas fa-user-md"

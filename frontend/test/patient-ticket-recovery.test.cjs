@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
 const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
+const { isQueuePaginationModule, loadQueuePagination } = require("./queue-pagination-module.cjs");
 
 const code = {};
 before(async () => {
@@ -81,6 +82,7 @@ function harness(name, options = {}) {
     require(dependency) {
       if (dependency === "react") return react;
       if (dependency === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (isQueuePaginationModule(dependency)) return loadQueuePagination({ jsx, jsxs: jsx, Fragment: "fragment" });
       if (dependency === "next/router") return { useRouter: () => ({ replace() {} }) };
       if (dependency === "../context/AuthContext") return { useAuth: () => ({
         user: options.user || { id_num: "frontdesk", role: "admin" }, loading: false
@@ -144,7 +146,7 @@ test("all and active patient searches recover tickets beyond 20 rows without cha
   rows.push(patient(26, { status: "completed", counter_id: "Doctor 1" }));
   const opened = [];
   const h = harness("table", { rows, props: { statusFilter: "all", onViewTicket: row => opened.push(row.id) } });
-  assert.equal(buttons(h.render(), "View Ticket").length, 26);
+  assert.equal(buttons(h.render(), "View Ticket").length, 10, "10 records per page; search reaches the others");
   assert.equal(buttons(h.render(), "Cancel").length, 1, "existing queue head alone remains cancellable");
   h.props.search = "GP-025";
   const recovered = buttons(h.render(), "View Ticket");

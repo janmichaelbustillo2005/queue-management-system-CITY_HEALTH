@@ -109,7 +109,9 @@ export function navigationFor(account) {
     case "staff": return [patientOperations, queueMonitoring];
     case "doctor": return [
       { id: "patient-queue", label: "Patient Queue", items: [
-        link("my-queue", "My Patient Queue", "fas fa-user-md", account.homeHref, (at) => at.path === account.homeHref)
+        link("my-queue", "My Patient Queue", "fas fa-user-md", account.homeHref, (at) => at.path === account.homeHref),
+        // PH1: the doctor's own completed, cancelled and no-show visits (the API returns only its own).
+        link("patient-history", "Patient History", "fas fa-clipboard-list", "/patient-history", (at) => at.path === "/patient-history")
       ] },
       queueMonitoring
     ];

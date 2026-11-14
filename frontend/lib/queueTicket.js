@@ -26,6 +26,12 @@ function doctorForService(service) {
   return "Doctor 1";
 }
 
+// The backend's priority categories (VULNERABILITY_WEIGHTS). A Regular patient has none; its stored
+// priority_score is still 1, so the score alone cannot tell a priority patient from a regular one.
+const PRIORITY_CATEGORIES = ["senior", "pwd", "pregnant", "indigenous", "solo_parent"];
+// Subtle dark red; prints as a dark grey on black-and-white printers.
+const PRIORITY_INDICATOR_COLOR = "#991b1b";
+
 function sameId(left, right) {
   return left != null && right != null && String(left) === String(right);
 }
@@ -64,7 +70,10 @@ export function createQueueTicket(patient, { dispatchMode, dispatchStrategy, doc
     }) : "Unavailable",
     status: knownStatus ? patient.status : "unknown",
     statusLabel: knownStatus ? STATUS_LABELS[patient.status] : "Status unavailable",
-    isActive: patient.status === "waiting" || patient.status === "serving"
+    isActive: patient.status === "waiting" || patient.status === "serving",
+    // Only a yes/no reaches the ticket; which category applies stays off it.
+    isPriority: Array.isArray(patient.vulnerability_flags) &&
+      patient.vulnerability_flags.some(flag => PRIORITY_CATEGORIES.includes(flag))
   };
 }
 
@@ -128,7 +137,7 @@ export function queuePassSvgContents(ticket, logoHref = SYSTEM_BRANDING.logoSrc)
       <text x="150" y="96" fill="#ffffff" font-size="22">Family Planning Center · Cabadbaran City</text>
       <text x="380" y="200" text-anchor="middle" fill="#355347" font-size="26" font-weight="700" letter-spacing="3">YOUR QUEUE NUMBER</text>
       <text x="380" y="340" text-anchor="middle" fill="#167d3f" font-size="${numberSize}" font-weight="800">${esc(ticket.queueNumber)}</text>
-      <rect x="48" y="371" width="664" height="139" rx="18" fill="#f1f7f3"/>
+${ticket.isPriority ? `      <text x="380" y="362" text-anchor="middle" fill="${PRIORITY_INDICATOR_COLOR}" font-size="18" font-weight="600" letter-spacing="2">PRIORITY</text>\n` : ""}      <rect x="48" y="371" width="664" height="139" rx="18" fill="#f1f7f3"/>
       <text x="380" y="410" text-anchor="middle" fill="#355347" font-size="22" font-weight="700">SERVICE</text>
       <text x="380" y="456" text-anchor="middle" fill="#0b3d2e" font-size="${serviceSize}" font-weight="700">${esc(ticket.serviceLabel)}</text>
       <text x="380" y="492" text-anchor="middle" fill="#355347" font-size="25"${String(ticket.doctorName).length > 36 ? ' textLength="630" lengthAdjust="spacingAndGlyphs"' : ""}>${ticket.doctorName === NEXT_AVAILABLE_DOCTOR ? "Doctor assigned when called" : `Assigned to ${esc(ticket.doctorName)}`}</text>
@@ -210,9 +219,9 @@ export function openThermalTicketWindow() {
 export function thermalTicketHtml(ticket) {
   const esc = escapeTicketText;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Queue Ticket ${esc(ticket.queueNumber)}</title>
-    <style>body{font-family:'Courier New',Courier,monospace;width:280px;margin:0 auto;text-align:center;padding:20px}.header{font-weight:bold;font-size:16px;margin-bottom:5px}.subheader{font-size:12px;margin-bottom:20px;border-bottom:1px dashed #000;padding-bottom:10px}.queue-num{font-size:48px;font-weight:bold;margin:20px 0;overflow-wrap:anywhere}.info{font-size:14px;margin-bottom:10px;text-align:left}.footer{font-size:10px;margin-top:30px;border-top:1px dashed #000;padding-top:10px}.inactive{font-weight:bold;border:1px solid #000;padding:8px}</style></head>
+    <style>body{font-family:'Courier New',Courier,monospace;width:280px;margin:0 auto;text-align:center;padding:20px}.header{font-weight:bold;font-size:16px;margin-bottom:5px}.subheader{font-size:12px;margin-bottom:20px;border-bottom:1px dashed #000;padding-bottom:10px}.queue-num{font-size:48px;font-weight:bold;margin:20px 0;overflow-wrap:anywhere}.info{font-size:14px;margin-bottom:10px;text-align:left}.footer{font-size:10px;margin-top:30px;border-top:1px dashed #000;padding-top:10px}.inactive{font-weight:bold;border:1px solid #000;padding:8px}${ticket.isPriority ? `.priority{font-size:12px;line-height:14px;font-weight:600;color:${PRIORITY_INDICATOR_COLOR};margin:-18px 0 4px}` : ""}</style></head>
     <body><div class="header">CHO &amp; Family Planning Center</div><div class="subheader">Cabadbaran City</div>
-    <div class="info">Service: ${esc(ticket.serviceLabel)}</div><div class="queue-num">${esc(ticket.queueNumber)}</div>
+    <div class="info">Service: ${esc(ticket.serviceLabel)}</div><div class="queue-num">${esc(ticket.queueNumber)}</div>${ticket.isPriority ? '<div class="priority">PRIORITY</div>' : ""}
     <div class="info">Assigned: ${esc(ticket.doctorName)}</div><div class="info">Registered: ${esc(ticket.registeredDate)}</div><div class="info">Time: ${esc(ticket.registeredTime)} PHT</div>
     <div class="info">Status: ${esc(ticket.statusLabel)}</div>${ticket.isActive ? "" : '<div class="inactive">INACTIVE TICKET<br>No new queue position</div>'}
     <div class="footer">${ticket.isActive ? "Please watch the live queue for your number.<br>Thank you for your patience." : "Copy of the original ticket. This is not a new waiting ticket."}<br>Saved ticket snapshot; status may change.</div>

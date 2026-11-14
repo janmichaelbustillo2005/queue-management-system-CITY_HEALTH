@@ -31,7 +31,7 @@ for (const table of ["display_settings", "counters", "patients", "users"]) {
 test("configured database outage rejects registration and login without using local patients or accounts", async () => {
   const h = createHarness();
   h.database.beforeQuery = () => ({ data: null, error: { message: "fetch failed (isolated outage)" } });
-  const registered = await h.request("POST", "/queue/website", { fullName: registration.idNum, serviceType: registration.serviceType });
+  const registered = await h.request("POST", "/queue/website", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: registration.idNum, serviceType: registration.serviceType });
   assert.equal(registered.status, 503);
   const login = await h.request("POST", "/auth/login", { id_num: "frontdesk", password: "isolated-password" });
   assert.equal(login.status, 503);

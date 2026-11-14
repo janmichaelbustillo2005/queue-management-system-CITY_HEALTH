@@ -100,7 +100,7 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
 
   test("R1b: registrations through two backends at once never share a rotation position or a ticket", async () => {
     const responses = await Promise.all(Array.from({ length: 6 }, (_, i) =>
-      f.post(i % 2 ? other : h, tokens.frontdesk, "/queue", { fullName: `R1b ${i}`, service_type: "medical_consultation" })));
+      f.post(i % 2 ? other : h, tokens.frontdesk, "/queue", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: `R1b ${i}`, service_type: "medical_consultation" })));
     assert.deepEqual(responses.map((r) => r.status), Array(6).fill(200), JSON.stringify(responses.map((r) => r.body?.message)));
     assert.deepEqual((await history("round_robin_assignment")).map((row) => row.new_doctor), [...DOCTORS, ...DOCTORS]);
     await assertSingleOwnership();
@@ -309,10 +309,10 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
       const harness = desks[i % 3];
       const serviceType = services[i % services.length];
       const name = `R11-${i}`;
-      if (i % 3 === 0) return f.post(harness, tokens.frontdesk, "/queue", { fullName: name, service_type: serviceType });
-      if (i % 3 === 1) return harness.request("POST", "/queue/website", { body: { fullName: name, serviceType } });
+      if (i % 3 === 0) return f.post(harness, tokens.frontdesk, "/queue", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: name, service_type: serviceType });
+      if (i % 3 === 1) return harness.request("POST", "/queue/website", { body: { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: name, serviceType } });
       return f.post(harness, tokens.frontdesk, "/patient-records/visits", {
-        firstName: name, lastName: "Concurrent", sex: "Female", birthdate: "1990-01-01", residency: "Barangay 1", serviceType });
+        firstName: name, lastName: "Concurrent", sex: "Female", birthdate: "1990-01-01", residency: "Purok 1, Poblacion 1, Cabadbaran City, Agusan del Norte", serviceType });
     });
     await f.waitForLockWaiters(db, 12);
     await blocker.release();
@@ -321,9 +321,10 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     const rows = (await db.observer.query("SELECT id::int AS id, queue_number, service_type, counter_id FROM public.patients ORDER BY id")).rows;
     assert.equal(rows.length, 24, "every valid registration saved exactly once");
     assert.equal(new Set(rows.map((row) => row.queue_number)).size, 24, "every ticket number is unique");
-    const code = { prenatal: "OB", maternity: "OB", family_planning: "FP" };
-    for (const prefix of ["GP", "OB", "FP"]) {
-      const numbers = rows.filter((row) => (code[row.service_type] || "GP") === prefix).map((row) => row.queue_number);
+    const code = { medical_consultation: "MC", family_planning: "FP", prenatal: "OB", dental_healthcare: "DH", maternity: "OB", nutrition: "NT" };
+    for (const prefix of ["MC", "FP", "OB", "DH", "NT"]) {
+      const numbers = rows.filter((row) => code[row.service_type] === prefix).map((row) => row.queue_number);
+      assert.ok(numbers.length > 0, prefix);
       assert.deepEqual(numbers, numbers.map((_, i) => `${prefix}-${String(i + 1).padStart(3, "0")}`), prefix);
     }
     assert.deepEqual(rows.map((row) => row.counter_id), Array.from({ length: 24 }, (_, i) => DOCTORS[i % 3]));
@@ -359,7 +360,7 @@ describe("RR1 round-robin dispatch on real PostgreSQL 17 (independent connection
     for (let round = 0; round < 10; round += 1) {
       const work = [];
       for (let i = 0; i < 4; i += 1) {
-        work.push(note(f.post(i % 2 ? h : other, tokens.frontdesk, "/queue", { fullName: `R9 ${round}-${i}`, service_type: ["medical_consultation", "maternal_healthcare", "family_planning", "child_healthcare"][i] })));
+        work.push(note(f.post(i % 2 ? h : other, tokens.frontdesk, "/queue", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: `R9 ${round}-${i}`, service_type: ["medical_consultation", "maternal_healthcare", "family_planning", "child_healthcare"][i] })));
       }
       work.push(note(dispatch(h)), note(dispatch(other)));
       for (const doctor of DOCTORS) {

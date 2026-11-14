@@ -4,6 +4,8 @@ const { randomUUID, createHash, timingSafeEqual } = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const { getBusinessDate, getBusinessDayRange, getDateFilterRange } = require("../lib/businessDay");
 const { compareWps, effectivePriority } = require("../lib/wpsPriority");
+const { buildConfirmationGate, findActiveVisit, activeConflictMessage, buildDoctorWaitingSummary } = require("../lib/confirmationGate");
+const { readResidency, parseResidency } = require("../lib/residency");
 const {
   sendQueueCreatedNotification,
   sendQueueCalledNotification
@@ -48,6 +50,8 @@ const localData = {
   nextPatientId: 1,
   patientRecords: [],
   nextPatientRecordId: 1,
+  // PH1: who produced each cancelled / no-show outcome (patient_outcome_attribution).
+  outcomeAttributions: [],
   countersMap: { "Doctor 1": 1, "Doctor 2": 2, "Doctor 3": 3 },
   // Queue numbers are per service code, not per doctor.
   sequenceMap: {
@@ -394,6 +398,9 @@ async function getQueueOverview() {
   const settings = getQueueSettings();
   const rankedAt = Date.now();
   const dispatch = isRoundRobin() ? await getRoundRobinStatus() : null;
+  // OC1: which pending visit of each doctor the Front Desk may confirm now (display only; the
+  // database function decides under its locks).
+  const confirmationGate = getConfirmationGate(patients, counters, rankedAt);
 
   return {
     storage_mode: getQueueStorageMode(),
@@ -407,6 +414,7 @@ async function getQueueOverview() {
     patients: patients.map((p) => ({
       ...p,
       effective_priority: p.status === "waiting" ? effectivePriority(p, rankedAt, wpsAging()) : p.priority_score,
+      ...confirmationFields(confirmationGate.get(Number(p.id))),
       recall_count: getRecallCount(p.id),
       accepted_at: getAcceptedAt(p.id),
       awaiting_accept: p.status === "serving" && (isAwaitingAccept(p.id) ||
@@ -417,13 +425,38 @@ async function getQueueOverview() {
   };
 }
 
-const SERVICE_CODE_MAP = {
+// Ticket prefix of each service (City Health's list, 2026-11-14): a ticket is PREFIX-NNN, numbered
+// per prefix. The prefix depends on the service only, never on the doctor, so round-robin
+// assignment and reassignment never change a ticket. The former keys keep the prefixes their
+// earlier tickets carry. A service without a prefix here cannot be issued a ticket.
+const SERVICE_CODE_MAP = Object.freeze({
+  medical_consultation: "MC",
+  maternal_healthcare: "MH",
+  family_planning: "FP",
+  child_healthcare: "CH",
+  dental_healthcare: "DH",
+  nutrition: "NT",
+  diagnostic_imaging: "DI",
+  womens_health: "WH",
+  mental_healthcare: "MT",
+  medical_documentation: "MD",
+  marriage_preparation: "MP",
+  environmental_health: "EH",
+  food_safety: "FS",
+  // Former services (no longer offered at registration).
   consultation: "GP",
   checkup: "GP",
   prenatal: "OB",
-  maternity: "OB",
-  family_planning: "FP"
-};
+  maternity: "OB"
+});
+
+// The ticket prefix for a service, or a 400 for a service that has none: no ticket is issued
+// under a generic prefix.
+function ticketPrefixFor(serviceType) {
+  const prefix = Object.hasOwn(SERVICE_CODE_MAP, serviceType) ? SERVICE_CODE_MAP[serviceType] : null;
+  if (!prefix) throw registrationError("Select one of the offered services.");
+  return prefix;
+}
 
 // Every service the three general doctors may serve from the shared queue: the City Health
 // administrator's confirmation of 2026-10-29 (docs/d1-flexible-doctor-assignment-20261029.md).
@@ -538,7 +571,7 @@ async function ensureDoctorAvailableForService(serviceType) {
 }
 
 async function getNextQueueNumber(serviceType, offset = 0) {
-  const doctorCode = SERVICE_CODE_MAP[serviceType] || "GP";
+  const doctorCode = ticketPrefixFor(serviceType);
 
   if (useLocalFallback) {
     // Keep local sequence at least one past any already-used number in memory
@@ -639,6 +672,7 @@ function normalizeRegistrationPriority(vulnerabilityFlags, birthdate, now = new 
 
 async function createQueueEntry({ idNum, serviceType, mobileNumber, residency, philhealthId, birthdate: rawBirthdate, sex, source = "admin", vulnerabilityFlags: rawFlags = [], patientRecordId = null }) {
   const { flags: vulnerabilityFlags, birthdate } = normalizeRegistrationPriority(rawFlags, rawBirthdate);
+  ticketPrefixFor(serviceType);
   await ensureDoctorAvailableForService(serviceType);
 
   let attempts = 0;
@@ -854,7 +888,6 @@ function readNewPatientRecord(input = {}) {
   const lastName = cleanNamePart(input.lastName);
   const middleInitial = String(input.middleInitial ?? "").replace(/[^A-Za-z]/g, "").toUpperCase();
   const mobileNumber = String(input.mobileNumber ?? "").trim();
-  const residency = cleanNamePart(input.residency);
   const philhealthId = cleanNamePart(input.philhealthId);
   if (!firstName) throw registrationError("First Name is required.");
   if (!lastName) throw registrationError("Last Name is required.");
@@ -862,8 +895,8 @@ function readNewPatientRecord(input = {}) {
   if (middleInitial.length > 2) throw registrationError("Middle Initial can have at most 2 letters.");
   if (!["Male", "Female"].includes(input.sex)) throw registrationError("Select the patient's sex.");
   if (!input.birthdate) throw registrationError("Birthdate is required.");
-  if (!residency) throw registrationError("Residency / Complete Address is required.");
-  if (residency.length > 500) throw registrationError("Residency can have at most 500 characters.");
+  // RES1: a barangay of Cabadbaran City, Agusan del Norte, with the Purok / Street / House No.
+  const residency = readResidency(input.residency);
   if (mobileNumber && !/^\d{1,15}$/.test(mobileNumber)) throw registrationError("Mobile Number can contain digits only.");
   if (philhealthId.length > 100) throw registrationError("PhilHealth / YAKAP ID can have at most 100 characters.");
   const fullName = [firstName, middleInitial ? `${middleInitial}.` : "", lastName].filter(Boolean).join(" ");
@@ -877,8 +910,38 @@ function readNewPatientRecord(input = {}) {
     sex: input.sex,
     mobile_number: mobileNumber || null,
     residency,
+    ...residencyColumns(residency, input.residencyPlace),
     philhealth_id: philhealthId || null
   };
+}
+
+// RES2: the address's parts for patient_records (backend/scripts/20261114-res2-residency-columns.sql).
+// place is a Google place the route verified from its signed token, or null. "map" is recorded only
+// when Google gave both the barangay and the detail being saved; a barangay or detail the Front
+// Desk chose or typed is "manual", so no address claims a map check it did not have. The place ID
+// is kept whenever the saved barangay does not contradict the place.
+const RESIDENCY_RECORD_COLUMNS = ["residency_barangay", "residency_detail", "residency_source", "residency_place_id"];
+
+function residencyColumns(residency, place) {
+  const { barangay, street } = parseResidency(residency);
+  const placeFits = Boolean(place && (place.barangay == null || place.barangay === barangay));
+  const mapSelected = placeFits && place.barangay === barangay && place.detail === street;
+  return {
+    residency_barangay: barangay,
+    residency_detail: street || null,
+    residency_source: mapSelected ? "map" : "manual",
+    residency_place_id: placeFits ? place.placeId : null
+  };
+}
+
+// Before the RES2 columns are installed, a record is saved without them rather than not at all.
+function isMissingResidencyColumns(error) {
+  return ["PGRST204", "42703"].includes(error?.code) &&
+    /residency_(?:barangay|detail|source|place_id)/i.test(String(error?.message || ""));
+}
+
+function withoutResidencyColumns(fields) {
+  return Object.fromEntries(Object.entries(fields).filter(([key]) => !RESIDENCY_RECORD_COLUMNS.includes(key)));
 }
 
 async function searchPatientRecords(search, actor) {
@@ -972,6 +1035,10 @@ async function insertPatientRecord(fields, actor) {
   const { data, error } = await supabase.from("patient_records").insert({ ...fields, created_by: createdBy })
     .select(PATIENT_RECORD_COLUMNS.join(", ")).single();
   if (error) {
+    if (isMissingResidencyColumns(error) && Object.keys(fields).some((key) => RESIDENCY_RECORD_COLUMNS.includes(key))) {
+      console.warn("patient_records has no RES2 residency columns; install backend/scripts/20261114-res2-residency-columns.sql. Saving the record without them.");
+      return insertPatientRecord(withoutResidencyColumns(fields), actor);
+    }
     const failure = patientRecordsFailure(error, "Failed to save the patient record");
     if (failure) throw failure;
     return insertPatientRecord(fields, actor);
@@ -1045,8 +1112,10 @@ async function registerPatientVisit(input = {}, actor) {
   }
 
   const fields = readNewPatientRecord(input);
-  // Refuse an invalid priority or an offline doctor before a record is saved.
+  // Refuse an invalid priority, a service without a ticket prefix or an offline doctor before a
+  // record is saved.
   normalizeRegistrationPriority(vulnerabilityFlags, fields.birthdate);
+  ticketPrefixFor(serviceType);
   await ensureDoctorAvailableForService(serviceType);
   const key = `new:${fields.first_name}|${fields.last_name}|${fields.birthdate}|${fields.sex}`.toLowerCase();
   return withPatientRegistrationLock(key, async () => {
@@ -1139,6 +1208,54 @@ const FRONT_DESK_CONFIRMATION_MIGRATION = "backend/scripts/20261111-fc1-front-de
 const CONFIRMATION_REQUIRED = `Front Desk confirmation needs its database migration (${FRONT_DESK_CONFIRMATION_MIGRATION}). Nothing was changed.`;
 const AWAITING_CONFIRMATION_MESSAGE = "This patient has not been confirmed by the Front Desk yet. A doctor can call a patient only after the Front Desk confirms the visit.";
 const UNCONFIRMED_CONFIRMATION_MESSAGE = "Could not verify that the confirmation was saved. Refresh the queue before retrying.";
+// OC1: one confirmation at a time per doctor (lib/confirmationGate.js mirrors the SQL).
+const ONE_CONFIRMATION_MIGRATION = "backend/scripts/20261113-oc1-one-confirmation-per-doctor.sql";
+const ONE_CONFIRMATION_REQUIRED = `Front Desk confirmation needs its one-patient-at-a-time database function (${ONE_CONFIRMATION_MIGRATION}). Nothing was changed.`;
+
+const ACTIVE_PATIENT_HINT = "doctor_has_active_patient";
+
+function getConfirmationGate(patients, counters, rankedAt) {
+  const range = getTodayRange();
+  return buildConfirmationGate({
+    patients, counters, mode: getDispatchMode(), rankedAt, aging: wpsAging(),
+    inQueueWindow: (p) => isCreatedInRange(p, range), routeOf: getDoctorForService
+  });
+}
+
+// Doctor queue notifications: the signed-in doctor's waiting visits, counted from the same GET /queue
+// overview Front Desk Patient Management reads (today's Asia/Manila queue). `account` is the
+// database-validated session (role and doctor_name re-checked against the persisted account on
+// every request), never a doctor named by the client. Front Desk, Superadmin and an account with
+// no doctor counter get null, so no other doctor's count is ever returned.
+function getDoctorQueueSummary(overview, account) {
+  if (account?.role !== "admin" || isFrontdeskAssignment(account.doctor_name)) return null;
+  const counters = overview?.counters || [];
+  const counter = resolveDoctorCounter(account.doctor_name, counters);
+  if (!counter?.id_num) return null;
+  const range = getTodayRange();
+  const summary = buildDoctorWaitingSummary({
+    patients: overview?.patients, doctor: counter.id_num, mode: getDispatchMode(),
+    inQueueWindow: (p) => isCreatedInRange(p, range), routeOf: getDoctorForService,
+    normalizeDoctor: (value) => resolveDoctorCounter(value, counters)?.id_num ?? String(value ?? "").trim()
+  });
+  return { ...summary, business_date: getBusinessDate(new Date()), observed_at: new Date().toISOString() };
+}
+
+// OC1: the database refused an action (Undo, transfer) that would give a doctor a second
+// confirmed or active patient. `action` names what was not done, for the staff message.
+function activePatientConflict(action, message) {
+  return consultationError(`${action} was not applied. ${message} Complete, cancel or mark that visit no-show first, then try again.`, 409);
+}
+
+// GET /queue fields for one visit: only a pending visit at the head of a free doctor's list is
+// confirmable; a blocked one says why (reason) and which visit it waits for (queue number).
+function confirmationFields(entry) {
+  return {
+    confirmable: entry?.confirmable === true,
+    confirmation_blocked: entry && !entry.confirmable ? entry.reason : null,
+    confirmation_blocked_by: entry && !entry.confirmable ? entry.queue_number : null
+  };
+}
 const hasConfirmationColumns = (patient) => Boolean(patient) && Object.prototype.hasOwnProperty.call(patient, "confirmed_at");
 const isFrontDeskConfirmed = (patient) => patient?.confirmed_at != null;
 
@@ -1405,6 +1522,8 @@ async function callPatient(patientId, counterId = null, actor = undefined) {
       // No await between the final checks and both in-memory updates.
       patient.status = "serving";
       patient.counter_id = doctorName;
+      // OC1 (as the database trigger): a confirmation follows its serving doctor.
+      if (patient.confirmed_at != null) patient.confirmed_for = doctorName;
       patient.called_at = calledAt;
       patient.visit_state_revision = randomUUID();
       counter.current_patient_id = patientId;
@@ -1515,8 +1634,12 @@ async function confirmPatient(patientId, actor) {
       throw consultationError(`Only a waiting patient can be confirmed. This visit is ${patient.status}.`, 409);
     }
     if (!isCreatedInRange(patient, range)) throw consultationError("Only a visit in today's queue can be confirmed", 409);
+    // OC1: the doctor's next patient only, and only while the doctor has no active visit.
+    const gate = getConfirmationGate(localData.patients, localData.counters, Date.now()).get(patientId);
+    if (!gate?.confirmable) throw consultationError(gate?.message || "This patient cannot be confirmed now. Refresh the queue.", 409);
     patient.confirmed_at = new Date().toISOString();
     patient.confirmed_by = user.id_num;
+    patient.confirmed_for = gate.doctor;
     patient.visit_state_revision = randomUUID();
     return { already_confirmed: false, patient: parsePatientPriority(patient) };
   }
@@ -1524,15 +1647,18 @@ async function confirmPatient(patientId, actor) {
   if (!hasConfirmationColumns(patient)) throw consultationError(CONFIRMATION_REQUIRED, 503);
   let result;
   try {
-    result = await supabase.rpc("confirm_patient_visit", {
-      p_patient_id: patientId, p_user_id_num: actor.id_num, p_queue_start: range.start, p_queue_end: range.end
+    // OC1: confirms only the doctor's next patient while the doctor has no active visit, ranked
+    // with the same WPS / WPS-A order and dispatch mode as the Call.
+    result = await supabase.rpc("confirm_next_patient_visit", {
+      p_patient_id: patientId, p_user_id_num: actor.id_num, p_queue_start: range.start, p_queue_end: range.end,
+      p_ranked_at: new Date().toISOString(), p_aging: wpsAging(), p_dispatch_mode: getDispatchMode()
     });
   } catch {
     throw consultationError(UNCONFIRMED_CONFIRMATION_MESSAGE, 503);
   }
   const { data, error } = result || {};
   if (error) {
-    if (MISSING_RPC_CODES.includes(error.code)) throw consultationError(CONFIRMATION_REQUIRED, 503);
+    if (MISSING_RPC_CODES.includes(error.code)) throw consultationError(ONE_CONFIRMATION_REQUIRED, 503);
     if (!error.code) throw consultationError(UNCONFIRMED_CONFIRMATION_MESSAGE, 503);
     const status = error.code === "42501" ? 403 : error.code === "P0002" ? 404 : error.code === "P0001" ? 409 :
       error.code === "22023" ? 400 : error.code === "55P03" ? 409 : 503;
@@ -1543,6 +1669,61 @@ async function confirmPatient(patientId, actor) {
     throw consultationError(UNCONFIRMED_CONFIRMATION_MESSAGE, 503);
   }
   return { already_confirmed: data.already_confirmed === true, patient: parsePatientPriority(row) };
+}
+
+// OC1 Not Present: the Front Desk sets a pending patient aside (present = false) or back
+// (present = true). The visit keeps its ticket, priority, registration time and doctor; while Not
+// Present it is skipped when choosing the doctor's next patient and cannot be confirmed. Marking
+// the patient present restores its original WPS / WPS-A rank; it never interrupts an active visit.
+const PRESENCE_UNCONFIRMED_MESSAGE = "Could not verify that the change was saved. Refresh the queue before retrying.";
+async function setPatientPresence(patientId, present, actor) {
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid patient ID is required");
+  if (typeof present !== "boolean") throw consultationError("Presence must be true or false");
+  const { patient, counters, user, local } = await loadCancellationContext(patientId, actor);
+  const who = resolveCancelActor(actor, user, counters);
+  if (who.kind !== "frontdesk") throw consultationError("Only the Front Desk can mark a patient Not Present or present.", 403);
+  if (!patient) throw consultationError("Patient not found", 404);
+  const range = getTodayRange();
+
+  if (local) {
+    // Development memory: no await between the checks and the write.
+    if ((patient.not_present_at == null) === present) return { changed: false, patient: parsePatientPriority(patient) };
+    if (!present) {
+      if (patient.status !== "waiting" || patient.completed_at != null) {
+        throw consultationError(`Only a waiting patient can be marked Not Present. This visit is ${patient.status}.`, 409);
+      }
+      if (patient.confirmed_at != null) {
+        throw consultationError("This patient is already confirmed. A confirmed patient who leaves can be cancelled, or marked no-show after the call.", 409);
+      }
+      if (!isCreatedInRange(patient, range)) throw consultationError("Only a visit in today's queue can be marked Not Present", 409);
+    }
+    patient.not_present_at = present ? null : new Date().toISOString();
+    patient.not_present_by = present ? null : user.id_num;
+    patient.visit_state_revision = randomUUID();
+    return { changed: true, patient: parsePatientPriority(patient) };
+  }
+
+  let result;
+  try {
+    result = await supabase.rpc("set_patient_presence", {
+      p_patient_id: patientId, p_user_id_num: actor.id_num, p_queue_start: range.start, p_queue_end: range.end, p_present: present
+    });
+  } catch {
+    throw consultationError(PRESENCE_UNCONFIRMED_MESSAGE, 503);
+  }
+  const { data, error } = result || {};
+  if (error) {
+    if (MISSING_RPC_CODES.includes(error.code)) throw consultationError(ONE_CONFIRMATION_REQUIRED, 503);
+    if (!error.code) throw consultationError(PRESENCE_UNCONFIRMED_MESSAGE, 503);
+    const status = error.code === "42501" ? 403 : error.code === "P0002" ? 404 : ["P0001", "55P03"].includes(error.code) ? 409 :
+      error.code === "22023" ? 400 : 503;
+    throw consultationError(error.message || "Failed to update the patient's presence", status);
+  }
+  const row = data?.patient;
+  if (!row || Number(row.id) !== patientId || (row.not_present_at == null) !== present) {
+    throw consultationError(PRESENCE_UNCONFIRMED_MESSAGE, 503);
+  }
+  return { changed: data.changed === true, patient: parsePatientPriority(row) };
 }
 
 function requireConsultationDoctor(actor) {
@@ -1789,6 +1970,7 @@ async function transferConsultation(patientId, newDoctor, actor) {
   } catch (error) {
     throw consultationError("Could not confirm the transfer. Refresh the queue before retrying.", 503);
   }
+  if (result?.error?.hint === ACTIVE_PATIENT_HINT) throw activePatientConflict("The transfer", result.error.message);
   if (result?.error) throw rpcFailure(result.error, "Failed to transfer the consultation");
   const row = Array.isArray(result?.data) ? result.data[0] : result?.data;
   if (!row || Number(row.id) !== patientId || row.counter_id !== target.id_num || row.status !== "serving") {
@@ -2046,7 +2228,10 @@ async function cancelPatient(patientId, reason = null, counterId = null, actor =
   // No in-process lock: a Cancel may legitimately race a Start/Complete served by
   // another backend instance, so correctness rests on the database (the W1 RPC, or the
   // waiting-only compare-and-set on status + visit_state_revision), not on this process's memory.
-  return performCancellation(patientId, reason, counterId, actor);
+  const result = await performCancellation(patientId, reason, counterId, actor);
+  // PH1: after the cancellation committed, record which account produced it (best-effort).
+  if (!result?.already_cancelled) await recordOutcomeAttribution(result, "cancelled", actor);
+  return result;
 }
 
 // `backlog` (Historical Backlog only) holds the snapshot the Superadmin reviewed. The visit must
@@ -2385,6 +2570,13 @@ async function cancelHistoricalWaitingVisit(patientId, { reason, expectedRevisio
 // Returns the patient after marking no-show. A repeated no-show is idempotent
 // ({ already_no_show: true }) and writes nothing; a cancelled patient must be undone first.
 async function noShowPatient(patientId, reason = null, actor = undefined) {
+  const result = await markPatientNoShow(patientId, reason, actor);
+  // PH1: after the no-show committed, record which account produced it (best-effort).
+  if (!result?.already_no_show) await recordOutcomeAttribution(result, "no-show", actor);
+  return result;
+}
+
+async function markPatientNoShow(patientId, reason = null, actor = undefined) {
   const { existing, counters, local } = await authorizeVisitAction(patientId, actor, null, {
     denyMessage: "You can only mark no-shows for patients assigned to your doctor."
   });
@@ -2554,6 +2746,15 @@ async function recoverPatientVisit(existing, action, actor, reason = null, count
   if (useLocalFallback) {
     const patient = localData.patients.find((row) => row.id === existing.id);
     assertRecoverySnapshot(patient, existing);
+    // OC1 (as the database trigger): Undo keeps the confirmation, so the restored visit is active
+    // for the doctor it was confirmed for; refuse it while that doctor has another active visit.
+    const range = getTodayRange();
+    if (action === "undo" && patient.confirmed_at != null && isCreatedInRange(patient, range)) {
+      const doctor = String(patient.confirmed_for ?? "").trim();
+      const blocking = doctor && findActiveVisit({ patients: localData.patients, counters: localData.counters, doctor,
+        excludeId: patient.id, inQueueWindow: (row) => isCreatedInRange(row, range), routeOf: getDoctorForService });
+      if (blocking) throw activePatientConflict("Undo", activeConflictMessage(doctor, blocking.queue_number));
+    }
     // No await between final validation and recovery in temporary memory.
     patient.status = "waiting";
     patient.completed_at = null;
@@ -2565,6 +2766,10 @@ async function recoverPatientVisit(existing, action, actor, reason = null, count
       // FC1 (as the database trigger): a Re-queue is a new turn and needs a new confirmation.
       patient.confirmed_at = null;
       patient.confirmed_by = null;
+      patient.confirmed_for = null;
+      // OC1: a new turn starts present.
+      patient.not_present_at = null;
+      patient.not_present_by = null;
     }
     patient.called_at = null;
     patient.counter_id = null;
@@ -2622,6 +2827,8 @@ async function recoverPatientVisit(existing, action, actor, reason = null, count
         ? "Phase 2.2 database migration is required before Undo."
         : "Phase 2.1 database migration is required before Requeue.", 503);
     }
+    // OC1: the restored visit would give its doctor a second confirmed or active patient.
+    if (error.hint === ACTIVE_PATIENT_HINT) throw activePatientConflict(action === "undo" ? "Undo" : "Re-queue", error.message);
     const status = error.code === "40001" ? 409 : error.code === "42501" ? 403 : error.code === "P0002" ? 404 :
       ["P0001", "22023"].includes(error.code) ? 400 : 503;
     throw consultationError(error.message || "Patient recovery failed", status);
@@ -3152,7 +3359,8 @@ function getAgeGroupLabel(patient) {
 function buildResidencyChart(rows) {
   const groups = new Map();
   rows.forEach((row) => {
-    const label = String(row.residency ?? "").trim().replace(/\s+/g, " ");
+    // RES1 addresses are grouped by barangay; older addresses keep their own text.
+    const label = parseResidency(row.residency)?.barangay || String(row.residency ?? "").trim().replace(/\s+/g, " ");
     const key = label ? label.toLowerCase() : ANALYTICS_NOT_RECORDED;
     const group = groups.get(key) || { label: label || ANALYTICS_NOT_RECORDED, count: 0 };
     group.count += 1;
@@ -4278,11 +4486,394 @@ function logCancellationApproval(request, accountOutcome, actor) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// PH1 Doctor Patient History (read-only reporting)
+//
+// A doctor sees only the visits it actually handled. The doctor is chosen on the server from the
+// persisted account (users.doctor_name, the protected counter key, never the editable display name
+// and never a doctor named by the request):
+//   * Completed: status completed and the stored doctor (counter_id) is this doctor's counter. Only
+//     the assigned doctor can complete a consultation (loadConsultationContext and the
+//     complete_patient_consultation function check it), so that doctor is the one who completed it.
+//   * Cancelled / No-show: only when patient_outcome_attribution names this doctor for that exact
+//     outcome (patient_id, outcome, outcome_at = completed_at). A Front Desk or Superadmin action,
+//     a system reset, or an outcome recorded before PH1 is never attributed to a doctor.
+// Each visit appears once, under its current final status; a waiting or serving visit (including
+// a re-queued or undone one) is not history. Nothing here writes a patient, counter or rotation.
+// ---------------------------------------------------------------------------
+const OUTCOME_ATTRIBUTION_TABLE = "patient_outcome_attribution";
+const HISTORY_STATUSES = Object.freeze(["completed", "cancelled", "no-show"]);
+const HISTORY_PAGE_SIZES = Object.freeze(["10", "20", "50", "all"]);
+// A request may not name another doctor. Naming its own doctor or account is harmless and ignored.
+const HISTORY_DOCTOR_PARAMS = Object.freeze(["doctor", "doctor_id", "doctorId", "doctor_name", "counter_id", "counterId", "account", "id_num"]);
+const HISTORY_UNAVAILABLE = "Patient history is temporarily unavailable. Please retry.";
+const HISTORY_NOT_FOUND = "This visit is not in your patient history.";
+const HISTORY_ID_CHUNK = 200;
+const ATTRIBUTION_MISSING_CODES = ["42P01", "PGRST205", "PGRST204", "PGRST200", "42703"];
+
+function isMissingAttributionTable(error) {
+  return ATTRIBUTION_MISSING_CODES.includes(error?.code) || /patient_outcome_attribution/i.test(String(error?.message || ""));
+}
+
+// The kind of staff account that produced an outcome, from claims the action already verified
+// against the persisted account (authorizeVisitAction). A trusted in-process caller has none.
+function outcomeActorOf(actor) {
+  if (!actor || !String(actor.id_num || "").trim()) return null;
+  if (actor.role === "superadmin") return { role: "superadmin", doctor: null };
+  if (actor.role !== "admin") return null;
+  if (isFrontdeskAssignment(actor.doctor_name)) return { role: "frontdesk", doctor: null };
+  const doctor = doctorCounterOf(actor.doctor_name);
+  return doctor ? { role: "doctor", doctor } : null;
+}
+
+// Called only after a Cancel or No-show committed. It never changes the outcome and never fails
+// the request: without the table (or on any error) the outcome simply stays unattributed.
+async function recordOutcomeAttribution(row, outcome, actor) {
+  try {
+    const who = outcomeActorOf(actor);
+    const patientId = Number(row?.id);
+    if (!who || !Number.isSafeInteger(patientId) || row.status !== outcome || !row.completed_at) return;
+    const entry = {
+      patient_id: patientId, outcome, outcome_at: row.completed_at,
+      actor_id_num: String(actor.id_num).trim(), actor_role: who.role, actor_doctor: who.doctor
+    };
+    if (useLocalFallback) {
+      const recorded = localData.outcomeAttributions.some((item) => item.patient_id === patientId &&
+        item.outcome === outcome && item.outcome_at === entry.outcome_at);
+      if (!recorded) localData.outcomeAttributions.push({ ...entry, recorded_at: new Date().toISOString() });
+      return;
+    }
+    const { error } = await supabase.from(OUTCOME_ATTRIBUTION_TABLE).insert(entry);
+    if (error && error.code !== "23505") {
+      console.warn("[patient-history] outcome attribution was not recorded", {
+        patient_id: patientId, outcome, code: error.code || null,
+        missing_table: isMissingAttributionTable(error)
+      });
+    }
+  } catch (error) {
+    console.warn("[patient-history] outcome attribution was not recorded", { patient_id: row?.id ?? null, outcome, message: error?.message });
+  }
+}
+
+// The signed-in doctor, re-read from the persisted account on every request.
+async function resolveHistoryDoctor(actor) {
+  const doctorsOnly = () => consultationError("Patient History is available to doctor accounts only.", 403);
+  if (actor?.role !== "admin" || !String(actor.id_num || "").trim() || isFrontdeskAssignment(actor.doctor_name)) throw doctorsOnly();
+  let user;
+  if (useLocalFallback) {
+    user = localData.users.find((row) => row.id_num === actor.id_num) || null;
+  } else {
+    let result;
+    try {
+      result = await supabase.from("users").select("id_num, role, doctor_name").eq("id_num", actor.id_num).maybeSingle();
+    } catch {
+      throw consultationError(HISTORY_UNAVAILABLE, 503);
+    }
+    if (result?.error) throw consultationError(HISTORY_UNAVAILABLE, 503);
+    user = result?.data || null;
+  }
+  if (user && (user.role !== "admin" || isFrontdeskAssignment(user.doctor_name))) throw doctorsOnly();
+  const doctor = doctorCounterOf(user?.doctor_name);
+  if (!user || !doctor || doctor !== doctorCounterOf(actor.doctor_name)) {
+    throw consultationError("Your current account is not assigned to this doctor. Sign in again.", 403);
+  }
+  return { id_num: user.id_num, doctor };
+}
+
+function readHistoryQuery(query = {}, account) {
+  const text = (key, max = 100) => {
+    const value = query[key];
+    if (value == null) return "";
+    if (typeof value !== "string" || value.length > max) throw consultationError(`Invalid ${key} parameter`, 400);
+    return value.trim();
+  };
+  for (const key of HISTORY_DOCTOR_PARAMS) {
+    if (query[key] == null || query[key] === "") continue;
+    const value = typeof query[key] === "string" ? query[key].trim() : "";
+    if (value !== account.id_num && doctorCounterOf(value) !== account.doctor) {
+      throw consultationError("You can only view your own patient history.", 403);
+    }
+  }
+  const search = text("search").replace(/\s+/g, " ").toLowerCase();
+  const status = text("status");
+  if (status && !HISTORY_STATUSES.includes(status)) throw consultationError("Invalid status filter", 400);
+  const service = text("service");
+  if (service && !KNOWN_SERVICES.includes(service)) throw consultationError("Invalid service filter", 400);
+  const from = text("from", 10);
+  const to = text("to", 10);
+  const range = {};
+  if (from) range.start = getBusinessDayRange(from).start;
+  if (to) range.end = getBusinessDayRange(to).end;
+  if (from && to && from > to) throw consultationError("From Date must not be later than To Date.", 400);
+  const limit = text("limit", 3) || "10";
+  if (!HISTORY_PAGE_SIZES.includes(limit)) throw consultationError("Invalid page size", 400);
+  const page = text("page", 6) || "1";
+  if (!/^\d+$/.test(page) || Number(page) < 1) throw consultationError("Invalid page", 400);
+  return { search, status, service, from, to, range, limit: limit === "all" ? null : Number(limit), page: Number(page) };
+}
+
+// The doctor's recorded cancelled / no-show attributions (all, or one visit's).
+async function loadDoctorAttributions(doctor, patientId = null) {
+  if (useLocalFallback) {
+    return { available: true, rows: localData.outcomeAttributions.filter((row) => row.actor_role === "doctor" &&
+      row.actor_doctor === doctor && (patientId == null || row.patient_id === patientId)) };
+  }
+  const rows = [];
+  try {
+    for (let offset = 0; ;) {
+      let query = supabase.from(OUTCOME_ATTRIBUTION_TABLE)
+        .select("patient_id, outcome, outcome_at, actor_id_num, actor_role, actor_doctor, recorded_at")
+        .eq("actor_role", "doctor").eq("actor_doctor", doctor);
+      if (patientId != null) query = query.eq("patient_id", patientId);
+      const { data, error } = await query.order("patient_id", { ascending: true }).order("outcome_at", { ascending: true })
+        .range(offset, offset + 999);
+      if (error) {
+        if (isMissingAttributionTable(error)) return { available: false, rows: [] };
+        throw consultationError(HISTORY_UNAVAILABLE, 503);
+      }
+      if (!data?.length) break;
+      rows.push(...data);
+      offset += data.length;
+    }
+  } catch (error) {
+    throw error?.statusCode ? error : consultationError(HISTORY_UNAVAILABLE, 503);
+  }
+  return { available: true, rows };
+}
+
+// Stored spellings of a doctor counter that resolveDoctorCounter accepts.
+function doctorCounterSpellings(doctor) {
+  const number = doctor.slice(-1);
+  return [doctor, doctor.toLowerCase(), `Doctor${number}`, `doctor${number}`, number];
+}
+
+async function loadDoctorHistoryPatients(doctor, attributedIds) {
+  if (useLocalFallback) return localData.patients;
+  try {
+    const completed = await fetchPatientPages(() => supabase.from("patients").select("*")
+      .eq("status", "completed").in("counter_id", doctorCounterSpellings(doctor)), HISTORY_UNAVAILABLE);
+    const ids = [...new Set(attributedIds)];
+    const attributed = [];
+    for (let index = 0; index < ids.length; index += HISTORY_ID_CHUNK) {
+      const chunk = ids.slice(index, index + HISTORY_ID_CHUNK);
+      attributed.push(...await fetchPatientPages(() => supabase.from("patients").select("*")
+        .in("id", chunk).in("status", ["cancelled", "no-show"]), HISTORY_UNAVAILABLE));
+    }
+    return [...completed, ...attributed];
+  } catch {
+    throw consultationError(HISTORY_UNAVAILABLE, 503);
+  }
+}
+
+function sameInstant(first, second) {
+  const a = timestampMicroseconds(first);
+  return a != null && a === timestampMicroseconds(second);
+}
+
+// The visits this doctor handled, once each, under their current final status.
+function doctorHistoryEntries(doctor, patients, attributions) {
+  const byPatient = new Map();
+  for (const row of attributions) {
+    const id = Number(row.patient_id);
+    if (!byPatient.has(id)) byPatient.set(id, []);
+    byPatient.get(id).push(row);
+  }
+  const entries = new Map();
+  for (const patient of patients) {
+    const id = Number(patient.id);
+    if (entries.has(id)) continue;
+    if (patient.status === "completed") {
+      if (doctorCounterOf(patient.counter_id) === doctor) entries.set(id, { patient, attribution: null });
+    } else if (patient.status === "cancelled" || patient.status === "no-show") {
+      const attribution = (byPatient.get(id) || []).find((row) => row.outcome === patient.status &&
+        row.actor_doctor === doctor && sameInstant(row.outcome_at, patient.completed_at));
+      if (attribution) entries.set(id, { patient, attribution });
+    }
+  }
+  return [...entries.values()];
+}
+
+function historyRow({ patient }) {
+  const parsed = parsePatientPriority(patient);
+  return {
+    id: Number(patient.id),
+    queue_number: patient.queue_number ?? null,
+    patient_name: patient.id_num ?? null,
+    service_type: patient.service_type ?? null,
+    priority_score: parsed.priority_score ?? null,
+    priority_categories: parsed.vulnerability_flags,
+    visit_date: patient.created_at ? getBusinessDate(patient.created_at) : null,
+    created_at: patient.created_at ?? null,
+    called_at: patient.called_at ?? null,
+    consultation_started_at: patient.consultation_started_at ?? null,
+    completed_at: patient.status === "completed" ? patient.completed_at ?? null : null,
+    outcome_at: patient.completed_at ?? null,
+    status: patient.status
+  };
+}
+
+function matchesHistorySearch(patient, search) {
+  if (!search) return true;
+  const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  const names = [patient.id_num, patient.first_name, patient.last_name,
+    [patient.first_name, patient.last_name].map(clean).filter(Boolean).join(" ")].map(clean);
+  const ticket = clean(patient.queue_number);
+  const compact = search.replace(/[^a-z0-9]/g, "");
+  return names.some((name) => name && name.includes(search)) || ticket.includes(search) ||
+    Boolean(compact && ticket.replace(/[^a-z0-9]/g, "").includes(compact));
+}
+
+function compareHistoryNewestFirst(a, b) {
+  const first = timestampMicroseconds(a.patient.created_at);
+  const second = timestampMicroseconds(b.patient.created_at);
+  if (first != null && second != null && first !== second) return first > second ? -1 : 1;
+  return Number(b.patient.id) - Number(a.patient.id);
+}
+
+async function getDoctorPatientHistory(query = {}, actor) {
+  const account = await resolveHistoryDoctor(actor);
+  const filters = readHistoryQuery(query, account);
+  const { available, rows: attributions } = await loadDoctorAttributions(account.doctor);
+  const patients = await loadDoctorHistoryPatients(account.doctor, attributions.map((row) => Number(row.patient_id)));
+  const entries = doctorHistoryEntries(account.doctor, patients, attributions).sort(compareHistoryNewestFirst);
+  const count = (status) => entries.filter((entry) => entry.patient.status === status).length;
+  const start = filters.range.start ? timestampMicroseconds(filters.range.start) : null;
+  const end = filters.range.end ? timestampMicroseconds(filters.range.end) : null;
+  const matching = entries.filter(({ patient }) => {
+    const created = timestampMicroseconds(patient.created_at);
+    return (!filters.status || patient.status === filters.status) &&
+      (!filters.service || patient.service_type === filters.service) &&
+      (start == null || (created != null && created >= start)) &&
+      (end == null || (created != null && created < end)) &&
+      matchesHistorySearch(patient, filters.search);
+  });
+  const pageCount = filters.limit ? Math.max(1, Math.ceil(matching.length / filters.limit)) : 1;
+  // A page past the end shows the last page instead of an empty one.
+  const page = Math.min(filters.page, pageCount);
+  const shown = filters.limit ? matching.slice((page - 1) * filters.limit, page * filters.limit) : matching;
+  const names = await getDoctorDisplayNames();
+  return {
+    doctor: account.doctor,
+    doctor_display_name: typeof names?.[account.doctor] === "string" ? names[account.doctor] : null,
+    attribution_available: available,
+    summary: { total_handled: entries.length, completed: count("completed"), cancelled: count("cancelled"), no_show: count("no-show") },
+    total: matching.length,
+    page,
+    page_count: pageCount,
+    limit: filters.limit ?? "all",
+    filters: { search: filters.search, status: filters.status, service: filters.service, from: filters.from, to: filters.to },
+    rows: shown.map(historyRow),
+    observed_at: new Date().toISOString()
+  };
+}
+
+async function loadAssignmentEvents(patientId) {
+  if (useLocalFallback) return [];
+  try {
+    const { data, error } = await supabase.from("patient_assignment_history")
+      .select("previous_doctor, new_doctor, reason, created_at").eq("patient_id", patientId)
+      .order("created_at", { ascending: true }).range(0, 199);
+    return error ? [] : (data || []);
+  } catch {
+    // RR1 not installed (or unreadable): the timeline shows the visit's own timestamps only.
+    return [];
+  }
+}
+
+function doctorLabel(counter, names) {
+  const doctor = doctorCounterOf(counter) || String(counter ?? "").trim();
+  if (!doctor) return "no doctor";
+  const name = typeof names?.[doctor] === "string" ? names[doctor].trim() : "";
+  return name ? `${name} (${doctor})` : doctor;
+}
+
+const ASSIGNMENT_EVENT_LABELS = {
+  round_robin_assignment: (row, label) => `Assigned to ${label(row.new_doctor)} by rotation`,
+  round_robin_reassignment: (row, label) => `Reassigned from ${label(row.previous_doctor)} to ${label(row.new_doctor)}`,
+  doctor_unavailable: (row, label) => `Waiting for an available doctor (${label(row.previous_doctor)} unavailable)`,
+  intervention_required: (row, label) => `Staff alerted: ${label(row.previous_doctor)} became unavailable during the consultation`,
+  staff_transfer: (row, label) => `Consultation transferred from ${label(row.previous_doctor)} to ${label(row.new_doctor)}`,
+  released_for_transfer: (row, label) => `Released by ${label(row.previous_doctor)} for transfer`,
+  restored_to_assigned_doctor: (row, label) => `Returned to ${label(row.new_doctor)}`
+};
+
+// Only events the database recorded, in time order. A missing timestamp is left out, never made up.
+function visitTimeline(patient, assignments, names) {
+  const label = (counter) => doctorLabel(counter, names);
+  const events = [{ type: "registered", at: patient.created_at, label: "Registered in the queue" }];
+  for (const row of assignments) {
+    const describe = ASSIGNMENT_EVENT_LABELS[row.reason];
+    if (describe) events.push({ type: "assignment", at: row.created_at, label: describe(row, label) });
+  }
+  events.push(
+    { type: "confirmed", at: patient.confirmed_at, label: "Front Desk confirmed the patient" },
+    { type: "called", at: patient.called_at, label: "Doctor called the patient" },
+    { type: "consultation_started", at: patient.consultation_started_at, label: "Consultation started" },
+    {
+      type: patient.status === "no-show" ? "no_show" : patient.status,
+      at: patient.completed_at,
+      label: patient.status === "completed" ? "Consultation completed"
+        : patient.status === "cancelled" ? "Cancelled by the doctor" : "Marked no-show by the doctor"
+    }
+  );
+  return events
+    .map((event, order) => ({ ...event, order, micros: timestampMicroseconds(event.at) }))
+    .filter((event) => event.micros != null)
+    .sort((a, b) => (a.micros === b.micros ? a.order - b.order : a.micros < b.micros ? -1 : 1))
+    .map(({ type, at, label: text }) => ({ type, at, label: text }));
+}
+
+async function loadHistoryPatient(patientId) {
+  if (useLocalFallback) return localData.patients.find((row) => Number(row.id) === patientId) || null;
+  try {
+    const { data, error } = await supabase.from("patients").select("*").eq("id", patientId).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  } catch {
+    throw consultationError(HISTORY_UNAVAILABLE, 503);
+  }
+}
+
+// One visit of the doctor's history, read-only. A visit outside it (another doctor's, a Front Desk
+// cancellation, an active visit, or none at all) gets the same 404, so nothing about it is revealed.
+async function getDoctorPatientHistoryVisit(patientId, actor) {
+  const account = await resolveHistoryDoctor(actor);
+  if (!Number.isSafeInteger(patientId) || patientId <= 0) throw consultationError("A valid visit ID is required", 400);
+  const [{ rows: attributions }, patient] = await Promise.all([
+    loadDoctorAttributions(account.doctor, patientId), loadHistoryPatient(patientId)
+  ]);
+  const entry = patient ? doctorHistoryEntries(account.doctor, [patient], attributions)[0] : null;
+  if (!entry) throw consultationError(HISTORY_NOT_FOUND, 404);
+  const [names, assignments] = await Promise.all([getDoctorDisplayNames(), loadAssignmentEvents(patientId)]);
+  const parsed = parsePatientPriority(patient);
+  const assigned = doctorCounterOf(patient.counter_id) || entry.attribution?.actor_doctor || null;
+  const terminalNote = patient.status === "cancelled" || patient.status === "no-show";
+  return {
+    ...historyRow(entry),
+    assigned_doctor: assigned,
+    assigned_doctor_label: assigned ? doctorLabel(assigned, names) : null,
+    confirmed_at: patient.confirmed_at ?? null,
+    confirmed_by: patient.confirmed_by ?? null,
+    // The cancellation or no-show reason as recorded; a completion note is not part of history.
+    reason: terminalNote ? parsed.reason ?? null : null,
+    outcome_by: entry.attribution ? {
+      account: entry.attribution.actor_id_num,
+      doctor: entry.attribution.actor_doctor,
+      doctor_label: doctorLabel(entry.attribution.actor_doctor, names),
+      recorded_at: entry.attribution.recorded_at ?? null
+    } : null,
+    timeline: visitTimeline(patient, assignments, names)
+  };
+}
+
 module.exports = {
+  getDoctorPatientHistory,
+  getDoctorPatientHistoryVisit,
   buildCsv,
   buildAnalyticsCsv,
   callPatient,
   confirmPatient,
+  setPatientPresence,
   requestDispatch,
   runRoundRobinDispatch,
   getRoundRobinStatus,
@@ -4292,6 +4883,7 @@ module.exports = {
   ROUND_ROBIN_SERVICES,
   OFFERED_SERVICES,
   FORMER_SERVICES,
+  SERVICE_CODE_MAP,
   cancelPatient,
   cancelHistoricalWaitingVisit,
   getHistoricalBacklog,
@@ -4305,6 +4897,7 @@ module.exports = {
   searchPatientRecords,
   getPatientRecord,
   registerPatientVisit,
+  assertPatientRecordsActor,
   findActiveDuplicate,
   getAnalytics,
   getDashboardStats,
@@ -4337,6 +4930,7 @@ module.exports = {
   getStaffProfile,
   updateStaffProfile,
   getDoctorDisplayNames,
+  getDoctorQueueSummary,
   createAccountCancellationRequest,
   getAccountCancellationRequests,
   getMyAccountCancellationRequest,

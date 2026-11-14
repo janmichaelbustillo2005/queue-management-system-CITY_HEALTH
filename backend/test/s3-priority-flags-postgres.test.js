@@ -28,7 +28,8 @@ describe("S3: registration priority flags", { skip: f.unavailable }, () => {
   });
 
   const register = (body, { route = "/queue/website", token } = {}) => h.request("POST", route, { token, body: {
-    fullName: "Synthetic S3", serviceType: "consultation", service_type: "consultation", ...body } });
+    fullName: "Synthetic S3", serviceType: "consultation", service_type: "consultation",
+    residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", ...body } });
   const stored = async (response) => (await f.one(db, "SELECT row_to_json(p) AS value FROM public.patients p WHERE queue_number = $1",
     [response.body.queue_number]));
 

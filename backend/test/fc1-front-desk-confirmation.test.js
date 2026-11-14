@@ -18,7 +18,7 @@ async function setup({ localFallback = false } = {}) {
   return h;
 }
 const register = async (h, name, flags = []) => {
-  const response = await h.request("POST", "/queue", { fullName: name, service_type: "consultation", vulnerabilityFlags: flags }, FRONTDESK);
+  const response = await h.request("POST", "/queue", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: name, service_type: "consultation", vulnerabilityFlags: flags }, FRONTDESK);
   assert.equal(response.status, 200, response.body.message);
   const overview = await h.service.getQueueOverview();
   return overview.patients.find((p) => p.queue_number === response.body.queue_number);
@@ -87,9 +87,11 @@ for (const localFallback of [false, true]) {
 
   test(`${mode}: the doctor's next patient is its highest-priority confirmed visit; pending visits keep their rank`, async () => {
     const h = await setup({ localFallback });
-    const senior = await register(h, "Senior", ["senior"]);
+    // OC1: the regular patient is confirmed while it is the doctor's only visit; a senior who
+    // registers afterwards stays Pending (one confirmation at a time) and does not block the Call.
     const regular = await register(h, "Regular");
-    await h.request("POST", "/queue/confirm", { patient_id: regular.id }, FRONTDESK);
+    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: regular.id }, FRONTDESK)).status, 200);
+    const senior = await register(h, "Senior", ["senior"]);
     assert.equal((await h.request("POST", "/queue/call", { patient_id: regular.id }, doctor(1))).status, 200);
     const pending = await stored(h, senior.id);
     assert.equal(pending.status, "waiting");
@@ -131,7 +133,7 @@ test("fake database: a missing confirm function reports the migration; a databas
   h.database.confirmRpcInstalled = false;
   const confirmed = await h.request("POST", "/queue/confirm", { patient_id: visit.id }, FRONTDESK);
   assert.equal(confirmed.status, 503);
-  assert.match(confirmed.body.message, /20261111-fc1-front-desk-confirmation\.sql/);
+  assert.match(confirmed.body.message, /20261113-oc1-one-confirmation-per-doctor\.sql/);
 
   // The backend read the visit as confirmed, but the database (the authority) says it is not.
   h.database.patients.find((p) => p.id === visit.id).confirmed_at = new Date(h.clock.now).toISOString();
@@ -144,7 +146,7 @@ test("fake database: a missing confirm function reports the migration; a databas
   assert.equal((await stored(h, visit.id)).status, "waiting");
 });
 
-test("fake database: Confirm writes only through confirm_patient_visit and never runs the doctor dispatcher", async () => {
+test("fake database: Confirm writes only through confirm_next_patient_visit and never runs the doctor dispatcher", async () => {
   const h = await setup();
   const visit = await register(h, "Isolation");
   const countersBefore = JSON.stringify(h.database.counters);
@@ -152,9 +154,58 @@ test("fake database: Confirm writes only through confirm_patient_visit and never
   const confirmed = await h.request("POST", "/queue/confirm", { patient_id: visit.id }, FRONTDESK);
   assert.equal(confirmed.status, 200, confirmed.body.message);
   const made = h.database.calls.slice(callsBefore);
-  assert.deepEqual(made.filter((c) => c.action === "rpc").map((c) => c.function), ["confirm_patient_visit"]);
+  assert.deepEqual(made.filter((c) => c.action === "rpc").map((c) => c.function), ["confirm_next_patient_visit"]);
   assert.equal(made.some((c) => c.action === "update" || c.action === "insert"), false);
   assert.equal(JSON.stringify(h.database.counters), countersBefore);
   const queue = await h.request("GET", "/queue", {}, FRONTDESK);
   assert.equal(queue.body.patients.find((p) => p.id === visit.id).confirmed_by, "frontdesk");
 });
+
+// OC1 Not Present and the strict Undo rule over the fake database and development memory. The
+// real SQL is covered by oc1-one-confirmation-postgres.test.js and -concurrency.test.js.
+for (const localFallback of [false, true]) {
+  const mode = localFallback ? "development memory" : "fake database";
+
+  test(`${mode}: Not Present sets a pending patient aside without changing its place; the next patient can be confirmed`, async () => {
+    const h = await setup({ localFallback });
+    const first = await register(h, "First");
+    const second = await register(h, "Second");
+    const before = await stored(h, first.id);
+    const kept = { queue_number: before.queue_number, priority_score: before.priority_score, created_at: before.created_at };
+    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: second.id }, FRONTDESK)).status, 409, "not next yet");
+    for (const user of [doctor(1), SUPERADMIN]) {
+      assert.equal((await h.request("POST", "/queue/not-present", { patient_id: first.id }, user)).status, 403);
+    }
+    const marked = await h.request("POST", "/queue/not-present", { patient_id: first.id }, FRONTDESK);
+    assert.equal(marked.status, 200, marked.body.message);
+    const after = await stored(h, first.id);
+    assert.notEqual(after.not_present_at, null);
+    assert.deepEqual({ queue_number: after.queue_number, priority_score: after.priority_score, created_at: after.created_at }, kept);
+    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: first.id }, FRONTDESK)).status, 409);
+    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: second.id }, FRONTDESK)).status, 200);
+    const back = await h.request("POST", "/queue/present", { patient_id: first.id }, FRONTDESK);
+    assert.equal(back.status, 200, back.body.message);
+    const overview = await h.service.getQueueOverview();
+    const entry = overview.patients.find((p) => p.id === first.id);
+    assert.equal(entry.confirmation_blocked, "doctor_has_active_patient", "the returning patient waits for the active visit");
+  });
+
+  test(`${mode}: Undo is refused with a clear message while the doctor has another confirmed patient`, async () => {
+    const h = await setup({ localFallback });
+    if (!localFallback) h.database.undoRpcInstalled = true;
+    const first = await register(h, "First");
+    const second = await register(h, "Second");
+    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: first.id }, FRONTDESK)).status, 200);
+    assert.equal((await h.request("POST", "/queue/cancel", { patient_id: first.id, reason: "Mistake" }, FRONTDESK)).status, 200);
+    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: second.id }, FRONTDESK)).status, 200);
+    if (!localFallback) {
+      // The database decides (the trigger); the backend shows its refusal clearly.
+      h.database.beforeRpc = (name) => (name === "undo_patient_visit_waiting" ? { data: null, error: { code: "P0001", hint: "doctor_has_active_patient",
+        message: "Doctor 1 already has an active patient (GP-002). A doctor can have only one confirmed or active patient at a time." } } : null);
+    }
+    const refused = await h.request("POST", "/queue/undo", { patient_id: first.id }, FRONTDESK);
+    assert.equal(refused.status, 409, refused.body.message);
+    assert.match(refused.body.message, /^Undo was not applied\. Doctor 1 already has an active patient \(.+\)\. A doctor can have only one confirmed or active patient at a time\. Complete, cancel or mark that visit no-show first/);
+    assert.equal((await stored(h, first.id)).status, "cancelled");
+  });
+}

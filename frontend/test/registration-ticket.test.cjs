@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
-const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isServicesModule, loadServices, isResidencyModule, loadResidency } = require("./services-module.cjs");
 
 const compiled = {};
 before(async () => {
@@ -83,6 +83,7 @@ function harness(options = {}) {
         if (dependency in dependencies) return dependencies[dependency];
         if (dependency.startsWith("../components/")) return dependency.split("/").pop();
         if (isServicesModule(dependency)) return loadServices();
+        if (isResidencyModule(dependency)) return loadResidency();
         throw new Error(`Unexpected dependency ${dependency}`);
       }
     });
@@ -96,7 +97,11 @@ function harness(options = {}) {
   const page = load("pages/fill-up_form.js").default;
   const render = () => { cursor = 0; return page(); };
   const field = id => nodes(render(), node => node.props.id === id)[0];
-  const change = (id, value) => field(id).props.onChange({ target: { value } });
+  const change = (id, value) => {
+    const node = field(id);
+    // The Residency search bar reports text plus how it was entered; tests choose it, as staff do.
+    return node.type === "ResidencySearch" ? node.props.onChange(value, { chosen: true, place: null }) : node.props.onChange({ target: { value } });
+  };
   function fill() {
     change("patient-first-name", " Juan ");
     change("patient-middle-initial", "d");
@@ -105,7 +110,7 @@ function harness(options = {}) {
     change("patient-philhealth", "Private Identifier");
     change("patient-sex", "Female");
     change("patient-birthdate", "1990-01-01");
-    change("patient-residency", "Cabadbaran");
+    change("patient-residency", " Purok 3,  Rizal St., bayabas, cabadbaran city, agusan del norte ");
     change("patient-service", "prenatal");
     field("vuln-pregnant").props.onChange();
   }
@@ -119,7 +124,7 @@ test("registration sends the patient details, retrieves the actual saved record,
   const registration = h.calls.find(call => call.route === REGISTRATION);
   assert.deepEqual(registration.body, {
     firstName: "Juan", middleInitial: "D", lastName: "Dela Cruz", serviceType: "prenatal", mobileNumber: "9123456789",
-    residency: "Cabadbaran", philhealthId: "Private Identifier", birthdate: "1990-01-01", sex: "Female", vulnerabilityFlags: ["pregnant"]
+    residency: "Purok 3, Rizal St., Brgy. Bayabas, Cabadbaran City, Agusan del Norte", philhealthId: "Private Identifier", birthdate: "1990-01-01", sex: "Female", vulnerabilityFlags: ["pregnant"]
   });
   const pass = nodes(h.render(), node => node.type === "DigitalQueuePass")[0];
   assert.equal(pass.props.ticket.queueNumber, savedPatient.queue_number);
@@ -269,9 +274,11 @@ test("cached preview, snapshot, and delayed delivery disappear when the account 
 test("existing required controls have associated labels and unavailable doctor still blocks registration", async () => {
   const h = harness({ request: route => route === "/display" ? { counters: [{ id_num: "Doctor 2", is_online: false }] } : undefined });
   const labels = nodes(h.render(), node => node.type === "label").map(node => node.props.htmlFor);
-  for (const id of ["patient-first-name", "patient-last-name", "patient-sex", "patient-birthdate", "patient-residency", "patient-service"]) {
+  for (const id of ["patient-first-name", "patient-last-name", "patient-sex", "patient-birthdate", "patient-service"]) {
     assert.equal(h.field(id).props.required, true); assert.ok(labels.includes(id));
   }
+  // RES1: the Residency search bar labels itself and shows its own message below the bar.
+  assert.equal(h.field("patient-residency").type, "ResidencySearch");
   h.fill(); await h.submit();
   assert.equal(h.calls.filter(call => call.method === "POST").length, 0);
   assert.match(text(h.render()), /Doctor 2 is currently offline/);
@@ -300,7 +307,7 @@ test("D1 shared dispatch: the redesigned snapshot counts the whole shared queue 
 // Permanent patient records: Front Desk search, select, verify and register a returning visit.
 const storedRecord = {
   id: 7, patient_code: "PAT-0007", full_name: "Maria L. Santos", first_name: "Maria", middle_initial: "L", last_name: "Santos",
-  birthdate: "1950-03-15", sex: "Female", mobile_number: "9171112222", residency: "Barangay 2, Cabadbaran City", philhealth_id: "PH-7"
+  birthdate: "1950-03-15", sex: "Female", mobile_number: "9171112222", residency: "Purok 5, Brgy. Poblacion 2, Cabadbaran City, Agusan del Norte", philhealth_id: "PH-7"
 };
 const recordRequests = (extra = () => undefined) => route => route === "/patient-records/7" ? { success: true, patient: storedRecord } : extra(route);
 const searchProps = h => nodes(h.render(), node => node.type === "PatientRecordSearch")[0]?.props;
@@ -316,7 +323,7 @@ test("only Front Desk and Super Admin see patient search; anyone else keeps the 
     assert.equal(h.calls.some(call => call.route.startsWith("/patient-records")), false);
     assert.deepEqual(h.calls.find(call => call.route === "/queue/website").body, {
       fullName: "Juan D. Dela Cruz", serviceType: "prenatal", mobileNumber: "9123456789",
-      residency: "Cabadbaran", philhealthId: "Private Identifier", birthdate: "1990-01-01", sex: "Female", vulnerabilityFlags: ["pregnant"]
+      residency: "Purok 3, Rizal St., Brgy. Bayabas, Cabadbaran City, Agusan del Norte", philhealthId: "Private Identifier", birthdate: "1990-01-01", sex: "Female", vulnerabilityFlags: ["pregnant"]
     });
   }
 });
@@ -328,12 +335,14 @@ test("selecting a patient reads the record by id and fills the form read-only, w
   assert.deepEqual(h.calls.map(call => call.route), ["/patient-records/7"]);
   assert.equal(h.calls.some(call => call.method === "POST"), false, "retrieval never creates a queue entry");
   const expected = { "patient-first-name": "Maria", "patient-middle-initial": "L", "patient-last-name": "Santos", "patient-mobile": "9171112222",
-    "patient-philhealth": "PH-7", "patient-sex": "Female", "patient-birthdate": "1950-03-15", "patient-residency": "Barangay 2, Cabadbaran City", "patient-service": "medical_consultation" };
+    "patient-philhealth": "PH-7", "patient-sex": "Female", "patient-birthdate": "1950-03-15", "patient-residency": "Purok 5, Brgy. Poblacion 2, Cabadbaran City, Agusan del Norte",
+    "patient-service": "medical_consultation" };
   for (const [id, value] of Object.entries(expected)) assert.equal(h.field(id).props.value, value, id);
   for (const id of ["patient-first-name", "patient-middle-initial", "patient-last-name", "patient-mobile", "patient-philhealth", "patient-birthdate", "patient-residency"]) {
     assert.equal(h.field(id).props.readOnly, true, id);
   }
   assert.equal(h.field("patient-sex").props.disabled, true);
+  assert.equal(h.field("patient-residency").props.notice, null, "a RES1 address needs no review notice");
   assert.equal(h.field("patient-service").props.disabled, false, "visit fields stay editable");
   assert.equal(h.field("vuln-senior").props.checked, true, "Senior is computed from the stored birthdate");
   const shown = text(h.render());
@@ -492,4 +501,91 @@ test("service dispatch keeps the existing routed-doctor review and offers every 
   assert.deepEqual(options.map(node => text(node)), ["Medical consultation", "Maternal healthcare", "Family planning",
     "Child healthcare", "Dental healthcare", "Nutrition", "Diagnostic imaging", "Women's health", "Mental healthcare",
     "Medical documentation", "Marriage preparation", "Environmental health", "Food safety"]);
+});
+
+// RES1: one Residency search bar (components/ResidencySearch.js, tested on its own).
+test("RES1: one Residency search bar replaces the Province, City, Barangay and Purok/Street fields", () => {
+  const h = harness();
+  const bar = h.field("patient-residency");
+  assert.equal(bar.type, "ResidencySearch");
+  assert.equal(bar.props.value, "");
+  assert.equal(bar.props.readOnly, false);
+  assert.equal(bar.props.error, "");
+  for (const id of ["patient-province", "patient-city", "patient-barangay", "patient-street"]) assert.equal(h.field(id), undefined, id);
+});
+
+test("RES1: an empty, unselected or out-of-area address is shown below the bar and nothing is sent", async () => {
+  for (const [typed, message] of [
+    ["", /Residency is required/],
+    ["Purok 3 Calibunan", /Please select a valid address within Cabadbaran City, Agusan del Norte\./],
+    ["Purok 1, Brgy. Libertad, Butuan City, Agusan del Norte", /Please select a valid address/],
+    ["Purok 1, Bayabas, Brgy. Calibunan, Cabadbaran City, Agusan del Norte", /cannot name a barangay, city or province again/]
+  ]) {
+    const h = harness();
+    h.fill();
+    h.change("patient-residency", typed);
+    await h.submit();
+    assert.equal(h.calls.filter(call => call.method === "POST").length, 0, typed);
+    assert.equal(h.calls.some(call => call.route === "/display"), false, "validation runs before any request");
+    assert.match(h.field("patient-residency").props.error, message, typed);
+    h.change("patient-residency", "Brgy. Calibunan, Cabadbaran City, Agusan del Norte");
+    assert.equal(h.field("patient-residency").props.error, "", "changing the address clears its message");
+    await h.submit();
+    assert.equal(h.calls.find(call => call.route === REGISTRATION).body.residency, "Brgy. Calibunan, Cabadbaran City, Agusan del Norte",
+      "a barangay without Purok / Street is a complete address");
+  }
+});
+
+test("RES1: a returning patient's address saved before RES1 is shown unchanged and the visit can still be registered", async () => {
+  const legacy = { ...storedRecord, residency: "Libertad, Butuan City, Agusan del Norte, Philippines" };
+  const h = harness({ request: route => route === "/patient-records/7" ? { success: true, patient: legacy }
+    : route === REGISTRATION ? { success: true, queue_number: savedPatient.queue_number, priority_score: 4, patient_record: legacy, patient_record_created: false } : undefined });
+  await searchProps(h).onSelect({ id: 7 });
+  const bar = h.field("patient-residency");
+  assert.equal(bar.props.value, legacy.residency);
+  assert.equal(bar.props.readOnly, true);
+  assert.match(text(bar.props.notice), /not a Cabadbaran City barangay address\. It is kept unchanged.*Report patient PAT-0007 to the administrator/);
+  h.change("patient-service", "prenatal");
+  await h.submit();
+  const post = h.calls.find(call => call.method === "POST");
+  assert.deepEqual(post.body, { patientRecordId: 7, serviceType: "prenatal", vulnerabilityFlags: ["senior"] }, "the stored address is never sent or rewritten");
+  assert.match(text(h.render()), /Patient registered successfully\./);
+});
+
+// RES2: the address must be chosen, and a verified map place travels as the backend's signed token.
+test("RES2: a valid address that was only typed, not chosen from the list or the manual form, is refused", async () => {
+  const h = harness();
+  h.fill();
+  h.field("patient-residency").props.onChange("Purok 3, Brgy. Calibunan, Cabadbaran City, Agusan del Norte", { chosen: false, place: null });
+  await h.submit();
+  assert.equal(h.calls.filter(call => call.method === "POST").length, 0);
+  assert.match(h.field("patient-residency").props.error, /Select an address from the suggestions, or choose “Enter address manually”/);
+});
+
+test("RES2: a map-selected address sends the backend's place token; a manual one sends none", async () => {
+  const place = { token: "signed.by.backend", barangay: "Tolosa", detail: "Rizal St", placeId: "ChIJplace0000001", formattedAddress: "Rizal St, Cabadbaran" };
+  const mapped = harness();
+  mapped.fill();
+  mapped.field("patient-residency").props.onChange("Rizal St, Brgy. Tolosa, Cabadbaran City, Agusan del Norte", { chosen: true, place });
+  assert.deepEqual(mapped.field("patient-residency").props.selection, { chosen: true, place });
+  await mapped.submit();
+  const body = mapped.calls.find(call => call.route === REGISTRATION).body;
+  assert.equal(body.residency, "Rizal St, Brgy. Tolosa, Cabadbaran City, Agusan del Norte");
+  assert.equal(body.residencyPlaceToken, "signed.by.backend");
+
+  const manual = harness();
+  manual.fill();
+  await manual.submit();
+  assert.equal(Object.hasOwn(manual.calls.find(call => call.route === REGISTRATION).body, "residencyPlaceToken"), false);
+});
+
+test("RES2: only Front Desk and Super Admin get map search; Register Another Patient forgets the previous selection", async () => {
+  assert.equal(harness().field("patient-residency").props.mapSearch, true);
+  assert.equal(harness({ user: { id_num: "superadmin", role: "superadmin" } }).field("patient-residency").props.mapSearch, true);
+  assert.equal(harness({ user: { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" } }).field("patient-residency").props.mapSearch, false);
+  assert.equal(harness({ user: null }).field("patient-residency").props.mapSearch, false);
+  const h = harness(); h.fill(); await h.submit();
+  nodes(h.render(), node => node.type === "button" && text(node).includes("Register Another Patient"))[0].props.onClick();
+  assert.equal(h.field("patient-residency").props.selection, null);
+  assert.equal(h.field("patient-residency").props.value, "");
 });

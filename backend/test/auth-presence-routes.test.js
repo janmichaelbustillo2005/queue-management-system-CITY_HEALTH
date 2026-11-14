@@ -65,7 +65,7 @@ function harness() {
   load("routes/index.js", {
     express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto,
     "../config/env": { jwtSecret: secret }, "../middleware/auth": auth,
-    "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"),
+    "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"), "../lib/confirmationGate": require("../src/lib/confirmationGate"), "../lib/residency": require("../src/lib/residency"),
     "../services/presenceService": presence,
     "../services/queueService": {
       loginUser: async (id, password) => {
@@ -75,7 +75,7 @@ function harness() {
       getCounters: async () => counters,
       getQueueOverview: async () => ({ patients, counters })
     },
-    "../services/settingsService": {}
+    "../services/addressSearchService": require("../src/services/addressSearchService"), "../services/settingsService": {}
   });
   async function request(method, route, token, body = {}) {
     const req = { headers: token ? { authorization: `Bearer ${token}` } : {}, body };

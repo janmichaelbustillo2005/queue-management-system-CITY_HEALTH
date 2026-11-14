@@ -8,6 +8,7 @@ const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
 const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
+const { isQueuePaginationModule, loadQueuePagination } = require("./queue-pagination-module.cjs");
 
 let tableCode, ticketCode;
 before(async () => {
@@ -59,6 +60,7 @@ function table(rows, { counters, request } = {}) {
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (isQueuePaginationModule(name)) return loadQueuePagination({ jsx, jsxs: jsx, Fragment: "fragment" });
       if (name === "../lib/api") return { request: async (route, init) => {
         calls.push({ route, body: JSON.parse(init.body) });
         return request ? request(route, init) : { success: true };

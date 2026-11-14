@@ -36,4 +36,18 @@ const publicRegistrationLimiter = rateLimit({
   handler: limitResponse("Registration is busy right now. Please try again in a minute.")
 });
 
-module.exports = { loginLimiter, publicRegistrationLimiter };
+// RES2: Google Places searches are billed, so the whole office shares one ceiling. The form waits
+// for a pause in typing before searching, so normal use stays far below it.
+const ADDRESS_SEARCH_WINDOW_MS = 60 * 1000;
+const ADDRESS_SEARCH_MAX = 120;
+const addressSearchLimiter = rateLimit({
+  windowMs: ADDRESS_SEARCH_WINDOW_MS,
+  limit: ADDRESS_SEARCH_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: false,
+  keyGenerator: () => "address-search",
+  handler: limitResponse("Map search is busy right now. Choose the barangay from the list, or enter the address manually.")
+});
+
+module.exports = { loginLimiter, publicRegistrationLimiter, addressSearchLimiter };

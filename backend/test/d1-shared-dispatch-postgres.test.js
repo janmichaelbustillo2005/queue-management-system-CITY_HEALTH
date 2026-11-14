@@ -278,8 +278,8 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     await db.observer.query("UPDATE public.counters SET is_online = false WHERE id_num IN ('Doctor 2', 'Doctor 3')");
     await register(h, db, tokens.frontdesk, { name: "D1 prenatal while Doctor 2 offline", service: "prenatal" });
     await db.observer.query("UPDATE public.counters SET is_online = false");
-    expectStatus(await post(h, tokens.frontdesk, "/queue", { fullName: "D1 nobody on duty", service_type: "consultation" }), 400, /No doctor is currently available/);
-    expectStatus(await post(h, tokens.frontdesk, "/queue", { fullName: "D1 unknown service", service_type: "dental" }), 400, /offered services/);
+    expectStatus(await post(h, tokens.frontdesk, "/queue", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: "D1 nobody on duty", service_type: "consultation" }), 400, /No doctor is currently available/);
+    expectStatus(await post(h, tokens.frontdesk, "/queue", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: "D1 unknown service", service_type: "dental" }), 400, /offered services/);
     await db.observer.query("UPDATE public.counters SET is_online = true");
     expectStatus(await call(h, tokens.superadmin, id, "Doctor 1"), 200);
     await assertConsistent(db);

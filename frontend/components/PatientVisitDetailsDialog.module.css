@@ -1,0 +1,16 @@
+/* Patient Visit Details timeline. The dialog itself uses BacklogVisitDialog.module.css. */
+.heading { color: #1f2937; font-size: 14px; font-weight: 700; margin: 4px 0 8px; }
+.timeline { border-left: 2px solid #dce3ec; list-style: none; margin: 0 0 8px 6px; padding: 0 0 0 16px; }
+.event { display: flex; flex-wrap: wrap; gap: 2px 12px; justify-content: space-between; padding: 6px 0; position: relative; }
+.event::before {
+  background: #94a3b8; border: 2px solid #fff; border-radius: 50%; content: ""; height: 12px; left: -23px;
+  position: absolute; top: 9px; width: 12px;
+}
+.label { font-size: 13.5px; font-weight: 600; }
+.time { color: #64748b; font-size: 12.5px; white-space: nowrap; }
+.registered::before, .assignment::before { background: #3b82f6; }
+.confirmed::before { background: #0d9488; }
+.called::before, .consultation_started::before { background: #6366f1; }
+.completed::before { background: #16a34a; }
+.cancelled::before { background: #dc2626; }
+.no_show::before { background: #d97706; }

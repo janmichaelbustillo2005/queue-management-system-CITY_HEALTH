@@ -60,6 +60,52 @@ function groupSharedWaitingQueue(displayData) {
   return [{ counter: SHARED_WAITING_COUNTER, rows }];
 }
 
+// RR1 round robin (dispatch_mode "shared" with dispatch_strategy "round_robin", the backend default):
+// the dispatcher stores each waiting visit's doctor in counter_id, so every doctor has its own list.
+// Rows keep the backend's priority order (WPS / WPS-A, the order the doctor's Call ranks by), so a
+// position is the visit's place within its own doctor's list. A visit belongs to exactly one doctor,
+// matched like the doctor dashboard (counter id, id_num or name); a visit with no doctor yet (no doctor
+// signed in, or between an Undo and the next dispatch) is listed apart and in no doctor's queue.
+// Display only: nothing here assigns, confirms or reorders a visit.
+const ROUND_ROBIN_STRATEGY = "round_robin";
+const isRoundRobinDisplay = (displayData) =>
+  displayData?.dispatch_mode === SHARED_DISPATCH && displayData?.dispatch_strategy === ROUND_ROBIN_STRATEGY;
+
+function groupAssignedWaitingQueues(displayData, counters) {
+  const groups = counters.map((counter) => ({ counter, rows: [] }));
+  const unassigned = [];
+  const servingIds = new Set((displayData?.all_serving || []).map((row) => String(row.id)));
+  const seen = new Set();
+  for (const row of displayData?.waiting_queue || []) {
+    const id = String(row.id);
+    if (row.status !== "waiting" || row.completed_at || servingIds.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    const assignment = String(row.counter_id ?? "").trim();
+    if (!assignment) {
+      unassigned.push(row);
+      continue;
+    }
+    const group = groups.find(({ counter }) => String(counter.id) === assignment ||
+      String(counter.id_num ?? "").trim() === assignment || String(counter.name ?? "").trim() === assignment);
+    // A visit assigned to a doctor this board does not show stays out of every other doctor's list.
+    if (group) group.rows.push(row);
+  }
+  return { groups, unassigned };
+}
+
+// The waiting lists for the configured dispatch: per doctor (round robin, by stored assignment;
+// service, by assignment else service), or one list for D1 shared dispatch.
+function groupDisplayWaiting(displayData, counters, matchService) {
+  if (isRoundRobinDisplay(displayData)) return groupAssignedWaitingQueues(displayData, counters);
+  if (displayData?.dispatch_mode === SHARED_DISPATCH) return { groups: groupSharedWaitingQueue(displayData), unassigned: [] };
+  return { groups: groupWaitingQueues(displayData, counters, matchService), unassigned: [] };
+}
+
+// The "awaiting doctor assignment" strip above the round-robin waiting cards; the cards give up this
+// height so the waiting view still fits the serving view's measured grid.
+const WAITING_NOTICE_HEIGHT = 44;
+const WAITING_NOTICE_GAP = 12;
+
 function getWaitingPage(rows, previous, pageSize, advance = false) {
   const ids = rows.map((row) => String(row.id));
   const positions = new Map(ids.map((id, index) => [id, index]));
@@ -866,6 +912,8 @@ export default function QueueDisplayPage() {
     { id: 2, id_num: "Doctor 2" },
     { id: 3, id_num: "Doctor 3" }
   ];
+  // RR1: each doctor panel's NEXT and WAITING come from that doctor's own assigned list.
+  const assignedWaiting = isRoundRobinDisplay(display) ? groupAssignedWaitingQueues(display, allCounters).groups : null;
 
   return (
     <div className="layout-shell display-page queue-display-screen min-h-screen flex flex-col font-sans">
@@ -966,8 +1014,9 @@ export default function QueueDisplayPage() {
             const isAvailable = !servingPatient;
             const counterServices = counter.service_types || [];
             const servesRow = (p) => sharedDispatch || matchesDoctor(p.service_type, counterServices);
-            const waitingForCounter = display?.waiting_queue?.filter(servesRow).length || 0;
-            const nextForCounter = display?.waiting_queue?.find(servesRow);
+            const ownWaiting = assignedWaiting ? assignedWaiting.find((group) => group.counter === counter)?.rows || [] : null;
+            const waitingForCounter = ownWaiting ? ownWaiting.length : display?.waiting_queue?.filter(servesRow).length || 0;
+            const nextForCounter = ownWaiting ? ownWaiting[0] : display?.waiting_queue?.find(servesRow);
 
             return (
               <div key={counter.id} className="queue-serving-card display-card overflow-hidden border border-[var(--display-border)] flex flex-col shadow-2xl">
@@ -1093,13 +1142,19 @@ function WaitingQueueView({ displayData, counters, matchService, visible, visit,
   const paginationRef = useRef({ visit: 0, pages: {} });
   const [layout, setLayout] = useState({ cards: {} });
   const counterKey = counters.map((counter) => `${counter.id}:${counter.id_num}`).join("|");
-  const shared = displayData?.dispatch_mode === SHARED_DISPATCH;
-  const groups = shared ? groupSharedWaitingQueue(displayData) : groupWaitingQueues(displayData, counters, matchService);
+  const roundRobin = isRoundRobinDisplay(displayData);
+  // D1 shared dispatch only: one list for every doctor. Round robin keeps one list per doctor.
+  const shared = displayData?.dispatch_mode === SHARED_DISPATCH && !roundRobin;
+  const { groups, unassigned } = groupDisplayWaiting(displayData, counters, matchService);
+  const noticeReserve = unassigned.length ? WAITING_NOTICE_HEIGHT + WAITING_NOTICE_GAP : 0;
   const previous = paginationRef.current;
   const advance = visible && visit > 1 && visit !== previous.visit;
   const pages = groups.map(({ counter, rows }) => {
     // The single shared list spans the grid and takes the height of a doctor card.
-    const cardLayout = layout.cards[counter.id_num] || (shared && Object.values(layout.cards)[0]) || measureWaitingLayout(408);
+    const measured = layout.cards[counter.id_num] || (shared && Object.values(layout.cards)[0]) || measureWaitingLayout(408);
+    const cardLayout = noticeReserve
+      ? measureWaitingLayout(measured.cardHeight - noticeReserve, measured.headerHeight, measured.footerHeight)
+      : measured;
     return { counter, total: rows.length, layout: cardLayout,
       ...getWaitingPage(rows, previous.pages[counter.id_num], cardLayout.pageSize, advance) };
   });
@@ -1139,9 +1194,19 @@ function WaitingQueueView({ displayData, counters, matchService, visible, visit,
 
   return (
     <section hidden={!visible} aria-label="Waiting Queue" className="queue-waiting-view">
+      {unassigned.length ? (
+        <div className="queue-waiting-notice" role="note" aria-label="Awaiting doctor assignment"
+          style={{ height: WAITING_NOTICE_HEIGHT, marginBottom: WAITING_NOTICE_GAP }}>
+          <span className="queue-waiting-notice-label">Awaiting doctor assignment</span>
+          <span className="queue-waiting-notice-count">{unassigned.length}</span>
+          <span className="queue-waiting-notice-numbers">{unassigned.map((row) => row.queue_number).join("  ·  ")}</span>
+        </div>
+      ) : null}
       <div className="queue-waiting-grid" style={{ gridTemplateColumns: layout.gridTemplateColumns, columnGap: layout.columnGap, rowGap: layout.rowGap }}>
         {pages.map((page) => {
-          const info = shared ? { badge: "ALL", room: "Any doctor" } : DOCTOR_INFO_MAP[page.counter.id_num] || { badge: "MD", room: "TBA" };
+          const mapped = DOCTOR_INFO_MAP[page.counter.id_num] || { badge: "MD", room: "TBA" };
+          // Round robin: the doctor's own room, with the serving card's general-doctor badge.
+          const info = shared ? { badge: "ALL", room: "Any doctor" } : roundRobin ? { ...mapped, badge: "MD" } : mapped;
           return (
             <section key={page.counter.id} className="display-card queue-waiting-card shadow-2xl" style={{ height: page.layout.cardHeight, ...(shared ? { gridColumn: "1 / -1" } : {}) }} aria-label={`${doctorDisplayLabel(displayData, page.counter.id_num)} waiting queue`}>
               <div className="queue-waiting-card-header" style={{ height: page.layout.headerHeight }}>
@@ -1187,6 +1252,10 @@ function WaitingQueueView({ displayData, counters, matchService, visible, visit,
         .queue-waiting-number { color: var(--brand-gold-bright); font-size: 22px; font-weight: 900; white-space: nowrap; }
         .queue-waiting-status { color: var(--display-positive); font-size: 10px; }
         .queue-waiting-empty { margin: 0; padding: 48px 16px; text-align: center; color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 700; }
+        .queue-waiting-notice { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0 1.25rem; overflow: hidden; background: var(--display-card-header); border: 1px solid var(--display-border); border-radius: 12px; color: white; }
+        .queue-waiting-notice-label { flex-shrink: 0; color: rgba(255,255,255,0.6); font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.2em; }
+        .queue-waiting-notice-count { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; background: var(--brand-primary); font-size: 11px; font-weight: 900; }
+        .queue-waiting-notice-numbers { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--brand-gold-bright); font-size: 16px; font-weight: 900; }
         .queue-waiting-card-footer { height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 1.25rem; background: var(--display-card-header); border-top: 1px solid var(--display-border); color: rgba(255,255,255,0.6); font-size: 10px; font-weight: 700; }
         @media (max-width: 1023px) { .queue-waiting-grid { grid-template-columns: 1fr; } }
         @media (max-width: 380px) { th, td { padding-left: 8px; padding-right: 8px; } .queue-waiting-number { font-size: 18px; } }

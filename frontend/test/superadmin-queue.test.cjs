@@ -4,8 +4,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
-const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isServicesModule, loadServices, isResidencyModule, loadResidency } = require("./services-module.cjs");
 const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
+const { isQueuePaginationModule, loadQueuePagination } = require("./queue-pagination-module.cjs");
 
 let componentCode;
 let presenceHelpers;
@@ -99,6 +100,7 @@ async function harness(initialRows, options = {}) {
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (isQueuePaginationModule(name)) return loadQueuePagination({ jsx, jsxs: jsx, Fragment: "fragment" });
       if (name === "next/link") return () => {};
       if (name === "next/router") return { useRouter: () => router };
       if (name === "../context/AuthContext") return { useAuth: () => ({ user, loading: false }) };
@@ -106,6 +108,7 @@ async function harness(initialRows, options = {}) {
       if (name === "../components/SettingsModal") return { __esModule: true, default: () => {}, defaultQueueSettings: settings };
       if (name === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
       if (name === "../components/StaffProfileDialog") return { StaffProfileDialog: () => null };
+      if (name === "../components/ResidencySearch") return function ResidencySearch() { return null; };
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,
         applyCounterAvailability: value => value, clearActiveQueues: async () => ({ success: true }),
@@ -122,6 +125,7 @@ async function harness(initialRows, options = {}) {
       } };
       if (name === "../lib/doctorPresence") return presenceHelpers;
       if (isServicesModule(name)) return loadServices();
+      if (isResidencyModule(name)) return loadResidency();
       if (isQueueViewModule(name)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${name}`);
     }
@@ -374,7 +378,8 @@ test("Superadmin registration renders only the backend-created waiting record wi
   nodes(h.render(), node => node.type === "select" &&
     nodes(node, child => child.type === "option" && child.props.value === "medical_consultation").length)[0]
     .props.onChange({ target: { value: "family_planning" } });
-  const registrationForm = nodes(h.render(), node => node.type === "form" &&
+  nodes(h.render(), node => node.props?.id === "manual-residency")[0].props.onChange("Purok 1, Brgy. Mahaba, Cabadbaran City, Agusan del Norte", { chosen: true, place: null });
+  const registrationForm =nodes(h.render(), node => node.type === "form" &&
     nodes(node, child => child.type === "input" && child.props.placeholder === "Enter full name").length)[0];
   registrationForm.props.onSubmit({ preventDefault() {} });
   const registration = h.calls.filter(call => call.route === "/queue" && call.method === "POST");
@@ -413,8 +418,10 @@ function manualEntry(h) {
   return nodes(h.render(), node => node.type === "form" &&
     nodes(node, child => child.type === "input" && child.props.placeholder === "Enter full name").length)[0];
 }
+// The RES1 Residency search bar renders as a stub that holds the entered text.
+const isManualControl = node => ["input", "select"].includes(node.type) || node.type?.name === "ResidencySearch";
 function manualField(h, predicate) {
-  return nodes(manualEntry(h), node => ["input", "select"].includes(node.type) && predicate(node))[0];
+  return nodes(manualEntry(h), node => isManualControl(node) && predicate(node))[0];
 }
 async function fillManualEntry(h) {
   buttons(h.render(), "Add Patient")[0].props.onClick();
@@ -425,14 +432,14 @@ async function fillManualEntry(h) {
   change(node => node.props.placeholder === "Enter PhilHealth ID", "SYNTHETIC-ID");
   change(node => node.props.type === "date", "1990-01-02");
   change(node => node.type === "select" && nodes(node, child => child.props?.value === "Female").length, "Female");
-  change(node => node.props.placeholder === "Search address...", "Synthetic Development Address");
+  manualField(h, node => node.props.id === "manual-residency").props.onChange("Purok 4, Synthetic St., calamba, Cabadbaran City, Agusan del Norte", { chosen: true, place: null });
   const pregnant = nodes(manualEntry(h), node => node.type === "label" && text(node).startsWith("Pregnant"))[0];
   nodes(pregnant, node => node.type === "input")[0].props.onChange();
   await h.flush();
 }
 function manualValues(h) {
-  return clone(nodes(manualEntry(h), node => ["input", "select"].includes(node.type))
-    .map(node => ({ type: node.type, value: node.props.value, checked: node.props.checked })));
+  return clone(nodes(manualEntry(h), isManualControl)
+    .map(node => ({ type: node.type?.name || node.type, value: node.props.value, checked: node.props.checked })));
 }
 function unloadEvent(h) {
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
@@ -479,7 +486,7 @@ test("Superadmin pending and failed registration keep all entered fields visible
   assert.equal(h.calls.filter(call => call.route === "/queue" && call.method === "POST").length, 1);
   assert.ok(manualEntry(h), "entry must remain open until the server confirms success");
   assert.deepEqual(manualValues(h), before);
-  for (const control of nodes(manualEntry(h), node => ["input", "select", "button"].includes(node.type))) {
+  for (const control of nodes(manualEntry(h), node => isManualControl(node) || node.type === "button")) {
     assert.equal(control.props.disabled, true, "pending registration controls must prevent edits and repeated clicks");
   }
   assert.equal(buttons(h.render(), "Cancel")[0].props.disabled, true);
@@ -509,14 +516,14 @@ test("Superadmin successful registration closes and clears entry only after save
   assert.equal(manualEntry(h), undefined);
   assert.equal(unloadEvent(h).prevented, false, "saved patient must not leave a dirty-entry warning");
   buttons(h.render(), "Add Patient")[0].props.onClick();
-  for (const control of nodes(manualEntry(h), node => ["input", "select"].includes(node.type))) {
+  for (const control of nodes(manualEntry(h), isManualControl)) {
     if (control.props.type === "checkbox") assert.equal(control.props.checked, false);
     else assert.equal(control.props.value, "");
   }
   const payload = h.calls.find(call => call.route === "/queue" && call.method === "POST").body;
   assert.deepEqual(payload, {
     fullName: "Synthetic Registration Patient", service_type: "maternal_healthcare", mobile_number: "9123456789",
-    residency: "Synthetic Development Address", philhealth_id: "SYNTHETIC-ID", birthdate: "1990-01-02",
+    residency: "Purok 4, Synthetic St., Brgy. Calamba, Cabadbaran City, Agusan del Norte", philhealth_id: "SYNTHETIC-ID", birthdate: "1990-01-02",
     sex: "Female", vulnerabilityFlags: ["pregnant"]
   });
 });
@@ -722,4 +729,94 @@ test("FC1: a pending visit shows Pending Confirmation and no Call; the doctor's 
   assert.equal(buttons(tree, "Confirm Patient").length, 0, "Superadmin gains no confirmation permission");
   await callButton(h.render(), 2).props.onClick();
   assert.deepEqual(h.actions.map(action => action.body), [{ patient_id: 2, counterId: "Doctor 1" }]);
+});
+
+// Pagination: 10 records per page over every matching record (components/QueuePagination.js).
+const pager = tree => {
+  const node = nodes(tree, item => typeof item.type === "function" && item.props?.pagination)[0];
+  return node ? node.type(node.props) : null;
+};
+const pageSummary = tree => text(nodes(pager(tree), node => node.props?.["data-queue-page-summary"])[0]);
+const pageButton = (tree, label) => nodes(pager(tree), node => node.type === "button" && text(node).trim() === label)[0];
+const testRange = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `TEST-${from + i}`);
+const manyWaiting = count => Array.from({ length: count }, (_, i) => patient(i + 1));
+
+test("Queue Management shows 10 records per page and pages through all of them, past the Settings maximum", async () => {
+  const h = await harness(manyWaiting(25), { settings: { maxQueues: 20 } });
+  let tree = h.render();
+  assert.deepEqual(shownQueueNumbers(tree), testRange(1, 10));
+  assert.equal(pageSummary(tree), "Showing 1–10 of 25");
+  assert.ok(callButton(tree, 1), "the waiting head on page 1 keeps its Call button");
+  assert.equal(pageButton(tree, "Previous").props.disabled, true);
+  assert.deepEqual(nodes(pager(tree), node => node.props?.["data-page"]).map(node => text(node)), ["1", "2", "3"]);
+
+  pageButton(tree, "Next").props.onClick();
+  tree = h.render();
+  assert.deepEqual(shownQueueNumbers(tree), testRange(11, 20));
+  assert.equal(pageSummary(tree), "Showing 11–20 of 25");
+  assert.equal(nodes(queueTable(tree), node => node.type === "button" && /Call/.test(text(node))).length, 0, "only the head is callable");
+
+  pageButton(tree, "Next").props.onClick();
+  tree = h.render();
+  assert.deepEqual(shownQueueNumbers(tree), testRange(21, 25), "records beyond the old 20-record cap are reachable");
+  assert.equal(pageButton(tree, "Next").props.disabled, true);
+  pageButton(tree, "1").props.onClick();
+  assert.deepEqual(shownQueueNumbers(h.render()), testRange(1, 10));
+});
+
+test("Queue Management returns to page 1 when a filter or search changes, and keeps the page on refresh", async () => {
+  const h = await harness(manyWaiting(25));
+  const goTo = label => pageButton(h.render(), label).props.onClick();
+
+  goTo("3");
+  filterControl(h.render(), 2).props.onChange({ target: { value: "test" } });
+  assert.equal(pageSummary(h.render()), "Showing 1–10 of 25", "a new search starts at page 1");
+  goTo("2");
+  filterControl(h.render(), 1).props.onChange({ target: { value: "waiting" } });
+  assert.deepEqual(shownQueueNumbers(h.render()), testRange(1, 10), "a new status starts at page 1");
+  goTo("2");
+  filterControl(h.render(), 0).props.onChange({ target: { value: "Doctor 1" } });
+  assert.deepEqual(shownQueueNumbers(h.render()), testRange(1, 10), "a new doctor starts at page 1");
+
+  // A refresh that brings a newly registered patient keeps the chosen page.
+  goTo("3");
+  h.backend.patients.push(patient(26));
+  const section = nodes(h.render(), node => node.type === "div" && node.props.className?.includes("max-w-6xl") &&
+    nodes(node, child => child.props?.["data-queue-counters"]).length > 0)[0];
+  await nodes(section, node => node.type === "button" && text(node).trim() === "Refresh")[0].props.onClick();
+  await h.flush();
+  assert.equal(pageSummary(h.render()), "Showing 21–26 of 26");
+  assert.deepEqual(shownQueueNumbers(h.render()), testRange(21, 26));
+});
+
+test("Queue Management with 10 or fewer records shows the summary without page navigation", async () => {
+  const h = await harness(viewFixture.ROWS);
+  assert.equal(pageSummary(h.render()), "Showing 1–3 of 3");
+  assert.equal(pageButton(h.render(), "Next"), undefined);
+  assert.equal(pageButton(h.render(), "Previous"), undefined);
+});
+
+// RES1: Manual Queue Entry uses the same single Residency search bar as the Front Desk.
+test("RES1: Manual Queue Entry has one Residency search bar and blocks an empty or unselected address below it", async () => {
+  const h = await harness([]);
+  buttons(h.render(), "Add Patient")[0].props.onClick();
+  const bar = () => manualField(h, node => node.props.id === "manual-residency");
+  assert.equal(bar().type.name, "ResidencySearch");
+  for (const id of ["manual-province", "manual-city", "manual-barangay", "manual-street"]) {
+    assert.equal(manualField(h, node => node.props.id === id), undefined, id);
+  }
+
+  manualField(h, node => node.props.placeholder === "Enter full name").props.onChange({ target: { value: "Synthetic Incomplete" } });
+  await manualEntry(h).props.onSubmit({ preventDefault() {} });
+  assert.match(bar().props.error, /Residency is required/);
+  bar().props.onChange("Purok 1 Bayabas", { chosen: false, place: null });
+  assert.equal(bar().props.error, "", "typing clears the message");
+  await manualEntry(h).props.onSubmit({ preventDefault() {} });
+  assert.equal(bar().props.error, "Please select a valid address within Cabadbaran City, Agusan del Norte.");
+  // RES2: a valid address that was typed, not chosen, is refused too.
+  bar().props.onChange("Purok 1, Brgy. Bayabas, Cabadbaran City, Agusan del Norte", { chosen: false, place: null });
+  await manualEntry(h).props.onSubmit({ preventDefault() {} });
+  assert.match(bar().props.error, /Select an address from the suggestions/);
+  assert.equal(bar().props.mapSearch, true, "Super Admin may search the map");
+  assert.equal(h.calls.some(call => call.route === "/queue" && call.method === "POST"), false, "nothing is sent");
 });

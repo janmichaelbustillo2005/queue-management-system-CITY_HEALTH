@@ -41,7 +41,8 @@ export default function SiteFrame({
   children,
   onSettings,
   accountActions = [],
-  contentClassName = ""
+  contentClassName = "",
+  headerTools = null
 }) {
   const { user, logout, logoutError } = useAuth();
   const router = useRouter();
@@ -153,6 +154,8 @@ export default function SiteFrame({
           ) : null}
           <div className="app-header-tools">
             <span className="app-header-clock">{dateTime}</span>
+            {/* Page-specific header controls beside the account menu (a doctor's queue notifications). */}
+            {headerTools}
             {account ? (
               <AccountMenu account={account} onProfile={openProfile} onLogout={logout} />
             ) : null}

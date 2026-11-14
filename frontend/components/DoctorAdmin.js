@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import SiteFrame from "../components/SiteFrame";
+import DoctorQueueNotifications from "./DoctorQueueNotifications";
 import { request } from "../lib/api";
 import { serviceName } from "../lib/services";
 import { defaultQueueSettings } from "./SettingsModal";
@@ -54,6 +55,10 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   const [doctorDisplayNames, setDoctorDisplayNames] = useState({});
   const [queueSettings, setQueueSettings] = useState(defaultQueueSettings);
   const [stats, setStats] = useState({ waiting: 0, serving: 0, completed: 0, total_patients: 0 });
+  // GET /queue my_queue: the signed-in doctor's own waiting count for the notification bell, chosen
+  // by the server from the validated session (null for Superadmin or an older backend). Kept when
+  // a refresh fails, so the bell shows the last known count while the queue is unavailable.
+  const [myQueue, setMyQueue] = useState(null);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -483,6 +488,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       setQueueRows(data.patients ?? []);
       setCounters(data.counters ?? []);
       setDoctorDisplayNames(data.doctor_display_names ?? {});
+      if (Object.prototype.hasOwnProperty.call(data, "my_queue")) setMyQueue(data.my_queue ?? null);
       setStorageMode(data.storage_mode ?? null);
       const shared = data.dispatch_mode === SHARED_DISPATCH;
       setDispatchMode(shared ? SHARED_DISPATCH : "service");
@@ -640,11 +646,19 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     });
   }
 
+  const queueTitle = `${(typeof doctorDisplayNames[doctorName] === "string" && doctorDisplayNames[doctorName].trim()) || doctorName} Queue`;
+  // Only this page's own doctor, signed in, gets the notifications (never Superadmin viewing it).
+  const notificationSummary = canManageConsultation && myQueue?.doctor === doctorName ? myQueue : null;
+
   return (
     <SiteFrame
-      title={`${(typeof doctorDisplayNames[doctorName] === "string" && doctorDisplayNames[doctorName].trim()) || doctorName} Queue`}
+      title={queueTitle}
       icon="fas fa-user-md"
       accountActions={accountActions}
+      headerTools={notificationSummary ? (
+        <DoctorQueueNotifications summary={notificationSummary} status={queueStatus} accountId={user?.id_num}
+          queueLabel={queueTitle} onRefresh={refreshAll} queueAnchorId="my-patient-queue" />
+      ) : null}
     >
       <div className="admin-content p-4 md:p-6">
         {error ? (
@@ -720,7 +734,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border brand-border overflow-hidden">
+        <div id="my-patient-queue" className="bg-white rounded-2xl shadow-sm border brand-border overflow-hidden">
           <div className="p-4 border-b brand-border bg-gray-50/50 flex justify-between items-center">
             <div className="flex items-center gap-2">
               <i className="fas fa-tasks brand-text-primary" />

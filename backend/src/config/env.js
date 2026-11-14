@@ -95,6 +95,9 @@ const env = {
   smsGatewayAddress: process.env.SMS_GATEWAY_ADDRESS || "",
   gatewayApiToken: (process.env.GATEWAY_API_TOKEN || "").trim(),
   jwtSecret: readJwtSecret(process.env.JWT_SECRET),
+  // RES2: Google Places address search for the Residency bar (Places API (New)). Server-side only;
+  // off when unset, and the form then uses its verified barangay list and manual entry.
+  googleMapsApiKey: (process.env.GOOGLE_MAPS_API_KEY || "").trim(),
   // WPS-A (Weighted-Priority Scheduling with 10-minute Aging), proposed and off by default. It needs
   // the call_patient_visit_wps_a database function (backend/scripts/20261029-wps-a-call-aging.sql)
   // and policy approval; without the function, Calls are refused rather than ranked two ways.

@@ -63,3 +63,44 @@ test("badges, priorities and time use one set of styles and the stored timestamp
   assert.equal(q.formatQueueTime("not a date"), "—");
   assert.equal(q.formatQueueDate(undefined), "");
 });
+
+// Pagination shared by both tables: 10 records per page over every matching record.
+test("paginateQueueRows shows 10 records per page and keeps the page within the records", () => {
+  const rows = Array.from({ length: 25 }, (_, i) => i + 1);
+  const page = (n) => plain(q.paginateQueueRows(rows, n));
+  assert.equal(q.QUEUE_PAGE_SIZE, 10);
+  assert.deepEqual(page(1), { rows: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], page: 1, pageCount: 3, pageSize: 10, total: 25, first: 1, last: 10 });
+  assert.deepEqual(page(2).rows, [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+  assert.deepEqual(page(3), { rows: [21, 22, 23, 24, 25], page: 3, pageCount: 3, pageSize: 10, total: 25, first: 21, last: 25 });
+  assert.equal(page(9).page, 3, "a page past the end shows the last page");
+  assert.equal(page(0).page, 1);
+  assert.equal(page(undefined).page, 1);
+  assert.deepEqual(plain(q.paginateQueueRows([], 4)), { rows: [], page: 1, pageCount: 1, pageSize: 10, total: 0, first: 0, last: 0 });
+  assert.equal(q.paginateQueueRows(rows.slice(0, 10), 1).pageCount, 1, "exactly 10 records fit on one page");
+  assert.equal(q.paginateQueueRows(rows.slice(0, 11), 1).pageCount, 2, "the 11th record opens page 2");
+});
+
+test("the page summary reads Showing first–last of total", () => {
+  assert.equal(q.queuePageSummary(q.paginateQueueRows(Array(25).fill(0), 1)), "Showing 1–10 of 25");
+  assert.equal(q.queuePageSummary(q.paginateQueueRows(Array(25).fill(0), 3)), "Showing 21–25 of 25");
+  assert.equal(q.queuePageSummary(q.paginateQueueRows([], 1)), "Showing 0 of 0");
+});
+
+test("page numbers list every page up to 7, then the ends and the neighbours of the current page", () => {
+  assert.deepEqual(plain(q.queuePageItems(1, 1)), [1]);
+  assert.deepEqual(plain(q.queuePageItems(2, 7)), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(plain(q.queuePageItems(1, 12)), [1, 2, 3, 4, 5, "gap", 12]);
+  assert.deepEqual(plain(q.queuePageItems(6, 12)), [1, "gap", 5, 6, 7, "gap", 12]);
+  assert.deepEqual(plain(q.queuePageItems(12, 12)), [1, "gap", 8, 9, 10, 11, 12]);
+  assert.deepEqual(plain(q.queuePageItems(4, 12)), [1, 2, 3, 4, 5, "gap", 12], "no gap hides a single page");
+  assert.deepEqual(plain(q.queuePageItems(9, 12)), [1, "gap", 8, 9, 10, 11, 12]);
+});
+
+test("a page belongs to the filters it was chosen under; changed filters start at page 1", () => {
+  const key = q.queuePageKey("all", "Doctor 1", " Ana ");
+  assert.equal(key, q.queuePageKey("all", "Doctor 1", "ana"), "search case and surrounding spaces do not reset the page");
+  assert.notEqual(key, q.queuePageKey("waiting", "Doctor 1", "ana"));
+  assert.equal(q.queueRequestedPage({ key, page: 3 }, key), 3);
+  assert.equal(q.queueRequestedPage({ key, page: 3 }, q.queuePageKey("all", "Doctor 1", "ben")), 1);
+  assert.equal(q.queueRequestedPage(undefined, key), 1);
+});

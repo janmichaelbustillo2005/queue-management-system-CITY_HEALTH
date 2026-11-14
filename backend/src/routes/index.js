@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const { randomUUID } = require("node:crypto");
 const env = require("../config/env");
 const { getBusinessDate } = require("../lib/businessDay");
+const { readResidency } = require("../lib/residency");
 const { authenticateToken, authorizeRole } = require("../middleware/auth");
 const {
   createAuthSession,
@@ -15,6 +16,7 @@ const {
   buildAnalyticsCsv,
   callPatient,
   confirmPatient,
+  setPatientPresence,
   requestDispatch,
   transferConsultation,
   cancelPatient,
@@ -34,6 +36,7 @@ const {
   searchPatientRecords,
   getPatientRecord,
   registerPatientVisit,
+  assertPatientRecordsActor,
   getAnalytics,
   getDashboardStats,
   getDisplayData,
@@ -57,6 +60,9 @@ const {
   getStaffProfile,
   updateStaffProfile,
   getDoctorDisplayNames,
+  getDoctorQueueSummary,
+  getDoctorPatientHistory,
+  getDoctorPatientHistoryVisit,
   createAccountCancellationRequest,
   getAccountCancellationRequests,
   getMyAccountCancellationRequest,
@@ -73,6 +79,7 @@ const {
   recordVoiceAnnouncementEvent,
   hasCallAnnouncement
 } = require("../services/settingsService");
+const { autocompleteAddresses, resolvePlaceAddress, verifyPlaceToken } = require("../services/addressSearchService");
 
 const router = express.Router();
 
@@ -204,11 +211,25 @@ async function doctorDisplayNamesOrNone() {
   }
 }
 
-router.get("/queue", authenticateToken, async (_req, res) => {
+// Doctor queue notifications: the signed-in doctor's own waiting count, from this same overview.
+// The doctor comes from the database-validated session (req.authSession), never from the request.
+// A label-only extra: anything unexpected returns null and never fails GET /queue.
+function doctorQueueSummaryOrNone(overview, session) {
+  try {
+    return (typeof getDoctorQueueSummary === "function" && getDoctorQueueSummary(overview, session)) || null;
+  } catch {
+    return null;
+  }
+}
+
+router.get("/queue", authenticateToken, async (req, res) => {
   try {
     // EP1: staff screens label doctor counters with the assigned account's display name.
     const [data, doctorDisplayNames] = await Promise.all([getQueueOverview(), doctorDisplayNamesOrNone()]);
-    res.json({ success: true, ...data, doctor_display_names: doctorDisplayNames });
+    res.json({
+      success: true, ...data, doctor_display_names: doctorDisplayNames,
+      my_queue: doctorQueueSummaryOrNone(data, req.authSession)
+    });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -221,12 +242,14 @@ router.post("/queue", authenticateToken, async (req, res) => {
     if (!fullName || !service_type) {
       return res.status(400).json({ success: false, message: "Full name and service type are required" });
     }
+    // RES1: required, and only an address within Cabadbaran City, Agusan del Norte.
+    const residencyText = readResidency(residency);
 
     const row = await createQueueEntry({
       idNum: fullName,
       serviceType: service_type,
       mobileNumber: mobile_number,
-      residency,
+      residency: residencyText,
       philhealthId: philhealth_id,
       birthdate,
       sex,
@@ -254,12 +277,13 @@ router.post("/queue/website", async (req, res) => {
     if (!fullName || !serviceType) {
       return res.status(400).json({ success: false, message: "Please fill in all required fields." });
     }
+    const residencyText = readResidency(residency);
 
     const row = await createQueueEntry({
       idNum: fullName,
       serviceType,
       mobileNumber,
-      residency,
+      residency: residencyText,
       philhealthId,
       birthdate,
       sex,
@@ -300,17 +324,50 @@ router.get("/patient-records/:id", authenticateToken, async (req, res) => {
   }
 });
 
+// RES2: Google Places address search for the Residency bar, for Front Desk and Super Admin only
+// (searches are billed). Without GOOGLE_MAPS_API_KEY it reports itself unavailable and the form
+// keeps its verified barangay search. Query values are redacted from the request log.
+router.get("/address-search", authenticateToken, async (req, res) => {
+  try {
+    assertPatientRecordsActor(req.user);
+    res.setHeader("Cache-Control", "no-store");
+    if (!env.googleMapsApiKey) return res.json({ success: true, available: false, suggestions: [] });
+    const suggestions = await autocompleteAddresses({ query: req.query.q, sessionToken: req.query.session, apiKey: env.googleMapsApiKey });
+    res.json({ success: true, available: true, suggestions });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
+// The chosen suggestion, accepted only inside Cabadbaran City; ends the Google search session.
+router.get("/address-search/place", authenticateToken, async (req, res) => {
+  try {
+    assertPatientRecordsActor(req.user);
+    res.setHeader("Cache-Control", "no-store");
+    if (!env.googleMapsApiKey) return res.status(503).json({ success: false, message: "Map search is not configured. Choose the barangay from the list, or enter the address manually." });
+    const address = await resolvePlaceAddress({
+      placeId: req.query.id, sessionToken: req.query.session, apiKey: env.googleMapsApiKey, secret: env.jwtSecret
+    });
+    res.json({ success: true, address });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
+  }
+});
+
 // Registers a queue visit: for the selected existing record (patientRecordId), or for a new
 // patient, whose permanent record is saved first. Never edits an existing record.
 router.post("/patient-records/visits", authenticateToken, async (req, res) => {
   try {
     const {
       patientRecordId, confirmNewRecord, firstName, middleInitial, lastName, serviceType,
-      mobileNumber, residency, philhealthId, birthdate, sex, vulnerabilityFlags
+      mobileNumber, residency, residencyPlaceToken, philhealthId, birthdate, sex, vulnerabilityFlags
     } = req.body || {};
+    // RES2: only a place this server verified and signed counts as map-selected; anything else,
+    // including an altered or expired token, is saved as manually entered.
+    const residencyPlace = verifyPlaceToken(residencyPlaceToken, env.jwtSecret);
     const { visit, record, recordCreated } = await registerPatientVisit({
       patientRecordId, confirmNewRecord, firstName, middleInitial, lastName, serviceType,
-      mobileNumber, residency, philhealthId, birthdate, sex, vulnerabilityFlags
+      mobileNumber, residency, residencyPlace, philhealthId, birthdate, sex, vulnerabilityFlags
     }, req.user);
     const dispatch = await afterQueueChange();
     return res.json({
@@ -351,6 +408,29 @@ router.post("/queue/confirm", authenticateToken, async (req, res) => {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
 });
+
+// OC1: the Front Desk sets an absent pending patient aside (Not Present) and back (present). The
+// visit keeps its ticket, priority, registration time and doctor; nothing is called or reassigned.
+for (const [route, present] of [["/queue/not-present", false], ["/queue/present", true]]) {
+  router.post(route, authenticateToken, async (req, res) => {
+    try {
+      const { changed, patient } = await setPatientPresence(Number(req.body?.patient_id), present, req.user);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        success: true,
+        changed,
+        patient: { id: patient.id, queue_number: patient.queue_number, not_present_at: patient.not_present_at, not_present_by: patient.not_present_by },
+        message: !changed
+          ? `${patient.queue_number} was already marked ${present ? "present" : "Not Present"}; no changes were made`
+          : present
+          ? `${patient.queue_number} is present again and keeps its original place in the queue.`
+          : `${patient.queue_number} marked Not Present. The doctor's next patient can be confirmed; this patient keeps its place.`
+      });
+    } catch (error) {
+      res.status(error.statusCode || 400).json({ success: false, message: error.message });
+    }
+  });
+}
 
 router.post("/queue/call", authenticateToken, async (req, res) => {
   try {
@@ -518,6 +598,35 @@ router.post("/queue/cancel", authenticateToken, async (req, res) => {
     res.json({ success: true, message: "Patient cancelled successfully" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
+  }
+});
+
+// PH1 Doctor Patient History: read-only, doctor accounts only. The doctor is the signed-in account's
+// own (re-read from the persisted account); a request that names another doctor is refused (403).
+const historyFailure = (res, error) => res.status(error.statusCode || 500).json({
+  success: false,
+  // Unexpected failures never echo database details to the browser.
+  message: error.statusCode ? error.message : "Patient history is temporarily unavailable. Please retry."
+});
+
+router.get("/doctor/patient-history", authenticateToken, async (req, res) => {
+  try {
+    const data = await getDoctorPatientHistory(req.query || {}, req.user);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, ...data });
+  } catch (error) {
+    historyFailure(res, error);
+  }
+});
+
+router.get("/doctor/patient-history/:id", authenticateToken, async (req, res) => {
+  try {
+    const id = /^\d{1,15}$/.test(String(req.params?.id ?? "")) ? Number(req.params.id) : NaN;
+    const visit = await getDoctorPatientHistoryVisit(id, req.user);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ success: true, visit });
+  } catch (error) {
+    historyFailure(res, error);
   }
 });
 
@@ -969,31 +1078,6 @@ router.post("/account-cancellation-requests/:id/process", authenticateToken, aut
   } catch (error) {
     // AR1 errors carry their own status (403 actor, 409 state, 503 migration missing).
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
-  }
-});
-
-// Geocode proxy — forwards address search to Nominatim
-router.get("/geocode", async (req, res) => {
-  try {
-    const q = String(req.query.q || "");
-    if (q.length < 3) {
-      return res.json([]);
-    }
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&addressdetails=1&limit=5&countrycodes=ph`;
-    const response = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "User-Agent": "CityHealthQueueSystem/1.0"
-      }
-    });
-    if (!response.ok) {
-      return res.json([]);
-    }
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    console.error("Geocode proxy error:", error.message);
-    res.json([]);
   }
 });
 

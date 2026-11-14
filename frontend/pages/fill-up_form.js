@@ -7,6 +7,8 @@ import QueueTicketActions from "../components/QueueTicketActions";
 import QueueTicketDialog from "../components/QueueTicketDialog";
 import { request } from "../lib/api";
 import { OFFERED_SERVICES } from "../lib/services";
+import ResidencySearch from "../components/ResidencySearch";
+import { RESIDENCY_NOT_SELECTED, normalizeResidency, parseResidency, residencyProblem } from "../lib/residency";
 import { createQueueTicket, getPatientsAheadSnapshot } from "../lib/queueTicket";
 import { useAuth } from "../context/AuthContext";
 
@@ -97,6 +99,7 @@ const emptyForm = {
   lastName: "",
   serviceType: "",
   mobileNumber: "",
+  // RES1: the Residency search bar's text, e.g. "Purok 3, Brgy. Calibunan, Cabadbaran City, Agusan del Norte".
   residency: "",
   philhealthId: "",
   birthdate: "",
@@ -136,7 +139,8 @@ function withSeniorFlag(form) {
   return { ...form, vulnerabilityFlags: age >= 60 ? [...others, "senior"] : others };
 }
 
-// The saved details of a selected patient record, in the form's own fields.
+// The saved details of a selected patient record, in the form's own fields. The saved address
+// is shown exactly as stored, including one saved before RES1.
 function formFromRecord(record) {
   return {
     firstName: record.first_name || "",
@@ -165,7 +169,6 @@ export default function FillUpFormPage() {
   const submittingRef = useRef(false);
   const registrationSavedRef = useRef(false);
   const ticketLoadingRef = useRef(false);
-  const residencyRequestRef = useRef(0);
   const focusFormRef = useRef(false);
   const successHeadingRef = useRef(null);
   const ticketGenerationRef = useRef(0);
@@ -180,8 +183,9 @@ export default function FillUpFormPage() {
   const recordRequestRef = useRef(0);
   const canIssueTicketRef = useRef(canIssueTicket);
   canIssueTicketRef.current = canIssueTicket;
-  const [residencySuggestions, setResidencySuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [residencyError, setResidencyError] = useState("");
+  // RES2: how the address in the bar was entered ({ chosen, place }); typing clears it.
+  const [residencySelection, setResidencySelection] = useState(null);
   const [currentDate, setCurrentDate] = useState("");
   const [dispatchMode, setDispatchModeState] = useState("service");
   const sharedDispatch = dispatchMode === SHARED_DISPATCH;
@@ -299,9 +303,8 @@ export default function FillUpFormPage() {
       setMessage({ type: "danger", text: data?.error || "Unable to load the patient record. Please retry.", queue: "" });
       return;
     }
-    residencyRequestRef.current += 1;
-    setResidencySuggestions([]);
-    setShowSuggestions(false);
+    setResidencyError("");
+    setResidencySelection(null);
     setDuplicateCandidates(null);
     setSelectedPatient(data.patient);
     setForm(prev => withSeniorFlag({ ...prev, ...formFromRecord(data.patient) }));
@@ -313,40 +316,14 @@ export default function FillUpFormPage() {
     recordRequestRef.current += 1;
     setRecordLoading(false);
     setSelectedPatient(null);
+    setResidencySelection(null);
     setForm(prev => ({ ...emptyForm, serviceType: prev.serviceType, vulnerabilityFlags: prev.vulnerabilityFlags.filter(f => f !== "senior") }));
   }
 
-  const handleResidencySearch = async (query) => {
-    const requestVersion = ++residencyRequestRef.current;
-    setForm(prev => ({ ...prev, residency: query }));
-    if (query.length < 3) {
-      setResidencySuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    try {
-      const data = await request(`/geocode?q=${encodeURIComponent(query)}`);
-      if (requestVersion !== residencyRequestRef.current) return;
-      if (Array.isArray(data)) {
-        setResidencySuggestions(data);
-        setShowSuggestions(data.length > 0);
-      } else {
-        setResidencySuggestions([]);
-        setShowSuggestions(false);
-      }
-    } catch (error) {
-      if (requestVersion !== residencyRequestRef.current) return;
-      console.error("Residency search failed:", error);
-      setResidencySuggestions([]);
-      setShowSuggestions(false);
-    }
-  };
-
-  const selectResidency = (item) => {
-    residencyRequestRef.current += 1;
-    setForm({ ...form, residency: item.display_name });
-    setShowSuggestions(false);
+  const handleResidencyChange = (text, selection) => {
+    setForm(prev => ({ ...prev, residency: text }));
+    setResidencySelection(selection || null);
+    setResidencyError("");
   };
 
   async function handleSubmit(event, { confirmNewRecord = false } = {}) {
@@ -357,6 +334,16 @@ export default function FillUpFormPage() {
     if (nameError) {
       setMessage({ type: "danger", text: nameError, queue: "" });
       return;
+    }
+    // A returning patient's stored address is used as saved, so only a new address is checked.
+    if (!selectedPatient) {
+      const problem = residencyProblem(form.residency) || (residencySelection?.chosen ? "" : RESIDENCY_NOT_SELECTED);
+      setResidencyError(problem);
+      if (problem) {
+        setMessage({ type: "", text: "", queue: "" });
+        if (typeof document !== "undefined") document.getElementById("patient-residency")?.focus();
+        return;
+      }
     }
     if (!form.serviceType) {
       setMessage({ type: "danger", text: "Please select a service.", queue: "" });
@@ -383,7 +370,7 @@ export default function FillUpFormPage() {
         fullName: buildFullName(form),
         serviceType: form.serviceType,
         mobileNumber: form.mobileNumber,
-        residency: form.residency,
+        residency: normalizeResidency(form.residency),
         philhealthId: form.philhealthId,
         birthdate: form.birthdate,
         sex: form.sex,
@@ -401,7 +388,9 @@ export default function FillUpFormPage() {
               lastName: cleanNamePart(form.lastName),
               serviceType: form.serviceType,
               mobileNumber: form.mobileNumber,
-              residency: form.residency,
+              residency: normalizeResidency(form.residency),
+              // Proof that a map place was verified by the backend; it decides map vs manual itself.
+              ...(residencySelection?.place?.token ? { residencyPlaceToken: residencySelection.place.token } : {}),
               philhealthId: form.philhealthId,
               birthdate: form.birthdate,
               sex: form.sex,
@@ -453,9 +442,8 @@ export default function FillUpFormPage() {
       setForm(emptyForm);
       setSelectedPatient(null);
       setDuplicateCandidates(null);
-      residencyRequestRef.current += 1;
-      setResidencySuggestions([]);
-      setShowSuggestions(false);
+      setResidencyError("");
+      setResidencySelection(null);
       // A retrieval failure must not turn a committed registration into a
       // submission error, which could cause an accidental duplicate patient.
       await loadSavedTicket(data.queue_number, true);
@@ -491,14 +479,13 @@ export default function FillUpFormPage() {
     ticketGenerationRef.current += 1;
     savedPatientIdRef.current = null;
     focusFormRef.current = true;
-    residencyRequestRef.current += 1;
     registrationSavedRef.current = false;
     setTicket(null);
     setDialogTicket(null);
     setTicketError("");
     setWaitingCount(null);
-    setResidencySuggestions([]);
-    setShowSuggestions(false);
+    setResidencyError("");
+    setResidencySelection(null);
   };
 
   return (
@@ -674,44 +661,25 @@ export default function FillUpFormPage() {
                         />
                       </div>
 
-                      <div className="frontdesk-residency mb-3 position-relative">
-                        <label htmlFor="patient-residency" className="brand-text form-label fw-semibold small">Residency / Complete Address <span className="text-danger">*</span></label>
-                        <div className="input-group input-group-sm">
-                          <span className="input-group-text brand-border bg-white">
-                            <i className="bi bi-geo-alt-fill text-danger" />
-                          </span>
-                          <input
-                            id="patient-residency"
-                            readOnly={Boolean(selectedPatient)}
-                            type="text"
-                            className="brand-input form-control"
-                            placeholder="Search and select barangay / city residency..."
-                            value={form.residency}
-                            onChange={(e) => handleResidencySearch(e.target.value)}
-                            onFocus={() => residencySuggestions.length > 0 && setShowSuggestions(true)}
-                            required
-                            disabled={isLoading}
-                            autoComplete="off"
-                          />
-                        </div>
-                        
-                        {showSuggestions && residencySuggestions.length > 0 && (
-                          <div className="residency-suggestions position-absolute w-100 mt-1 bg-white border brand-border rounded shadow-sm overflow-hidden" style={{ zIndex: 1000 }}>
-                            {residencySuggestions.map((item, index) => (
-                              <button
-                                type="button"
-                                key={index}
-                                className="w-100 text-start bg-white px-3 py-2 small brand-hover-subtle border-0 border-bottom brand-border text-truncate"
-                                onClick={() => selectResidency(item)}
-                                disabled={isLoading}
-                                style={{ cursor: 'pointer' }}
-                              >
-                                <i className="bi bi-geo-alt me-2 brand-text-muted" />
-                                {item.display_name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                      <div className="frontdesk-residency mb-3">
+                        <ResidencySearch
+                          id="patient-residency"
+                          labelClassName="brand-text form-label fw-semibold small"
+                          value={form.residency}
+                          selection={residencySelection}
+                          onChange={handleResidencyChange}
+                          mapSearch={canUsePatientRecords}
+                          error={residencyError}
+                          disabled={isLoading}
+                          readOnly={Boolean(selectedPatient)}
+                          notice={selectedPatient && !parseResidency(selectedPatient.residency) ? (
+                            // Saved before RES1, or outside Cabadbaran City: shown and kept exactly as stored.
+                            <p className="form-text small text-warning-emphasis mb-0">
+                              <i className="bi bi-exclamation-triangle me-1" aria-hidden="true" />
+                              {selectedPatient.residency ? "This saved address is not a Cabadbaran City barangay address." : "No address is saved for this patient."} It is kept unchanged and this visit can still be registered. Report patient {selectedPatient.patient_code} to the administrator for address review.
+                            </p>
+                          ) : null}
+                        />
                       </div>
                       </div>
                     </div>

@@ -5,7 +5,7 @@ const routes = require("./routes");
 const { seedCounters, requestDispatch, isRoundRobin } = require("./services/queueService");
 const { startVoiceService } = require("./services/voiceServiceLauncher");
 const { redactQueryValues } = require("./lib/requestLog");
-const { loginLimiter, publicRegistrationLimiter } = require("./middleware/rateLimit");
+const { loginLimiter, publicRegistrationLimiter, addressSearchLimiter } = require("./middleware/rateLimit");
 
 const app = express();
 
@@ -56,6 +56,7 @@ app.use((req, _res, next) => {
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/queue/website", publicRegistrationLimiter);
+app.use("/api/address-search", addressSearchLimiter);
 
 app.use("/api/records", require("./routes/records"));
 app.use("/api", routes);

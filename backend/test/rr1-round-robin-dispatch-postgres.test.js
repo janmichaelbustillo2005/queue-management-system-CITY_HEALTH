@@ -104,7 +104,7 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
 
   // Front Desk registration (the real route). Returns the response plus the saved visit's id.
   async function register(name, { service = "medical_consultation", flags = [], token = tokens.frontdesk, harness = h } = {}) {
-    const response = await harness.request("POST", "/queue", { token, body: { fullName: name, service_type: service, vulnerabilityFlags: flags } });
+    const response = await harness.request("POST", "/queue", { token, body: { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: name, service_type: service, vulnerabilityFlags: flags } });
     let id = null;
     if (response.status === 200) {
       id = Number((await db.query("SELECT id FROM public.patients WHERE queue_number = $1", [response.body.queue_number])).rows[0].id);
@@ -174,7 +174,7 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     const rows = (await db.query("SELECT queue_number, counter_id, status FROM public.patients ORDER BY id")).rows;
     assert.deepEqual(rows.map((row) => row.counter_id), [...DOCTORS, ...DOCTORS, ...DOCTORS], "stored on the visit");
     assert.deepEqual(rows.map((row) => row.queue_number),
-      ["GP-001", "GP-002", "GP-003", "GP-004", "GP-005", "GP-006", "GP-007", "GP-008", "GP-009"], "queue numbering unchanged");
+      ["MC-001", "MC-002", "MC-003", "MC-004", "MC-005", "MC-006", "MC-007", "MC-008", "MC-009"], "Medical Consultation tickets, independent of the doctor");
     assert.ok(rows.every((row) => row.status === "waiting"));
     const state = await rotation();
     assert.equal(state.last_doctor, "Doctor 3");
@@ -385,7 +385,7 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.deepEqual(await history(), historyBefore);
     // A new patient through Patient Management: no permanent record is saved either.
     const viaRecords = await h.request("POST", "/patient-records/visits", { token: tokens.frontdesk, body: {
-      firstName: "Nora", lastName: "Waiting", sex: "Female", birthdate: "1990-01-01", residency: "Barangay 1",
+      firstName: "Nora", lastName: "Waiting", sex: "Female", birthdate: "1990-01-01", residency: "Purok 1, Poblacion 1, Cabadbaran City, Agusan del Norte",
       serviceType: "maternal_healthcare" } });
     assert.equal(viaRecords.status, 409);
     assert.match(viaRecords.body.message, /^No Available Doctors/);
@@ -414,7 +414,7 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
   // ---- Database integrity -----------------------------------------------------------------------
   test("ticket numbers are assigned by the database under the rotation lock; a failed registration consumes neither a number nor a turn", async () => {
     await signInAll();
-    await registerMany(1);                                       // GP-001 -> Doctor 1
+    await registerMany(1);                                       // MC-001 -> Doctor 1
     const window = (await db.query(`SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Manila') AT TIME ZONE 'Asia/Manila') AS s`)).rows[0].s;
     // FROM, not (fn(...)).*: the latter calls the function once per output column.
     const direct = (visit) => db.query(`SELECT * FROM public.register_visit_round_robin($1::jsonb, $2::timestamptz, $2::timestamptz + interval '1 day')`,
@@ -422,14 +422,14 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     // A failure after the number was chosen (a bad birthdate fails the insert) rolls back the
     // number, the visit, the history and the pointer together.
     const before = await rotation();
-    await assert.rejects(direct({ queue_number: "GP-001", birthdate: "not-a-date" }));
+    await assert.rejects(direct({ queue_number: "MC-001", birthdate: "not-a-date" }));
     assert.deepEqual(await rotation(), before, "no turn consumed");
     assert.equal((await history()).length, 1);
     assert.equal(await patientCount(), 1);
     // A proposal that is already taken (or stale) is not an error: the database picks the next
     // free number of the same service code, in the existing format.
-    const { rows: [taken] } = await direct({ queue_number: "GP-001" });
-    assert.equal(taken.queue_number, "GP-002", "the failed attempt did not use up GP-002");
+    const { rows: [taken] } = await direct({ queue_number: "MC-001" });
+    assert.equal(taken.queue_number, "MC-002", "the failed attempt did not use up MC-002");
     assert.equal(taken.counter_id, "Doctor 2");
     const { rows: [family] } = await direct({ queue_number: "FP-777", service_type: "family_planning" });
     assert.equal(family.queue_number, "FP-001", "per service code, highest + 1, three digits");
@@ -446,12 +446,12 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     });
     const response = await register("Raced", { harness: racing });
     assert.equal(response.status, 200, response.body.message);
-    assert.equal(response.body.queue_number, "GP-004", "GP-003 was taken by the other writer");
+    assert.equal(response.body.queue_number, "MC-004", "MC-003 was taken by the other writer");
     assert.equal(response.body.assigned_doctor, "Doctor 1");
     assert.equal((await history()).length, 4);
     // The unique index refuses a duplicate from any writer.
     await assert.rejects(db.query(`INSERT INTO public.patients (id_num, queue_number, service_type, status, priority_score)
-      VALUES ('Dup', 'GP-004', 'medical_consultation', 'waiting', 1)`), (error) => error.code === "23505");
+      VALUES ('Dup', 'MC-004', 'medical_consultation', 'waiting', 1)`), (error) => error.code === "23505");
     await assertConsistent();
   });
 
@@ -478,10 +478,10 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
       const harness = desks[i % 3];
       const serviceType = services[i % services.length];
       const name = `Burst ${i + 1}`;
-      if (i % 3 === 0) return harness.request("POST", "/queue", { token: tokens.frontdesk, body: { fullName: name, service_type: serviceType } });
-      if (i % 3 === 1) return harness.request("POST", "/queue/website", { body: { fullName: name, serviceType } });
+      if (i % 3 === 0) return harness.request("POST", "/queue", { token: tokens.frontdesk, body: { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: name, service_type: serviceType } });
+      if (i % 3 === 1) return harness.request("POST", "/queue/website", { body: { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: name, serviceType } });
       return harness.request("POST", "/patient-records/visits", { token: tokens.frontdesk, body: {
-        firstName: name, lastName: "Concurrent", sex: "Female", birthdate: "1990-01-01", residency: "Barangay 1", serviceType } });
+        firstName: name, lastName: "Concurrent", sex: "Female", birthdate: "1990-01-01", residency: "Purok 1, Poblacion 1, Cabadbaran City, Agusan del Norte", serviceType } });
     });
     const responses = await Promise.all(jobs);
     assert.deepEqual(responses.map((r) => r.status), Array(24).fill(200), JSON.stringify(responses.map((r) => r.body?.message)));
@@ -489,9 +489,10 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.equal(rows.length, 24, "every valid registration saved exactly once");
     assert.equal(new Set(rows.map((row) => row.queue_number)).size, 24, "every ticket number is unique");
     // Format and numbering per service code: CODE-NNN, 001.. with no gap, in commit order.
-    const code = { prenatal: "OB", maternity: "OB", family_planning: "FP" };
-    for (const prefix of ["GP", "OB", "FP"]) {
-      const numbers = rows.filter((row) => (code[row.service_type] || "GP") === prefix).map((row) => row.queue_number);
+    const code = { medical_consultation: "MC", family_planning: "FP", prenatal: "OB", dental_healthcare: "DH", maternity: "OB", nutrition: "NT" };
+    for (const prefix of ["MC", "FP", "OB", "DH", "NT"]) {
+      const numbers = rows.filter((row) => code[row.service_type] === prefix).map((row) => row.queue_number);
+      assert.ok(numbers.length > 0, prefix);
       assert.deepEqual(numbers, numbers.map((_, i) => `${prefix}-${String(i + 1).padStart(3, "0")}`), prefix);
     }
     // Each response shows the ticket that was saved for that patient.
@@ -510,11 +511,122 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     await assertConsistent();
   });
 
+  // ---- Service ticket codes (2026-11-14) -------------------------------------------------------------
+  const TICKET_PREFIX = {
+    medical_consultation: "MC", maternal_healthcare: "MH", family_planning: "FP", child_healthcare: "CH",
+    dental_healthcare: "DH", nutrition: "NT", diagnostic_imaging: "DI", womens_health: "WH",
+    mental_healthcare: "MT", medical_documentation: "MD", marriage_preparation: "MP",
+    environmental_health: "EH", food_safety: "FS"
+  };
+
+  test("service ticket codes: each of the 13 services gets its own prefix and sequence, whichever doctor the rotation picks", async () => {
+    await signInAll();
+    const issued = [];
+    for (const round of [1, 2]) {
+      for (const service of OFFERED) {
+        const response = await register(`${service} ${round}`, { service });
+        assert.equal(response.status, 200, response.body.message);
+        assert.equal(response.body.queue_number, `${TICKET_PREFIX[service]}-00${round}`, service);
+        issued.push([response.body.queue_number, response.body.assigned_doctor]);
+      }
+    }
+    // 13 services in a 3-doctor rotation: a service's two tickets went to different doctors.
+    assert.notEqual(issued[0][1], issued[13][1], "MC-001 and MC-002 were assigned to different doctors");
+    const saved = (await db.query("SELECT queue_number, service_type FROM public.patients ORDER BY id")).rows;
+    assert.deepEqual(saved.map((row) => row.queue_number), issued.map(([ticket]) => ticket), "the response shows the saved ticket");
+    assert.ok(saved.every((row) => row.queue_number.startsWith(`${TICKET_PREFIX[row.service_type]}-`)));
+    await assertConsistent();
+  });
+
+  test("service ticket codes: City Health's worked example, interleaved services", async () => {
+    await signInAll();
+    const steps = [["medical_consultation", "MC-001"], ["family_planning", "FP-001"], ["medical_consultation", "MC-002"],
+      ["dental_healthcare", "DH-001"], ["family_planning", "FP-002"], ["mental_healthcare", "MT-001"], ["medical_consultation", "MC-003"]];
+    for (const [i, [service, expected]] of steps.entries()) {
+      const response = await register(`Patient ${i + 1}`, { service });
+      assert.equal(response.body.queue_number, expected, `patient ${i + 1}`);
+    }
+  });
+
+  test("service ticket codes: automatic reassignment, Call, Start and Complete never change a ticket", async () => {
+    await signInAll();
+    const first = await register("Kept with Doctor 1", { service: "marriage_preparation" });
+    const moved = await register("Moved from Doctor 2", { service: "medical_consultation" });
+    assert.deepEqual([first.body.queue_number, moved.body.queue_number], ["MP-001", "MC-001"]);
+    assert.equal(moved.body.assigned_doctor, "Doctor 2");
+    assert.equal((await signOut("Doctor 2")).status, 200);
+    await sweep();
+    const after = await patient(moved.id);
+    assert.notEqual(after.counter_id, "Doctor 2", "reassigned by the round robin");
+    assert.equal(after.queue_number, "MC-001", "the ticket follows the patient, not the doctor");
+    for (const step of [call, start, complete]) assert.equal((await step(after.counter_id, moved.id)).status, 200);
+    assert.equal((await patient(moved.id)).queue_number, "MC-001");
+    assert.equal((await patient(first.id)).queue_number, "MP-001");
+    assert.equal((await register("Next consultation", { service: "medical_consultation" })).body.queue_number, "MC-002");
+    await assertConsistent();
+  });
+
+  test("service ticket codes: an unknown service gets no ticket, no visit and no rotation turn", async () => {
+    await signInAll();
+    await register("Before", { service: "nutrition" });
+    const before = await rotation();
+    for (const service of ["vaccination", "pharmacy", "GP", "__proto__", ""]) {
+      const response = await register(`Invalid ${service}`, { service });
+      assert.equal(response.status, 400, `${service}: ${response.body.message}`);
+      const website = await h.request("POST", "/queue/website", { body: { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: "Invalid", serviceType: service } });
+      assert.equal(website.status, 400, service);
+      const records = await h.request("POST", "/patient-records/visits", { token: tokens.frontdesk, body: {
+        firstName: "Invalid", lastName: "Service", sex: "Female", birthdate: "1990-01-01", residency: "Purok 1, Poblacion 1, Cabadbaran City, Agusan del Norte", serviceType: service } });
+      assert.equal(records.status, 400, service);
+    }
+    assert.equal(await patientCount(), 1);
+    assert.deepEqual(await rotation(), before, "no turn consumed");
+    assert.equal(Number((await db.query("SELECT count(*) AS n FROM public.patient_records")).rows[0].n), 0, "no record saved");
+    assert.equal((await register("After", { service: "nutrition" })).body.queue_number, "NT-002", "no number consumed");
+  });
+
+  test("service ticket codes: earlier tickets are kept as issued; FP continues, new prefixes start at 001", async () => {
+    await signInAll();
+    // Live-shaped history: new services the old map ticketed as GP, and earlier FP / OB tickets.
+    await db.query(`INSERT INTO public.patients (id_num, queue_number, service_type, status, counter_id, priority_score, created_at)
+      VALUES ('Old 1', 'GP-106', 'marriage_preparation', 'completed', 'Doctor 1', 1, now() - interval '3 days'),
+             ('Old 2', 'GP-105', 'medical_consultation', 'completed', 'Doctor 1', 1, now() - interval '3 days'),
+             ('Old 3', 'FP-023', 'family_planning', 'completed', 'Doctor 3', 1, now() - interval '3 days'),
+             ('Old 4', 'OB-043', 'maternity', 'completed', 'Doctor 2', 1, now() - interval '3 days')`);
+    const old = (await db.query("SELECT row_to_json(p) AS v FROM public.patients p ORDER BY id")).rows.map((row) => row.v);
+    const tickets = [];
+    for (const service of ["medical_consultation", "marriage_preparation", "family_planning", "maternal_healthcare"]) {
+      tickets.push((await register(`New ${service}`, { service })).body.queue_number);
+    }
+    assert.deepEqual(tickets, ["MC-001", "MP-001", "FP-024", "MH-001"]);
+    const oldAfter = (await db.query("SELECT row_to_json(p) AS v FROM public.patients p WHERE id = ANY($1) ORDER BY id",
+      [old.map((row) => row.id)])).rows.map((row) => row.v);
+    assert.deepEqual(oldAfter, old, "historical visits untouched");
+    await assertConsistent();
+  });
+
+  test("service ticket codes: simultaneous registrations for several services from three backends never share a code", async () => {
+    await signInAll();
+    const desks = [h, backend(), backend()];
+    const services = ["medical_consultation", "mental_healthcare", "medical_documentation", "marriage_preparation"];
+    const responses = await Promise.all(Array.from({ length: 24 }, (_, i) => desks[i % 3].request("POST", "/queue",
+      { token: tokens.frontdesk, body: { fullName: `Simultaneous ${i}`, service_type: services[i % services.length] } })));
+    assert.deepEqual(responses.map((r) => r.status), Array(24).fill(200), JSON.stringify(responses.map((r) => r.body?.message)));
+    const rows = (await db.query("SELECT queue_number, service_type FROM public.patients ORDER BY id")).rows;
+    assert.equal(new Set(rows.map((row) => row.queue_number)).size, 24);
+    for (const service of services) {
+      const numbers = rows.filter((row) => row.service_type === service).map((row) => row.queue_number);
+      assert.deepEqual(numbers, numbers.map((_, i) => `${TICKET_PREFIX[service]}-${String(i + 1).padStart(3, "0")}`), service);
+    }
+    assert.deepEqual(new Set(responses.map((r) => r.body.queue_number)), new Set(rows.map((row) => row.queue_number)));
+    await assertConsistent();
+  });
+
   // ---- Integration --------------------------------------------------------------------------------
   test("new and returning patients through Patient Management are assigned in turn; records are not duplicated or edited", async () => {
     await signInAll();
     const created = await h.request("POST", "/patient-records/visits", { token: tokens.frontdesk, body: {
-      firstName: "Ana", lastName: "Reyes", sex: "Female", birthdate: "1990-05-01", residency: "Barangay 2",
+      firstName: "Ana", lastName: "Reyes", sex: "Female", birthdate: "1990-05-01", residency: "Purok 2, Poblacion 2, Cabadbaran City, Agusan del Norte",
       serviceType: "maternal_healthcare", vulnerabilityFlags: ["pregnant"] } });
     assert.equal(created.status, 200, created.body.message);
     assert.equal(created.body.assigned_doctor, "Doctor 1");
@@ -786,7 +898,7 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
     assert.equal(saved.length, registered.length, JSON.stringify(registered.map((r) => r.body?.message)));
     assert.equal(await patientCount(), 16, "every registration is in the database exactly once");
     const tickets = (await db.query("SELECT queue_number FROM public.patients ORDER BY id")).rows.map((row) => row.queue_number);
-    assert.deepEqual(tickets, Array.from({ length: 16 }, (_, i) => `GP-${String(i + 1).padStart(3, "0")}`), "unique, gap-free, in commit order");
+    assert.deepEqual(tickets, Array.from({ length: 16 }, (_, i) => `MC-${String(i + 1).padStart(3, "0")}`), "unique, gap-free, in commit order");
     const rows = (await db.query("SELECT id, counter_id FROM public.patients ORDER BY id")).rows;
     assert.ok(rows.every((row) => ["Doctor 1", "Doctor 3"].includes(row.counter_id)), JSON.stringify(rows));
     // Every visit has one coherent assignment trail: each move starts where the previous one ended.
@@ -823,7 +935,7 @@ describe("RR1 without its database functions fails closed (isolated PGlite)", { 
       const h = createPgBackendHarness({ query: (sql, values) => db.query(sql, values) }, { doctorDispatchMode: "round_robin" });
       const frontdesk = (await h.login("frontdesk", password("frontdesk"))).token;
       const doctor = (await h.login("admin1", password("admin1"))).token;
-      const registered = await h.request("POST", "/queue", { token: frontdesk, body: { fullName: "No RR1", service_type: "medical_consultation" } });
+      const registered = await h.request("POST", "/queue", { token: frontdesk, body: { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: "No RR1", service_type: "medical_consultation" } });
       assert.equal(registered.status, 503);
       assert.match(registered.body.message, /20261109-rr1-round-robin-dispatch\.sql/);
       assert.equal(Number((await db.query("SELECT count(*) AS n FROM public.patients")).rows[0].n), 0);

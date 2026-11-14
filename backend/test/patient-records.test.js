@@ -11,7 +11,7 @@ const DOCTOR = { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" };
 
 const juan = {
   firstName: "Juan", middleInitial: "d", lastName: "Dela Cruz", sex: "Male", birthdate: "1990-04-12",
-  residency: "Poblacion 1, Cabadbaran City", mobileNumber: "9123456789", philhealthId: "12-345678901-2",
+  residency: "Purok 2, Rizal St., Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", mobileNumber: "9123456789", philhealthId: "12-345678901-2",
   serviceType: "checkup", vulnerabilityFlags: []
 };
 
@@ -215,7 +215,15 @@ test("new-patient validation runs before anything is saved", async () => {
     [{ firstName: "  " }, /First Name/], [{ lastName: "" }, /Last Name/], [{ sex: "" }, /sex/],
     [{ birthdate: "" }, /Birthdate/], [{ birthdate: "2999-01-01" }, /birthdate/], [{ residency: "" }, /Residency/],
     [{ serviceType: "" }, /service/], [{ mobileNumber: "09-12" }, /digits/], [{ vulnerabilityFlags: ["senior"] }, /Senior Citizen/],
-    [{ vulnerabilityFlags: ["vip"] }, /Unknown priority/]
+    [{ vulnerabilityFlags: ["vip"] }, /Unknown priority/],
+    // RES1: only an address in a Cabadbaran City barangay, Agusan del Norte, naming each part once.
+    [{ residency: "Purok 1, Libertad, Butuan City, Agusan del Norte" }, /valid address within Cabadbaran City/],
+    [{ residency: "Purok 1, Bayabas, Cabadbaran City, Agusan del Sur" }, /valid address within Cabadbaran City/],
+    [{ residency: "Purok 1, Sumile, Cabadbaran City, Agusan del Norte" }, /valid address within Cabadbaran City/],
+    [{ residency: "Poblacion 1, Cabadbaran City" }, /valid address within Cabadbaran City/],
+    [{ residency: { barangay: "Bayabas" } }, /valid address within Cabadbaran City/],
+    [{ residency: "Purok 1, Bayabas, Brgy. Calibunan, Cabadbaran City, Agusan del Norte" }, /cannot name a barangay, city or province again/],
+    [{ residency: `${"x".repeat(46)}, Brgy. Bayabas, Cabadbaran City, Agusan del Norte` }, /at most 45/]
   ]) {
     const response = await register(h, { ...juan, ...change });
     assert.equal(response.status, 400, JSON.stringify(change));
@@ -293,7 +301,7 @@ test("local development memory supports the same returning-patient workflow", as
 
 test("the public website registration route is unchanged and creates no record", async () => {
   const h = withRecords();
-  const response = await h.request("POST", "/queue/website", { fullName: "Walk In", serviceType: "checkup" }, null);
+  const response = await h.request("POST", "/queue/website", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: "Walk In", serviceType: "checkup" }, null);
   assert.equal(response.status, 200);
   assert.equal(h.database.patient_records.length, 0);
   assert.equal(Object.hasOwn(h.database.patients[0], "patient_record_id"), false);

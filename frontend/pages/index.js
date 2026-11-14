@@ -5,8 +5,11 @@ import SiteFrame from "../components/SiteFrame";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { StaffArchivesModal, StaffConfirmDialog } from "../components/StaffArchives";
 import { StaffProfileDialog } from "../components/StaffProfileDialog";
+import QueuePagination from "../components/QueuePagination";
 import { request } from "../lib/api";
 import { OFFERED_SERVICES, serviceName } from "../lib/services";
+import ResidencySearch from "../components/ResidencySearch";
+import { RESIDENCY_NOT_SELECTED, normalizeResidency, residencyProblem } from "../lib/residency";
 import {
   QUEUE_SEARCH_PLACEHOLDER,
   QUEUE_SERVICE_BADGE_CLASS,
@@ -26,8 +29,11 @@ import {
   matchesQueueDoctor,
   matchesQueueSearch,
   matchesQueueStatus,
+  paginateQueueRows,
   queueDoctorLabel,
   queueDoctorName,
+  queuePageKey,
+  queueRequestedPage,
   queuePriorityClass,
   queueStatusClass
 } from "../lib/queueView";
@@ -210,8 +216,9 @@ export default function HomePage() {
   const registrationPendingRef = useRef(false);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [residencySuggestions, setResidencySuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [residencyError, setResidencyError] = useState("");
+  // RES2: how the address in the bar was entered ({ chosen, place }); typing clears it.
+  const [residencySelection, setResidencySelection] = useState(null);
   const [users, setUsers] = useState([]);
   const [showUserForm, setShowUserForm] = useState(false);
   const [userForm, setUserForm] = useState({ id_num: "", password: "", role: "staff", doctor_name: "" });
@@ -226,10 +233,13 @@ export default function HomePage() {
   const [queueDoctorFilter, setQueueDoctorFilter] = useState("all");
   const [queueStatusFilter, setQueueStatusFilter] = useState(QUEUE_DEFAULT_VIEW);
   const [queueSearch, setQueueSearch] = useState("");
+  // Queue Management's page and the filters it was chosen under (lib/queueView.js queueRequestedPage).
+  const [queuePageChoice, setQueuePageChoice] = useState({ key: null, page: 1 });
   const [form, setForm] = useState({
     fullName: "",
     service_type: "",
     mobile_number: "",
+    // RES1: the Residency search bar's text, an address within Cabadbaran City, Agusan del Norte.
     residency: "",
     philhealth_id: "",
     birthdate: "",
@@ -261,9 +271,17 @@ export default function HomePage() {
     }
     return rows
       .filter((row) => matchesQueueDoctor(row, queueDoctorFilter, sharedDispatch) && matchesQueueSearch(row, queueSearch))
-      .sort(compareQueuePriority)
-      .slice(0, Number(settings.maxQueues || 20));
+      .sort(compareQueuePriority);
   }, [queueRows, settings, queueStatusFilter, queueDoctorFilter, queueSearch, sharedDispatch]);
+  // 10 records per page over every matching record (not a cap on the total). A new doctor,
+  // status, search or Show completed setting starts again at page 1; a refresh keeps the page.
+  const queuePageKeyValue = queuePageKey(queueDoctorFilter, queueStatusFilter, queueSearch,
+    queueStatusFilter === QUEUE_DEFAULT_VIEW && !settings.showCompleted);
+  const queuePagination = useMemo(
+    () => paginateQueueRows(filteredRows, queueRequestedPage(queuePageChoice, queuePageKeyValue)),
+    [filteredRows, queuePageChoice, queuePageKeyValue]
+  );
+  const goToQueuePage = (page) => setQueuePageChoice({ key: queuePageKeyValue, page });
   const queueFiltersActive = queueDoctorFilter !== "all" || queueStatusFilter !== QUEUE_DEFAULT_VIEW || queueSearch.trim() !== "";
   // Same counting rules and scope as Front Desk Patient Management's counters.
   const queueStatusCounts = useMemo(
@@ -649,27 +667,10 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [profileNotice]);
 
-  const handleResidencySearch = async (query) => {
-    setForm({ ...form, residency: query });
-    if (query.length < 3) {
-      setResidencySuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
-    try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=5&countrycodes=ph`);
-      const data = await response.json();
-      setResidencySuggestions(data);
-      setShowSuggestions(true);
-    } catch (error) {
-      console.error("Residency search failed:", error);
-    }
-  };
-
-  const selectResidency = (item) => {
-    setForm({ ...form, residency: item.display_name });
-    setShowSuggestions(false);
+  const handleResidencyChange = (text, selection) => {
+    setForm((prev) => ({ ...prev, residency: text }));
+    setResidencySelection(selection || null);
+    setResidencyError("");
   };
 
   const handleVulnerabilityToggle = (flag) => {
@@ -682,6 +683,9 @@ export default function HomePage() {
   async function handleSubmit(event) {
     event.preventDefault();
     if (registrationPendingRef.current) return;
+    const residencyMessage = residencyProblem(form.residency) || (residencySelection?.chosen ? "" : RESIDENCY_NOT_SELECTED);
+    setResidencyError(residencyMessage);
+    if (residencyMessage) return;
     registrationPendingRef.current = true;
     setLoadingData(true);
     setError("");
@@ -689,7 +693,7 @@ export default function HomePage() {
     try {
       const data = await request("/queue", {
         method: "POST",
-        body: JSON.stringify(form)
+        body: JSON.stringify({ ...form, residency: normalizeResidency(form.residency) })
       });
 
       if (data.error || data.success === false || !data.queue_number) {
@@ -700,6 +704,7 @@ export default function HomePage() {
 
       setGeneratedQueue({ number: data.queue_number, score: data.priority_score || 0 });
       setForm({ fullName: "", service_type: "", mobile_number: "", residency: "", philhealth_id: "", birthdate: "", sex: "", vulnerabilityFlags: [] });
+      setResidencySelection(null);
       setShowAddForm(false);
       refreshAll();
 
@@ -1435,33 +1440,17 @@ export default function HomePage() {
                         <option value="Female">Female</option>
                       </select>
                     </div>
-                    <div className="sm:col-span-2 lg:col-span-2 relative">
-                      <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Residency</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Search address..."
-                        className="w-full px-3 py-2 text-sm brand-input border rounded-md"
+                    <div className="sm:col-span-2 lg:col-span-4">
+                      <ResidencySearch
+                        id="manual-residency"
+                        labelClassName="block text-[10px] font-bold brand-text-muted uppercase mb-1"
                         value={form.residency}
+                        selection={residencySelection}
+                        onChange={handleResidencyChange}
+                        mapSearch
+                        error={residencyError}
                         disabled={loadingData}
-                        onChange={(e) => handleResidencySearch(e.target.value)}
-                        onFocus={() => residencySuggestions.length > 0 && setShowSuggestions(true)}
-                        autoComplete="off"
                       />
-                      {!loadingData && showSuggestions && residencySuggestions.length > 0 && (
-                        <div className="absolute w-full mt-1 bg-white border brand-border rounded-md shadow-lg z-[100] max-h-48 overflow-y-auto">
-                          {residencySuggestions.map((item, index) => (
-                            <div
-                              key={index}
-                              className="px-3 py-2 text-xs hover:bg-gray-100 cursor-pointer border-b brand-border last:border-0"
-                              onClick={() => selectResidency(item)}
-                            >
-                              <i className="fas fa-map-marker-alt mr-2 brand-text-muted" />
-                              {item.display_name}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                     <div className="sm:col-span-2 lg:col-span-4">
                       <label className="block text-[10px] font-bold brand-text-muted uppercase mb-1">Vulnerability (Priority Score Computed Automatically)</label>
@@ -1611,7 +1600,7 @@ export default function HomePage() {
               </div>
 
               <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
-                <span className="text-xs brand-text-muted">({filteredRows.length} shown)</span>
+                <span className="text-xs brand-text-muted">({queuePagination.total} {queuePagination.total === 1 ? "patient" : "patients"})</span>
                 <div className="flex flex-wrap gap-2 text-xs font-semibold" data-queue-counters>
                   {QUEUE_STATUS_COUNTERS.map(({ status, label, className }) => (
                     <span key={status} data-counter={status} className={`px-2.5 py-1 rounded-full ${className}`}>{label} {queueStatusCounts[status]}</span>
@@ -1634,7 +1623,7 @@ export default function HomePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--brand-border)]">
-                    {filteredRows.length ? filteredRows.map((patient) => {
+                    {queuePagination.rows.length ? queuePagination.rows.map((patient) => {
                       const sharedNextRow = sharedDispatch && patient.id === sharedNext?.id;
                       const doctorName = patient.counter_id || (sharedNextRow ? sharedCallDoctor
                         : sharedDispatch ? null : getServiceDoctor(patient.service_type));
@@ -1798,6 +1787,7 @@ export default function HomePage() {
                   </tbody>
                 </table>
               </div>
+              <QueuePagination pagination={queuePagination} onPageChange={goToQueuePage} label="Queue Management pages" className="pt-3" />
             </div>
           </div>
         </div>

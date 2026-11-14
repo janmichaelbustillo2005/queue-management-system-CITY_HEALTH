@@ -51,7 +51,7 @@ function helpers(options = {}) {
 test("ticket whitelists saved queue information and uses the saved Philippine registration time", () => {
   const { api } = helpers();
   const ticket = api.createQueueTicket(patient());
-  assert.deepEqual(Object.keys(ticket).sort(), ["doctorName", "isActive", "patientId", "queueNumber", "registeredDate", "registeredTime", "serviceLabel", "status", "statusLabel"].sort());
+  assert.deepEqual(Object.keys(ticket).sort(), ["doctorName", "isActive", "isPriority", "patientId", "queueNumber", "registeredDate", "registeredTime", "serviceLabel", "status", "statusLabel"].sort());
   assert.equal(ticket.queueNumber, "OB-002");
   assert.equal(ticket.doctorName, "Doctor 2");
   assert.equal(ticket.registeredDate, "Oct 13, 2026");
@@ -71,6 +71,36 @@ test("known assigned counter is retained; inactive and unknown statuses never lo
   assert.equal(unknown.status, "unknown");
   assert.equal(unknown.isActive, false);
   assert.ok(!api.createQueuePassSvg(unknown).includes("Private"));
+});
+
+test("priority patients get only a small PRIORITY line; regular tickets are unchanged", () => {
+  const { api } = helpers();
+  // A Regular patient is stored with priority_score 1, so the category list decides, not the score.
+  const regular = api.createQueueTicket(patient({ vulnerability_flags: [], priority_score: 1 }));
+  assert.equal(regular.isPriority, false);
+  assert.equal(api.createQueueTicket(patient({ vulnerability_flags: null })).isPriority, false);
+  assert.equal(api.createQueueTicket(patient({ vulnerability_flags: ["unknown"] })).isPriority, false);
+  for (const flag of ["senior", "pwd", "pregnant", "indigenous", "solo_parent"]) {
+    assert.equal(api.createQueueTicket(patient({ vulnerability_flags: [flag] })).isPriority, true, flag);
+  }
+  for (const output of [api.createQueuePassSvg(regular), api.thermalTicketHtml(regular)]) {
+    assert.ok(!/PRIORITY|REGULAR/i.test(output.replace(/Saved ticket snapshot/g, "")));
+  }
+
+  const priority = api.createQueueTicket(patient());
+  const svg = api.createQueuePassSvg(priority);
+  // The same drawing as the regular ticket plus one plain text line in the gap under the number.
+  const line = '      <text x="380" y="362" text-anchor="middle" fill="#991b1b" font-size="18" font-weight="600" letter-spacing="2">PRIORITY</text>\n';
+  assert.equal(svg.split(line).length, 2);
+  assert.equal(svg.replace(line, ""), api.createQueuePassSvg({ ...priority, isPriority: false }));
+  const html = api.thermalTicketHtml(priority);
+  assert.match(html, /<div class="queue-num">OB-002<\/div><div class="priority">PRIORITY<\/div>/);
+  // Its negative top margin sits inside the number's existing 20px gap, so nothing below moves.
+  assert.match(html, /\.priority\{font-size:12px;line-height:14px;font-weight:600;color:#991b1b;margin:-18px 0 4px\}/);
+  assert.equal(html.replace('<div class="priority">PRIORITY</div>', "").replace(/\.priority\{[^}]*\}/, ""),
+    api.thermalTicketHtml({ ...priority, isPriority: false }));
+  // Still whitelisted: the category itself never reaches the ticket.
+  assert.ok(!svg.includes("pregnant") && !html.includes("pregnant"));
 });
 
 test("patient-ahead snapshot follows backend weighted order and service-specific doctor, with no serving count", () => {

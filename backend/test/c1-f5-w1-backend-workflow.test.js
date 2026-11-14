@@ -261,7 +261,7 @@ describe("A. C1, F5 and W1 installed: real backend workflow", { skip: f.unavaila
     const fp = await register(h, db, tokens.frontdesk, { name: "Synthetic FP", service: "family_planning" });
     expectStatus(await post(h, tokens.superadmin, "/counters/availability", { doctors: { "Doctor 3": false } }), 200);
     expectStatus(await post(h, tokens.superadmin, "/queue/call", { patient_id: fp }), 400, /offline/);
-    expectStatus(await post(h, tokens.frontdesk, "/queue", { fullName: "Synthetic late", service_type: "family_planning" }), 400, /offline|unavailable/i);
+    expectStatus(await post(h, tokens.frontdesk, "/queue", { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: "Synthetic late", service_type: "family_planning" }), 400, /offline|unavailable/i);
     assert.equal((await patient(db, fp)).status, "waiting");
     assert.deepEqual(effects(h, fp), { sms: 0, awaiting: false, voice: 0 });
     expectStatus(await post(h, tokens.superadmin, "/counters/availability", { doctors: { "Doctor 3": true } }), 200);

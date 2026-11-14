@@ -307,9 +307,9 @@ test("Daily Trends route retains Superadmin authentication, functional query fil
   const router = {};
   for (const method of ["get", "post", "put", "delete"]) router[method] = (route, ...handlers) => routes.set(`${method} ${route}`, handlers);
   load("routes/index.js", { express: { Router: () => router }, jsonwebtoken: jwt, "node:crypto": crypto,
-    "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"),
+    "../lib/businessDay": require("../src/lib/businessDay"), "../lib/wpsPriority": require("../src/lib/wpsPriority"), "../lib/confirmationGate": require("../src/lib/confirmationGate"), "../lib/residency": require("../src/lib/residency"),
     "../config/env": { jwtSecret: secret }, "../middleware/auth": auth, "../services/presenceService": presence,
-    "../services/queueService": {}, "../services/settingsService": {}, "../services/dailyTrendsService": h.service }, h.clock);
+    "../services/queueService": {}, "../services/addressSearchService": require("../src/services/addressSearchService"), "../services/settingsService": {}, "../services/dailyTrendsService": h.service }, h.clock);
   async function request(role, query = { date }) {
     const token = role && jwt.sign({ role, jti: crypto.randomUUID() }, secret);
     const req = { headers: token ? { authorization: `Bearer ${token}` } : {}, query };

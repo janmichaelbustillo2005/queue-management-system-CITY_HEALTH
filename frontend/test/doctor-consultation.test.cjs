@@ -85,6 +85,7 @@ async function harness(initialRows, options = {}) {
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
       if (name === "../context/AuthContext") return { useAuth: () => ({ user }) };
       if (name === "../components/SiteFrame") return () => {};
+      if (name === "./DoctorQueueNotifications") return () => {};
       if (name === "./SettingsModal") return { defaultQueueSettings: settings };
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,

@@ -156,6 +156,7 @@ function harness(component, options = {}) {
     "../components/SiteFrame": "SiteFrame", "../components/DailyTrends": "DailyTrends", "../components/StatusAnalytics": "StatusAnalytics",
     "../components/RecordsFilters": "RecordsFilters",
     "../components/AnalyticsInsights": { __esModule: true, DetailedInsights: "DetailedInsights" },
+    "../components/ServiceAnalytics": "ServiceAnalytics",
     "./RecordsTable.module.css": new Proxy({}, { get: (_target, key) => key === "__esModule" || typeof key === "symbol" ? undefined : key })
   };
   function load(relative) {
@@ -447,27 +448,32 @@ test("Analytics keeps its four original tabs (no duplicate Hourly tab, no Perfor
   assert.match(text(h.render()), /Status Analytics uses its own date selector below/);
 });
 
-test("Detailed Data keeps its By Service and By Doctor tables and adds the additional sections after them", async () => {
+test("Detailed Data shows the By Service cards, then the By Doctor table, then the additional sections", async () => {
   const h = dashboardHarness(); await h.flush();
   const tree = h.render();
-  assert.deepEqual(nodes(tree, component("SummaryTable")).map((table) => table.props.title), ["By Service", "By Doctor"]);
+  const order = nodes(tree, (node) => node.type === "ServiceAnalytics" || component("SummaryTable")(node) || node.type === "DetailedInsights")
+    .map((node) => (typeof node.type === "string" ? node.type : node.props.title));
+  assert.deepEqual(order, ["ServiceAnalytics", "By Doctor", "DetailedInsights"]);
   const sections = nodes(tree, (node) => node.type === "DetailedInsights");
   assert.equal(sections.length, 1);
   await openTab(h, "Distribution");
   assert.equal(nodes(h.render(), (node) => node.type === "DetailedInsights").length, 0, "only Detailed Data shows them");
 });
 
-test("Detailed Data shows readable service names, no-show and in-queue columns, totals and a per-doctor table", async () => {
+test("By Service receives the analytics response's own table, totals and wait samples; the per-doctor table is unchanged", async () => {
   const h = dashboardHarness(); await h.flush();
+  const [cards] = nodes(h.render(), (node) => node.type === "ServiceAnalytics");
+  assert.deepEqual(clone(cards.props.tableData), dashboardPayload.tableData);
+  assert.deepEqual(clone(cards.props.totals), dashboardPayload.totals);
+  assert.equal(cards.props.wait, undefined, "no insights in this payload, so no wait samples");
+  assert.equal(cards.props.status, "ready");
   const tables = nodes(h.render(), component("SummaryTable"));
-  assert.deepEqual(tables.map(table => table.props.title), ["By Service", "By Doctor"]);
-  const serviceTable = text(tables[0].type(tables[0].props));
-  assert.match(serviceTable, /ServiceTotalCompletedCancelledNo-showIn QueueAvg WaitAvg ServiceCompletion/);
+  assert.deepEqual(tables.map(table => table.props.title), ["By Doctor"]);
+  const doctorTable = text(tables[0].type(tables[0].props));
+  assert.match(doctorTable, /DoctorTotalCompletedCancelledNo-showIn QueueAvg WaitAvg ServiceCompletion/);
   // Total, Completed, Cancelled, No-show, In Queue, Avg Wait, Avg Service, Completion.
-  assert.match(serviceTable, /Family planning210104\.0m6\.0m50\.0%/);
-  assert.match(serviceTable, /All210104\.0m6\.0m50\.0%$/);
-  assert.doesNotMatch(serviceTable, /family_planning/);
-  assert.match(text(tables[1].type(tables[1].props)), /Doctor 32101/);
+  assert.match(doctorTable, /Doctor 3210104\.0m6\.0m50\.0%/);
+  assert.match(doctorTable, /All210104\.0m6\.0m50\.0%$/);
 });
 
 test("Distribution holds the renamed charts plus Patients per Day and Patient Arrival by Hour; Trends keeps only the single-day detail", async () => {

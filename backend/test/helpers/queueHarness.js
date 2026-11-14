@@ -4,6 +4,7 @@ const vm = require("node:vm");
 const crypto = require("node:crypto");
 
 const backendDir = path.resolve(__dirname, "../..");
+const { buildConfirmationGate } = require("../../src/lib/confirmationGate");
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 // PostgreSQL equality includes microseconds, which JavaScript Date discards.
@@ -256,11 +257,13 @@ function fakeSupabase(database, now, localFallback) {
         database.counters.splice(0, database.counters.length, ...counters);
         return { data: database.rpcReturnsArray ? [clone(patient)] : clone(patient), error: null };
       }
-      if (name === "confirm_patient_visit") {
-        // Mirrors confirm_patient_visit in 20261111-fc1-front-desk-confirmation.sql; the real
-        // function and its locking are covered by fc1-front-desk-confirmation-postgres.test.js.
-        if (database.confirmRpcInstalled === false) {
-          return { data: null, error: { code: "PGRST202", message: "Could not find the function public.confirm_patient_visit" } };
+      if (name === "confirm_patient_visit" || name === "confirm_next_patient_visit") {
+        // Mirrors confirm_patient_visit (20261111-fc1-front-desk-confirmation.sql) and OC1's
+        // confirm_next_patient_visit (20261113-oc1-one-confirmation-per-doctor.sql), whose doctor
+        // rule is lib/confirmationGate.js. The real functions and their locking are covered by
+        // fc1-front-desk-confirmation-postgres.test.js and oc1-one-confirmation-postgres.test.js.
+        if (database.confirmRpcInstalled === false || (name === "confirm_next_patient_visit" && database.oneConfirmationRpcInstalled === false)) {
+          return { data: null, error: { code: "PGRST202", message: `Could not find the function public.${name}` } };
         }
         const fail = (code, message) => ({ data: null, error: { code, message } });
         if (!args.p_patient_id || !String(args.p_user_id_num ?? "").trim() || !args.p_queue_start || !args.p_queue_end) {
@@ -278,10 +281,52 @@ function fakeSupabase(database, now, localFallback) {
         if (created < timestampMicroseconds(args.p_queue_start) || created >= timestampMicroseconds(args.p_queue_end)) {
           return fail("P0001", "Only a visit in today's queue can be confirmed");
         }
-        Object.assign(patient, { confirmed_at: timestamp, confirmed_by: user.id_num, visit_state_revision: crypto.randomUUID() });
+        let confirmedFor = null;
+        if (name === "confirm_next_patient_visit") {
+          if (patient.not_present_at != null) {
+            return { data: null, error: { code: "P0001", hint: "patient_not_present",
+              message: "This patient is marked Not Present. Mark the patient present before confirming." } };
+          }
+          if (typeof args.p_aging !== "boolean" || !["service", "shared", "round_robin"].includes(args.p_dispatch_mode) || !args.p_ranked_at) {
+            return fail("22023", "A patient, staff identity, queue window, aging flag and dispatch mode are required");
+          }
+          const start = timestampMicroseconds(args.p_queue_start);
+          const end = timestampMicroseconds(args.p_queue_end);
+          const gate = buildConfirmationGate({
+            patients, counters, mode: args.p_dispatch_mode, rankedAt: Date.parse(args.p_ranked_at), aging: args.p_aging,
+            inQueueWindow: (row) => { const at = timestampMicroseconds(row.created_at); return at >= start && at < end; },
+            routeOf: (service) => ({ consultation: "Doctor 1", checkup: "Doctor 1", prenatal: "Doctor 2", maternity: "Doctor 2", family_planning: "Doctor 3" })[service] || "Doctor 1"
+          }).get(Number(patient.id));
+          if (!gate?.confirmable) return { data: null, error: { code: "P0001", message: gate?.message || "Not confirmable", hint: gate?.reason } };
+          confirmedFor = gate.doctor;
+        }
+        Object.assign(patient, { confirmed_at: timestamp, confirmed_by: user.id_num, visit_state_revision: crypto.randomUUID(),
+          ...(name === "confirm_next_patient_visit" ? { confirmed_for: confirmedFor } : {}) });
         if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
         database.patients.splice(0, database.patients.length, ...patients);
         return { data: { already_confirmed: false, patient: clone(patient) }, error: null };
+      }
+      if (name === "set_patient_presence") {
+        // Mirrors OC1's set_patient_presence; the real function is covered by oc1-one-confirmation-postgres.test.js.
+        if (database.confirmRpcInstalled === false || database.oneConfirmationRpcInstalled === false) {
+          return { data: null, error: { code: "PGRST202", message: "Could not find the function public.set_patient_presence" } };
+        }
+        const fail = (code, message) => ({ data: null, error: { code, message } });
+        if (!user || user.role !== "admin" || !["", "front desk", "frontdesk"].includes(String(user.doctor_name ?? "").trim().toLowerCase())) {
+          return fail("42501", "Only the Front Desk can mark a patient Not Present or present");
+        }
+        if (!patient) return fail("P0002", "Patient not found");
+        if ((patient.not_present_at == null) === args.p_present) return { data: { changed: false, patient: clone(patient) }, error: null };
+        if (!args.p_present && (patient.status !== "waiting" || patient.completed_at != null)) {
+          return fail("P0001", `Only a waiting patient can be marked Not Present. This visit is ${patient.status}.`);
+        }
+        if (!args.p_present && patient.confirmed_at != null) {
+          return fail("P0001", "This patient is already confirmed. A confirmed patient who leaves can be cancelled, or marked no-show after the call.");
+        }
+        Object.assign(patient, args.p_present ? { not_present_at: null, not_present_by: null }
+          : { not_present_at: timestamp, not_present_by: user.id_num }, { visit_state_revision: crypto.randomUUID() });
+        database.patients.splice(0, database.patients.length, ...patients);
+        return { data: { changed: true, patient: clone(patient) }, error: null };
       }
       if (name === "cancel_patient_visit") {
         // Mirrors 20261025-w1-atomic-cancel.sql step by step, with all-or-nothing writes;
@@ -497,7 +542,7 @@ function createHarness(options = {}) {
     "../config/env": options.localFallback ? {} : { supabaseUrl: "https://isolated-test.invalid", supabaseServiceRoleKey: "isolated-test-key",
       allowLegacyTwoStepCall: options.allowLegacyTwoStepCall ?? true },
     bcryptjs: {},
-    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"),
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"), "../lib/confirmationGate": require("../../src/lib/confirmationGate"), "../lib/residency": require("../../src/lib/residency"),
     "node:crypto": crypto,
     "./notificationService": {
       sendQueueCreatedNotification: (...args) => notifications.push({ type: "created", args }),
@@ -506,19 +551,22 @@ function createHarness(options = {}) {
     "./settingsService": settings,
     "./analyticsInsights": require("../../src/services/analyticsInsights")
   }, clock);
-  // FC1 in development memory: autoConfirmVisits has the Front Desk confirm each new visit through
-  // the real confirmPatient right after registration (the fake database stamps its own inserts).
+  // FC1 in development memory: autoConfirmVisits stamps each new visit (and Re-queued turn) as
+  // confirmed on arrival, as the fake database stamps its own inserts and the PostgreSQL suites use
+  // column defaults. It writes the stored row directly, so OC1's one-at-a-time rule (which only
+  // governs the Front Desk's confirmPatient) does not apply to this test-only model.
   if (options.localFallback) {
-    const frontdesk = { id_num: "frontdesk", role: "admin", doctor_name: null };
     for (const name of ["createQueueEntry", "registerPatientVisit", "requeuePatient"]) {
       const original = service[name];
       service[name] = async (...args) => {
         const result = await original(...args);
         const visit = result?.visit ?? result;
         if (database.autoConfirmVisits && visit?.id != null && visit.confirmed_at == null) {
-          const { patient } = await service.confirmPatient(visit.id, frontdesk);
-          Object.assign(visit, { confirmed_at: patient.confirmed_at, confirmed_by: patient.confirmed_by,
-            visit_state_revision: patient.visit_state_revision });
+          const stored = await service.getPatientById(visit.id);
+          Object.assign(stored, { confirmed_at: new Date(clock.now).toISOString(), confirmed_by: "frontdesk",
+            visit_state_revision: crypto.randomUUID() });
+          Object.assign(visit, { confirmed_at: stored.confirmed_at, confirmed_by: stored.confirmed_by,
+            visit_state_revision: stored.visit_state_revision });
         }
         return result;
       };
@@ -533,8 +581,9 @@ function createHarness(options = {}) {
     express: { Router: () => router },
     jsonwebtoken: {},
     "node:crypto": crypto,
-    "../config/env": {},
-    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"),
+    // Route configuration a test needs (RES2: jwtSecret, googleMapsApiKey); empty by default.
+    "../config/env": options.env || {},
+    "../lib/businessDay": require("../../src/lib/businessDay"), "../lib/wpsPriority": require("../../src/lib/wpsPriority"), "../lib/confirmationGate": require("../../src/lib/confirmationGate"), "../lib/residency": require("../../src/lib/residency"),
     "../middleware/auth": {
       // Requests provide an already verified identity. JWT cryptography itself
       // is outside this isolated route/service harness.
@@ -545,7 +594,7 @@ function createHarness(options = {}) {
     // Queue regression tests supply an already authenticated identity. Session
     // SQL and real JWT/middleware behavior have separate Phase A tests.
     "../services/presenceService": options.presence || {},
-    "../services/settingsService": settings
+    "../services/addressSearchService": require("../../src/services/addressSearchService"), "../services/settingsService": settings
   }, clock);
 
   return {

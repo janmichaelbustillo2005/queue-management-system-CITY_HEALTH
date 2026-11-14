@@ -110,12 +110,12 @@ describe("E2E-1 Test B: WPS priority selection (Regular registered first, Senior
     // 1-2. Frontdesk registration exactly as the form sends it (the form ticks Senior from the birthdate).
     const regularResponse = await h.request("POST", "/queue/website", { body: {
       fullName: "E2E1B Regular Test", serviceType: "consultation", birthdate: "1995-06-20", sex: "Female",
-      residency: "E2E1 Synthetic Address", vulnerabilityFlags: [] } });
+      residency: "E2E1 Synthetic Address, Calamba, Cabadbaran City, Agusan del Norte", vulnerabilityFlags: [] } });
     expectStatus(regularResponse, 200);
     await new Promise((resolve) => setTimeout(resolve, 15)); // strictly later registration
     const seniorResponse = await h.request("POST", "/queue/website", { body: {
       fullName: "E2E1B Senior Test", serviceType: "consultation", birthdate: "1955-03-10", sex: "Male",
-      residency: "E2E1 Synthetic Address", vulnerabilityFlags: ["senior"] } });
+      residency: "E2E1 Synthetic Address, Calamba, Cabadbaran City, Agusan del Norte", vulnerabilityFlags: ["senior"] } });
     expectStatus(seniorResponse, 200);
     const idOf = async (queueNumber) => Number(await f.one(db, "SELECT id AS value FROM public.patients WHERE queue_number = $1", [queueNumber]));
     const regular = await idOf(regularResponse.body.queue_number);

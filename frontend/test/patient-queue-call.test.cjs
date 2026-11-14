@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 const { isServicesModule, loadServices } = require("./services-module.cjs");
 const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
+const { isQueuePaginationModule, loadQueuePagination } = require("./queue-pagination-module.cjs");
 
 let componentCode;
 before(async () => {
@@ -58,6 +59,7 @@ function harness(rows, options = {}) {
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (isQueuePaginationModule(name)) return loadQueuePagination({ jsx, jsxs: jsx, Fragment: "fragment" });
       if (name === "../lib/api") return { request: async (route, init) => {
         calls.push({ route, method: init.method, body: JSON.parse(init.body) });
         return options.request ? options.request(route, init) : { success: true };
@@ -284,4 +286,101 @@ test("EP1: Front Desk shows the doctor's display name while actions keep the cou
   assert.doesNotMatch(content, /Doctor 1(?!\d)/, "the counter id is not shown where a display name exists");
   const plain = text(harness(rows).render());
   assert.match(plain, /Doctor 1/, "without display names the counter id is shown, as before");
+});
+
+// Pagination: 10 patients per page (components/QueuePagination.js, rules in lib/queueView.js).
+const pager = tree => {
+  const node = nodes(tree, item => typeof item.type === "function" && item.props?.pagination)[0];
+  return node ? node.type(node.props) : null;
+};
+const pageSummary = tree => text(nodes(pager(tree), node => node.props?.["data-queue-page-summary"])[0]);
+const pageButton = (tree, label) => nodes(pager(tree), node => node.type === "button" && text(node).trim() === label)[0];
+const pageNumbers = tree => nodes(pager(tree), node => node.type === "button" && node.props["data-page"]).map(node => text(node));
+const shownQueue = tree => nodes(tree, node => node.type === "span" && /font-mono/.test(node.props.className || "")).map(text);
+const queueRange = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `GP-${from + i}`);
+
+test("Patient Management shows 10 patients per page with Previous, page numbers and Next", () => {
+  const h = harness(Array.from({ length: 25 }, (_, i) => patient(i + 1)));
+  let tree = h.render();
+  assert.deepEqual(shownQueue(tree), queueRange(1, 10));
+  assert.equal(pageSummary(tree), "Showing 1–10 of 25");
+  assert.match(text(tree), /\(25 patients\)/);
+  assert.deepEqual(pageNumbers(tree), ["1", "2", "3"]);
+  assert.equal(pageButton(tree, "1").props["aria-current"], "page");
+  assert.equal(pageButton(tree, "Previous").props.disabled, true, "no page before the first");
+  assert.equal(pageButton(tree, "Next").props.disabled, false);
+
+  pageButton(tree, "Next").props.onClick();
+  tree = h.render();
+  assert.deepEqual(shownQueue(tree), queueRange(11, 20));
+  assert.equal(pageSummary(tree), "Showing 11–20 of 25");
+  assert.equal(pageButton(tree, "2").props["aria-current"], "page");
+
+  pageButton(tree, "3").props.onClick();
+  tree = h.render();
+  assert.deepEqual(shownQueue(tree), queueRange(21, 25));
+  assert.equal(pageSummary(tree), "Showing 21–25 of 25");
+  assert.equal(pageButton(tree, "Next").props.disabled, true, "no page after the last");
+
+  pageButton(tree, "Previous").props.onClick();
+  assert.deepEqual(shownQueue(h.render()), queueRange(11, 20));
+});
+
+test("Patient Management shows the navigation only when there are more than 10 patients", () => {
+  const ten = harness(Array.from({ length: 10 }, (_, i) => patient(i + 1))).render();
+  assert.deepEqual(shownQueue(ten), queueRange(1, 10));
+  assert.equal(pageSummary(ten), "Showing 1–10 of 10");
+  assert.equal(pageButton(ten, "Next"), undefined);
+  assert.equal(pageButton(ten, "Previous"), undefined);
+
+  const h = harness(Array.from({ length: 11 }, (_, i) => patient(i + 1)));
+  pageButton(h.render(), "Next").props.onClick();
+  assert.deepEqual(shownQueue(h.render()), ["GP-11"], "the 11th patient is on page 2");
+  assert.equal(pager(harness([]).render()), null, "no footer without patients");
+});
+
+test("Patient Management returns to page 1 when the search, status or doctor changes, and keeps the page on refresh", () => {
+  const rows = Array.from({ length: 25 }, (_, i) => patient(i + 1));
+  const h = harness(rows);
+  const goTo = label => pageButton(h.render(), label).props.onClick();
+
+  goTo("3");
+  h.props.search = "test";
+  assert.equal(pageSummary(h.render()), "Showing 1–10 of 25", "a new search starts at page 1");
+  goTo("2");
+  h.props.statusFilter = "waiting";
+  assert.deepEqual(shownQueue(h.render()), queueRange(1, 10), "a new status starts at page 1");
+  goTo("2");
+  h.props.doctors = [{ name: "Doctor 1", assignment: "Test services" }];
+  assert.deepEqual(shownQueue(h.render()), queueRange(1, 10), "a new doctor starts at page 1");
+
+  // Polling refreshes keep the chosen page; a newly registered patient takes its place by priority.
+  goTo("3");
+  h.props.queueRows = [...rows, patient(26), patient(27, "consultation", 5)];
+  assert.equal(pageSummary(h.render()), "Showing 21–27 of 27");
+  assert.deepEqual(shownQueue(h.render()), [...queueRange(20, 25), "GP-26"]);
+  goTo("1");
+  assert.equal(shownQueue(h.render())[0], "GP-27", "a higher-priority registration leads page 1");
+  // Fewer records after a refresh: the last page that still has records.
+  goTo("3");
+  h.props.queueRows = rows.slice(0, 15);
+  assert.deepEqual(shownQueue(h.render()), queueRange(11, 15));
+  assert.equal(pageSummary(h.render()), "Showing 11–15 of 15");
+});
+
+test("Patient Management keeps the queue head and Confirm Patient working on every page", async () => {
+  const rows = Array.from({ length: 24 }, (_, i) => patient(i + 1));
+  rows.push({ ...patient(25, "prenatal"), confirmed_at: null, confirmed_by: null, confirmable: true });
+  const h = harness(rows, { props: { canConfirm: true }, confirm: () => assert.fail("Confirm Patient opens no dialog") });
+  const goTo = label => pageButton(h.render(), label).props.onClick();
+  assert.equal(buttons(h.render(), "Cancel").length, 1, "the head (page 1) keeps Cancel");
+  goTo("2");
+  assert.equal(buttons(h.render(), "Cancel").length, 0, "later patients wait for their turn");
+  assert.match(text(h.render()), /Waiting for turn/);
+  goTo("3");
+  const confirm = buttons(h.render(), "Confirm Patient")[0];
+  assert.ok(confirm, "the confirmable visit on page 3 offers Confirm Patient");
+  await confirm.props.onClick();
+  assert.deepEqual(h.calls.map(call => [call.route, call.body]), [["/queue/confirm", { patient_id: 25 }]]);
+  assert.equal(h.refreshes, 1);
 });

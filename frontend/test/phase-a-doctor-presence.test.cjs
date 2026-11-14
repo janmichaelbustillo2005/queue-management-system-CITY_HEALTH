@@ -4,8 +4,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
-const { isServicesModule, loadServices } = require("./services-module.cjs");
+const { isServicesModule, loadServices, isResidencyModule, loadResidency } = require("./services-module.cjs");
 const { isQueueViewModule, loadQueueView } = require("./queue-view-module.cjs");
+const { isQueuePaginationModule, loadQueuePagination } = require("./queue-pagination-module.cjs");
 
 let componentCode, helperCode;
 before(async () => {
@@ -93,12 +94,14 @@ async function harness(options = {}) {
     require(name) {
       if (name === "react") return react;
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (isQueuePaginationModule(name)) return loadQueuePagination({ jsx, jsxs: jsx, Fragment: "fragment" });
       if (name === "next/link" || name === "../components/SiteFrame") return () => {};
       if (name === "next/router") return { useRouter: () => router };
       if (name === "../context/AuthContext") return { useAuth: () => ({ user, loading: false }) };
       if (name === "../components/SettingsModal") return { __esModule: true, default: () => {}, defaultQueueSettings: settings };
       if (name === "../components/StaffArchives") return { StaffArchivesModal: () => null, StaffConfirmDialog: () => null };
       if (name === "../components/StaffProfileDialog") return { StaffProfileDialog: () => null };
+      if (name === "../components/ResidencySearch") return function ResidencySearch() { return null; };
       if (name === "../lib/doctorPresence") return helpers;
       if (name === "../lib/queueSettings") return {
         loadLocalQueueSettings: () => settings, fetchQueueSettings: async () => settings,
@@ -119,6 +122,7 @@ async function harness(options = {}) {
         return { success: true };
       } };
       if (isServicesModule(name)) return loadServices();
+      if (isResidencyModule(name)) return loadResidency();
       if (isQueueViewModule(name)) return loadQueueView();
       throw new Error(`Unexpected dependency: ${name}`);
     }

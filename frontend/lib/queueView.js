@@ -1,7 +1,7 @@
 // Shared, read-only display rules for the two staff queue tables that read the same
 // GET /queue records: Front Desk "Patient Management" (components/PatientQueueTable.js) and
 // the Superadmin "Queue Management" section (pages/index.js). Only what a row shows, how the
-// status counters are counted, and how rows are searched and filtered live here. Every action
+// status counters are counted, how rows are searched and filtered, and how they are paged live here. Every action
 // (Call, Cancel, Transfer, Undo, View Ticket) stays in its own page. This module imports nothing.
 
 // The service-to-doctor display route (service dispatch). Any other service follows the
@@ -30,6 +30,31 @@ export const CONFIRMATION_PENDING_LABEL = "Pending Confirmation";
 export const CONFIRMATION_AWAITING_LABEL = "Awaiting Front Desk Confirmation";
 export const CONFIRMATION_PENDING_CLASS = "bg-amber-100 text-amber-800";
 export const CONFIRMATION_CONFIRMED_CLASS = "bg-emerald-100 text-emerald-800";
+
+// OC1 one confirmation at a time per doctor: GET /queue marks the single pending visit of each
+// doctor the Front Desk may confirm now (confirmable: the head of the doctor's pending list in
+// queue-priority order, while the doctor has no active patient). The others say why they wait.
+// The backend and the database enforce the same rule; this only decides what a row shows.
+export const isConfirmableNow = (row) => isAwaitingConfirmation(row) && row?.confirmable === true && row?.not_present_at == null;
+// OC1 Not Present: the Front Desk set this pending patient aside. It keeps its ticket, priority,
+// registration time and doctor, and is skipped until marked present again.
+export const isNotPresent = (row) => isAwaitingConfirmation(row) && row?.not_present_at != null;
+export const NOT_PRESENT_LABEL = "Not Present";
+export const NOT_PRESENT_CLASS = "bg-slate-200 text-slate-800";
+export function confirmationWaitLabel(row) {
+  const ticket = row?.confirmation_blocked_by;
+  if (row?.not_present_at != null) return "Set aside: keeps its place";
+  switch (row?.confirmation_blocked) {
+    case "doctor_has_active_patient":
+      return ticket ? `Waiting for ${ticket} to finish` : "Waiting for the current patient to finish";
+    case "not_next_for_doctor":
+      return ticket ? `Waiting for turn (${ticket} is next)` : "Waiting for turn";
+    case "awaiting_doctor_assignment":
+      return "Awaiting doctor assignment";
+    default:
+      return "Waiting for turn";
+  }
+}
 
 // "Confirmed 9:41 AM by frontdesk", for the confirmation badge's tooltip.
 export function confirmationDetail(row) {
@@ -147,6 +172,60 @@ export const matchesQueueStatus = (row, statusFilter) => statusFilter === "all" 
 export function matchesQueueDoctor(row, doctorFilter, shared = false) {
   if (!doctorFilter || doctorFilter === "all") return true;
   return queueDoctorName(row, shared) === doctorFilter || (shared && isUnassigned(row));
+}
+
+// Pagination shared by both tables. GET /queue already returns only today's visits, and each
+// page needs all of them for its counters, queue heads and OC1 confirmation markers, so the
+// filtered and sorted rows are paged here and only one page of rows is rendered.
+export const QUEUE_PAGE_SIZE = 10;
+
+// The filters a page number belongs to: a change of any of them starts again at page 1.
+export const queuePageKey = (...filters) =>
+  JSON.stringify(filters.map((value) => (typeof value === "string" ? value.trim().toLowerCase() : value ?? null)));
+
+// The page to show for `choice` ({ key, page }, the page last chosen and the filters it was
+// chosen under): that page while the filters are unchanged, else page 1.
+export const queueRequestedPage = (choice, key) => (choice?.key === key ? choice.page : 1);
+
+// One page of `rows` (already filtered and sorted). The page is kept within 1..pageCount, so a
+// refresh that leaves fewer records shows the last page that still has records.
+export function paginateQueueRows(rows, page, pageSize = QUEUE_PAGE_SIZE) {
+  const list = rows ?? [];
+  const total = list.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const current = Math.min(Math.max(1, Math.floor(Number(page)) || 1), pageCount);
+  const start = (current - 1) * pageSize;
+  const pageRows = list.slice(start, start + pageSize);
+  return {
+    rows: pageRows,
+    page: current,
+    pageCount,
+    pageSize,
+    total,
+    first: pageRows.length ? start + 1 : 0,
+    last: start + pageRows.length
+  };
+}
+
+// "Showing 11–20 of 25".
+export const queuePageSummary = ({ first, last, total }) =>
+  total ? `Showing ${first}–${last} of ${total}` : "Showing 0 of 0";
+
+// The page number buttons: every page up to 7 pages; beyond that the first and last pages,
+// the current page and its neighbours, with "gap" where pages are skipped.
+export function queuePageItems(page, pageCount) {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+  let start = Math.max(2, Math.min(page - 1, pageCount - 4));
+  let end = Math.min(pageCount - 1, Math.max(page + 1, 5));
+  // A gap would hide a single page: show that page instead.
+  if (start === 3) start = 2;
+  if (end === pageCount - 2) end = pageCount - 1;
+  const items = [1];
+  if (start > 2) items.push("gap");
+  for (let n = start; n <= end; n++) items.push(n);
+  if (end < pageCount - 1) items.push("gap");
+  items.push(pageCount);
+  return items;
 }
 
 // The stored registration time, in the viewer's locale and timezone as before.

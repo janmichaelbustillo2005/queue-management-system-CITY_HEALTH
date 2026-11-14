@@ -146,7 +146,7 @@ test("each role sees one organized menu of its own sections", () => {
   ]);
   for (const id of ["admin1", "admin2", "admin3"]) {
     assert.deepEqual(plain(menu(accounts[id])), [
-      ["Patient Queue", ["My Patient Queue"]], ["Queue Monitoring", ["Live Queue Display"]]
+      ["Patient Queue", ["My Patient Queue", "Patient History"]], ["Queue Monitoring", ["Live Queue Display"]]
     ], `${id} uses the same structure`);
   }
   assert.deepEqual(plain(menu(null)), [], "guests get no staff navigation");
@@ -203,6 +203,14 @@ test("the highlighted item follows the URL, including Records categories and the
   assert.deepEqual(plain(active(accounts.frontdesk, "/fill-up_form")), ["Patient Registration"]);
   assert.deepEqual(plain(active(accounts.admin2, "/admin2")), ["My Patient Queue"]);
   assert.deepEqual(plain(active(accounts.admin2, "/admin1")), []);
+  // PH1: every doctor has Patient History beside its queue; nobody else does.
+  for (const id of ["admin1", "admin2", "admin3"]) {
+    assert.deepEqual(plain(active(accounts[id], "/patient-history")), ["Patient History"], id);
+    assert.deepEqual(plain(active(accounts[id], `/${id}`)), ["My Patient Queue"], id);
+    assert.ok(links(accounts[id]).includes("/patient-history"), id);
+  }
+  assert.ok(!links(accounts.frontdesk).includes("/patient-history"));
+  assert.ok(!links(accounts.superadmin).includes("/patient-history"));
 });
 
 // --- Shared layout -------------------------------------------------------------

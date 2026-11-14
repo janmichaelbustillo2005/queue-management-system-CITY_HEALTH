@@ -24,6 +24,9 @@ const DEVELOPMENT_STATE = ["20261023-phase-b2-records.sql", "20261025-c1-atomic-
 const OTHER_CALL_SCRIPTS = ["20261029-wps-a-call-aging.sql", "20261029-d1-shared-call.sql", "20261029-d1a-shared-wps-a-call.sql"];
 const RR1 = "20261109-rr1-round-robin-dispatch.sql";
 const FC1 = "20261111-fc1-front-desk-confirmation.sql";
+// The FC1 backend confirms through OC1's confirm_next_patient_visit (one confirmation at a time
+// per doctor), so the backend suites install it too; oc1-one-confirmation-postgres.test.js covers it.
+const OC1 = "20261113-oc1-one-confirmation-per-doctor.sql";
 const ACCOUNTS = {
   superadmin: ["superadmin", null], frontdesk: ["admin", null], frontdesk2: ["admin", "Front Desk"],
   admin1: ["admin", "Doctor 1"], admin2: ["admin", "Doctor 2"], admin3: ["admin", "Doctor 3"]
@@ -51,7 +54,7 @@ function suite(getDb, getH, tokens) {
   const idOf = async (queueNumber) =>
     Number((await db().query("SELECT id FROM public.patients WHERE queue_number = $1", [queueNumber])).rows[0].id);
   async function register(name, { service = "medical_consultation", flags = [] } = {}) {
-    const response = await h().request("POST", "/queue", { token: tokens.frontdesk, body: { fullName: name, service_type: service, vulnerabilityFlags: flags } });
+    const response = await h().request("POST", "/queue", { token: tokens.frontdesk, body: { residency: "Purok 1, Brgy. Poblacion 1, Cabadbaran City, Agusan del Norte", fullName: name, service_type: service, vulnerabilityFlags: flags } });
     assert.equal(response.status, 200, response.body.message);
     return { ...response.body, id: await idOf(response.body.queue_number) };
   }
@@ -72,7 +75,7 @@ describe("FC1 Front Desk confirmation, service dispatch with C1 (isolated PGlite
   const tokens = {};
   const s = suite(() => db, () => h, tokens);
 
-  before(async () => { db = await freshDatabase([...DEVELOPMENT_STATE, FC1]); });
+  before(async () => { db = await freshDatabase([...DEVELOPMENT_STATE, FC1, OC1]); });
   after(async () => { if (db) await db.close(); });
 
   beforeEach(async () => {
@@ -178,17 +181,16 @@ describe("FC1 Front Desk confirmation, service dispatch with C1 (isolated PGlite
   });
 
   test("unconfirmed visits keep their doctor and rank; the doctor's next patient is its highest-priority CONFIRMED visit", async () => {
-    const senior = await s.register("Senior Not Yet Here", { flags: ["senior"] });
+    // OC1: the regular patient is confirmed while it is Doctor 1's only visit; the senior and a
+    // later regular patient register afterwards and stay Pending (one confirmation at a time).
     const regular = await s.register("Regular Present");
+    assert.equal((await s.confirm(regular.id)).status, 200);
+    const senior = await s.register("Senior Not Yet Here", { flags: ["senior"] });
     const later = await s.register("Regular Later");
     assert.ok(senior.priority_score > regular.priority_score);
-    assert.equal((await s.confirm(regular.id)).status, 200);
-    assert.equal((await s.confirm(later.id)).status, 200);
+    assert.equal((await s.confirm(later.id)).status, 409, "Doctor 1 already has a confirmed patient");
 
-    // Priority among confirmed visits is unchanged: the later regular visit is not next.
-    const outOfOrder = await s.call("Doctor 1", later.id);
-    assert.equal(outOfOrder.status, 400);
-    assert.match(outOfOrder.body.message, /next eligible patient for Doctor 1/);
+    assert.equal((await s.call("Doctor 1", later.id)).status, 409);
     assert.equal((await s.call("Doctor 1", senior.id)).status, 409);
     assert.equal((await s.call("Doctor 1", regular.id)).status, 200, "the pending senior does not block the doctor");
     const pending = await s.row(senior.id);
@@ -196,9 +198,11 @@ describe("FC1 Front Desk confirmation, service dispatch with C1 (isolated PGlite
     assert.equal(pending.priority_score, senior.priority_score);
     await s.finish("Doctor 1", regular.id);
 
-    // Once confirmed, the senior is the head again, ahead of the earlier-confirmed regular visit.
+    // WPS among the pending visits: the senior is next, ahead of the earlier-registered regular one.
+    const outOfOrder = await s.confirm(later.id);
+    assert.equal(outOfOrder.status, 409);
+    assert.match(outOfOrder.body.message, /next patient in Doctor 1's queue/);
     assert.equal((await s.confirm(senior.id)).status, 200);
-    assert.equal((await s.call("Doctor 1", later.id)).status, 400);
     assert.equal((await s.call("Doctor 1", senior.id)).status, 200);
   });
 
@@ -228,7 +232,7 @@ describe("FC1 Front Desk confirmation, service dispatch with C1 (isolated PGlite
   });
 
   test("F: every visit has its own confirmation; a returning patient's new visit starts Pending", async () => {
-    const record = { firstName: "Repeat", lastName: "Visitor", sex: "Female", birthdate: "1990-01-01", residency: "Synthetic Street", serviceType: "medical_consultation" };
+    const record = { firstName: "Repeat", lastName: "Visitor", sex: "Female", birthdate: "1990-01-01", residency: "Synthetic Street, Bayabas, Cabadbaran City, Agusan del Norte", serviceType: "medical_consultation" };
     const first = await h.request("POST", "/patient-records/visits", { token: tokens.frontdesk, body: { ...record, confirmNewRecord: true } });
     assert.equal(first.status, 200, first.body.message);
     const firstId = Number((await db.query("SELECT id FROM public.patients WHERE queue_number = $1", [first.body.queue_number])).rows[0].id);
@@ -259,6 +263,9 @@ describe("FC1 Front Desk confirmation, service dispatch with C1 (isolated PGlite
     assert.equal(afterRequeue.confirmed_at, null);
     assert.equal(afterRequeue.confirmed_by, null);
     assert.equal((await s.call("Doctor 1", requeued.id)).status, 409);
+    // OC1: the re-queued pending visit is Doctor 1's next patient; once it is cancelled it no
+    // longer blocks the next registration's confirmation.
+    await h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: requeued.id, reason: "Left again" } });
 
     const undone = await s.register("Undone Patient");
     assert.equal((await s.confirm(undone.id)).status, 200);
@@ -290,7 +297,7 @@ describe("FC1 with round-robin dispatch (isolated PGlite, real backend)", { skip
   const rotation = async () => (await db.query("SELECT last_doctor, last_patient_id, rotation_date FROM public.doctor_rotation_state")).rows[0];
   const history = async () => (await db.query("SELECT patient_id, previous_doctor, new_doctor, reason FROM public.patient_assignment_history ORDER BY id")).rows;
 
-  before(async () => { db = await freshDatabase([...DEVELOPMENT_STATE, RR1, FC1]); });
+  before(async () => { db = await freshDatabase([...DEVELOPMENT_STATE, RR1, FC1, OC1]); });
   after(async () => { if (db) await db.close(); });
 
   beforeEach(async () => {

@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { request } from "../lib/api";
+import QueuePagination from "./QueuePagination";
 import { serviceName } from "../lib/services";
 import {
   CONFIRMATION_AWAITING_LABEL,
@@ -10,16 +11,24 @@ import {
   QUEUE_STATUS_COUNTERS,
   belongsToDoctor,
   confirmationDetail,
+  confirmationWaitLabel,
   countQueueStatuses,
   doctorDisplayName,
   formatQueueDate,
   formatQueueTime,
   isAwaitingConfirmation,
+  isConfirmableNow,
   isConfirmedWaiting,
+  isNotPresent,
+  NOT_PRESENT_CLASS,
+  NOT_PRESENT_LABEL,
   isDoctorOnline,
   isUnassigned,
   matchesQueueSearch,
+  paginateQueueRows,
   queueDoctorLabel,
+  queuePageKey,
+  queueRequestedPage,
   queuePriorityClass,
   queueStatusClass
 } from "../lib/queueView";
@@ -156,6 +165,16 @@ export default function PatientQueueTable({
       });
   }, [doctors, doctorStates, queueRows, statusFilter, search, shared, sharedQueue]);
 
+  // 10 records per page. A new doctor, status or search starts again at page 1; a refresh keeps
+  // the page (or the last page that still has records).
+  const pageKey = queuePageKey(statusFilter, search, doctors.map(({ name }) => name).join("|"));
+  const [pageChoice, setPageChoice] = useState({ key: pageKey, page: 1 });
+  const pagination = useMemo(
+    () => paginateQueueRows(visibleRows, queueRequestedPage(pageChoice, pageKey)),
+    [visibleRows, pageChoice, pageKey]
+  );
+  const goToPage = (page) => setPageChoice({ key: pageKey, page });
+
   const counts = useMemo(
     () => countQueueStatuses(queueRows, doctors.map(({ name }) => name), shared),
     [doctors, queueRows, shared]
@@ -175,14 +194,39 @@ export default function PatientQueueTable({
 
   // FC1: the Front Desk confirms the patient of this visit is present. It does not call the
   // patient; the assigned doctor can call once the visit is the head of its confirmed queue.
-  // The dialog's submitting state blocks a second submission; the backend is idempotent too.
-  function handleConfirmPatient(row, doctorName) {
-    if (!canConfirm || !isAwaitingConfirmation(row)) return;
-    const doctor = doctorName ? doctorDisplayName(doctorNames, doctorName) : "The next available doctor";
+  // Confirmation runs immediately (no dialog). The in-flight ref blocks a double click before
+  // the button re-renders as disabled; the backend is idempotent too.
+  // OC1: only the visit GET /queue marks confirmable (one per doctor) offers it; the backend and
+  // database refuse any other, so a stale screen cannot confirm a second patient.
+  const confirmingRef = useRef(null);
+  const [confirmingId, setConfirmingId] = useState(null);
+
+  async function handleConfirmPatient(row, doctorName) {
+    if (!canConfirm || !isConfirmableNow(row) || confirmingRef.current != null) return;
+    confirmingRef.current = row.id;
+    setConfirmingId(row.id);
+    try {
+      await postAction(laneName(doctorName), "/queue/confirm", { patient_id: row.id }, "Patient confirmed");
+    } catch (error) {
+      onNotify("error", `${row.queue_number} was not confirmed: ${error?.message || "Unable to confirm the patient. Please try again."}`);
+      // A refusal usually means the screen was stale (for example another patient was confirmed
+      // first); reload so the table shows who can be confirmed now.
+      try { await onRefresh(); } catch { /* the page reports refresh failures itself */ }
+    } finally {
+      confirmingRef.current = null;
+      setConfirmingId(null);
+    }
+  }
+
+  // OC1: the Not Present action was removed from this page (2026-11-13). A patient already set
+  // aside can still be returned; it rejoins at the original place and never interrupts a patient
+  // being served.
+  function handlePresent(row, doctorName) {
+    if (!canConfirm || !isNotPresent(row)) return;
     onConfirm({
-      title: "Confirm Patient",
-      message: `Confirm that ${row.id_num} (${row.queue_number}) is present? ${doctor} can then call this patient. The patient's place in the queue does not change.`,
-      onConfirm: () => postAction(laneName(doctorName), "/queue/confirm", { patient_id: row.id }, "Patient confirmed")
+      title: "Mark Present",
+      message: `${row.id_num} (${row.queue_number}) is back? The patient returns to the original place in the queue and can be confirmed when it is their turn.`,
+      onConfirm: () => postAction(laneName(doctorName), "/queue/present", { patient_id: row.id }, "Patient marked present")
     });
   }
 
@@ -203,18 +247,47 @@ export default function PatientQueueTable({
     if (!canConfirm) {
       return <span className="text-[11px] brand-text-muted font-semibold italic px-1">{CONFIRMATION_AWAITING_LABEL}</span>;
     }
+    if (isNotPresent(row)) {
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => handlePresent(row, doctorName)}
+            aria-label={`Mark patient ${row.queue_number} present`}
+            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors shadow-sm"
+          >
+            <i className="fas fa-user-clock me-1" aria-hidden="true" />
+            Mark Present
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePendingCancel(row, doctorName)}
+            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
+          >
+            Cancel
+          </button>
+        </>
+      );
+    }
     return (
       <>
-        <button
-          type="button"
-          onClick={() => handleConfirmPatient(row, doctorName)}
-          disabled={row.isOptimistic}
-          aria-label={`Confirm patient ${row.queue_number}`}
-          className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          <i className="fas fa-user-check me-1" aria-hidden="true" />
-          Confirm Patient
-        </button>
+        {isConfirmableNow(row) ? (
+          <button
+            type="button"
+            onClick={() => handleConfirmPatient(row, doctorName)}
+            disabled={row.isOptimistic || confirmingId != null}
+            aria-busy={String(confirmingId) === String(row.id)}
+            aria-label={`Confirm patient ${row.queue_number}`}
+            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <i className="fas fa-user-check me-1" aria-hidden="true" />
+            {String(confirmingId) === String(row.id) ? "Confirming..." : "Confirm Patient"}
+          </button>
+        ) : (
+          <span className="text-[11px] brand-text-muted font-semibold italic px-1" data-confirmation-wait={row.confirmation_blocked || "turn"}>
+            {confirmationWaitLabel(row)}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => handlePendingCancel(row, doctorName)}
@@ -325,7 +398,7 @@ export default function PatientQueueTable({
         <div className="flex items-center gap-2">
           <i className="fas fa-users brand-text-primary" />
           <h2 className="font-bold brand-text text-base m-0">All Patients</h2>
-          <span className="text-xs brand-text-muted">({visibleRows.length} shown)</span>
+          <span className="text-xs brand-text-muted">({pagination.total} {pagination.total === 1 ? "patient" : "patients"})</span>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-semibold" data-queue-counters>
           {QUEUE_STATUS_COUNTERS.map(({ status, label, className }) => (
@@ -354,7 +427,7 @@ export default function PatientQueueTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {visibleRows.length === 0 ? (
+            {pagination.rows.length === 0 ? (
               <tr>
                 <td colSpan="8" className="px-4 py-10 text-center brand-text-muted">
                   <i className="fas fa-inbox text-3xl mb-2 block" />
@@ -362,7 +435,7 @@ export default function PatientQueueTable({
                 </td>
               </tr>
             ) : (
-              visibleRows.map(({ row, doctorName }) => (
+              pagination.rows.map(({ row, doctorName }) => (
                 <tr key={row.id} className="brand-hover-subtle transition-colors">
                   <td className="px-4 py-4">
                     <span className="font-mono font-bold brand-text-primary text-lg whitespace-nowrap">{row.queue_number}</span>
@@ -436,6 +509,14 @@ export default function PatientQueueTable({
                         </span>
                       </div>
                     ) : null}
+                    {isNotPresent(row) && !row.isOptimistic ? (
+                      <div className="mt-1" data-presence="not-present">
+                        <span title={`Marked Not Present${row.not_present_by ? ` by ${row.not_present_by}` : ""} at ${formatQueueTime(row.not_present_at)}`}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${NOT_PRESENT_CLASS}`}>
+                          {NOT_PRESENT_LABEL}
+                        </span>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-4 py-4 text-xs brand-text-muted whitespace-nowrap">{formatQueueTime(row.created_at)}</td>
                   <td className="px-4 py-4 text-right">
@@ -462,6 +543,7 @@ export default function PatientQueueTable({
           </tbody>
         </table>
       </div>
+      <QueuePagination pagination={pagination} onPageChange={goToPage} label="Patient Management pages" />
     </div>
   );
 }

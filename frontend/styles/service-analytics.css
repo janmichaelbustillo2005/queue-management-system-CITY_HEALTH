@@ -1,0 +1,251 @@
+/* Analytics → Detailed Data → By Service (components/ServiceAnalytics.js). Every rule is scoped
+   under .svc-analytics so nothing else on the page changes. */
+
+.svc-analytics {
+  display: grid;
+  gap: 12px;
+}
+
+/* 2 × 2 on desktop, one column below 1024px. Cards in a row share their height, so the chart
+   cards grow to their neighbour's height instead of leaving a gap below them. */
+.svc-analytics .svc-analytics-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1024px) {
+  .svc-analytics .svc-analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.svc-analytics .svc-card {
+  background: var(--brand-surface, #fff);
+  border: 1px solid #e8eeea;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 14px rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px;
+}
+@media (min-width: 768px) {
+  .svc-analytics .svc-card { padding: 18px 16px; }
+}
+
+.svc-analytics .svc-card-title {
+  align-items: center;
+  color: var(--brand-text, #1f2937);
+  display: flex;
+  font-size: 15px;
+  font-weight: 700;
+  gap: 8px;
+  line-height: 1.25;
+  margin: 0 0 14px;
+}
+.svc-analytics .svc-card-title i { font-size: 13px; }
+
+.svc-analytics .svc-note {
+  color: var(--brand-muted, #5f6b64);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 12px 0 0;
+}
+
+/* Charts ------------------------------------------------------------------------------------- */
+.svc-analytics .svc-chart {
+  position: relative;
+}
+.svc-analytics .svc-chart > canvas {
+  left: 0;
+  position: absolute;
+  top: 0;
+}
+/* A chart that fills the rest of its card (at least 280px). Inside a horizontal scroller, so a
+   long list of services scrolls within the card on narrow screens instead of squeezing labels. */
+.svc-analytics .svc-chart-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 290px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.svc-analytics .svc-chart--fill { flex: 1 1 auto; }
+
+.svc-analytics .svc-placeholder {
+  align-items: center;
+  color: var(--brand-muted, #5f6b64);
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  font-size: 14px;
+  gap: 8px;
+  justify-content: center;
+  min-height: 240px;
+  padding: 0 16px;
+  text-align: center;
+}
+
+.svc-analytics .svc-swatch {
+  border-radius: 3px;
+  display: inline-block;
+  flex-shrink: 0;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  width: 10px;
+}
+
+.svc-analytics .svc-legend {
+  color: var(--brand-text, #1f2937);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 6px 18px;
+  justify-content: center;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.svc-analytics .svc-legend li { align-items: center; display: inline-flex; }
+
+.svc-analytics .svc-gap-note {
+  align-items: flex-start;
+  background: #f8faf9;
+  border: 1px solid #e5ece8;
+  border-radius: 6px;
+  color: var(--brand-muted, #5f6b64);
+  display: flex;
+  font-size: 11px;
+  gap: 6px;
+  line-height: 1.45;
+  margin: 10px 0 0;
+  padding: 6px 10px;
+}
+.svc-analytics .svc-gap-note i { margin-top: 2px; }
+
+/* Donut + legend table: side by side from 640px, stacked below. */
+.svc-analytics .svc-donut-layout {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 20px;
+  justify-content: center;
+}
+@media (min-width: 640px) {
+  .svc-analytics .svc-donut-layout { flex-direction: row; gap: 28px; }
+}
+.svc-analytics .svc-donut {
+  flex-shrink: 0;
+  height: 210px;
+  position: relative;
+  width: 210px;
+}
+@media (min-width: 768px) {
+  .svc-analytics .svc-donut { height: 230px; width: 230px; }
+}
+.svc-analytics .svc-chart--square { height: 100%; width: 100%; }
+.svc-analytics .svc-donut-center {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
+}
+.svc-analytics .svc-donut-total {
+  color: var(--brand-text, #1f2937);
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1;
+}
+.svc-analytics .svc-donut-caption {
+  color: var(--brand-muted, #5f6b64);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.svc-analytics .svc-legend-table {
+  border-collapse: collapse;
+  color: var(--brand-text, #1f2937);
+  font-size: 13px;
+  min-width: 230px;
+}
+.svc-analytics .svc-legend-table thead th {
+  border-bottom: 1px solid #e5e7eb;
+  color: var(--brand-muted, #5f6b64);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 8px 6px;
+  text-align: right;
+  white-space: nowrap;
+}
+.svc-analytics .svc-legend-table thead th:first-child,
+.svc-analytics .svc-legend-table tbody th,
+.svc-analytics .svc-legend-table tfoot th { text-align: left; }
+.svc-analytics .svc-legend-table tbody th { font-weight: 600; white-space: nowrap; }
+.svc-analytics .svc-legend-table th,
+.svc-analytics .svc-legend-table td { padding: 7px 8px; }
+.svc-analytics .svc-legend-table td {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.svc-analytics .svc-legend-table tbody tr + tr { border-top: 1px solid #f1f3f2; }
+.svc-analytics .svc-legend-table tfoot { border-top: 1px solid #e5e7eb; font-weight: 700; }
+
+/* Summary table -----------------------------------------------------------------------------
+   Compact enough for all nine columns to fit a half-width card on desktop; on narrower cards the
+   table scrolls sideways inside its own frame, never the page. */
+.svc-analytics .svc-table-wrap {
+  border: 1px solid #e3ebe6;
+  border-radius: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.svc-analytics .svc-table {
+  border-collapse: collapse;
+  color: var(--brand-text, #1f2937);
+  font-size: 12.5px;
+  min-width: 480px;
+  width: 100%;
+}
+.svc-analytics .svc-table thead th {
+  background: #e9f6ee;
+  color: #14532d;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 9px 5px;
+  text-align: right;
+  vertical-align: bottom;
+}
+.svc-analytics .svc-table thead .svc-swatch { height: 8px; margin-right: 4px; vertical-align: 0; width: 8px; }
+.svc-analytics .svc-table th,
+.svc-analytics .svc-table td { padding: 8px 5px; }
+.svc-analytics .svc-table td {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.svc-analytics .svc-table .svc-col-service {
+  font-weight: 600;
+  line-height: 1.3;
+  padding-left: 9px;
+  text-align: left;
+}
+.svc-analytics .svc-table tbody tr { border-top: 1px solid #eef2ef; }
+.svc-analytics .svc-table tbody tr:nth-child(even) { background: #fafcfb; }
+.svc-analytics .svc-table tbody tr:hover { background: #f0f8f3; }
+.svc-analytics .svc-table .svc-strong { font-weight: 700; }
+.svc-analytics .svc-table tfoot tr {
+  background: #f4f9f6;
+  border-top: 2px solid var(--brand-border, #d8e3dc);
+  font-weight: 700;
+}
+.svc-analytics .svc-table .svc-empty-row {
+  color: var(--brand-muted, #5f6b64);
+  padding: 20px 12px;
+  text-align: center;
+  white-space: normal;
+}

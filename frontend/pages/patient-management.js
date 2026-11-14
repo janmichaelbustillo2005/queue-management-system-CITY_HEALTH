@@ -253,7 +253,7 @@ export default function PatientManagementPage() {
               <div>
                 <h2 className="font-bold brand-text text-lg m-0">Patient Management</h2>
                 <p className="text-xs brand-text-muted m-0">Monitor every registered patient in one table. Each doctor calls patients from their own queue; changes sync with the doctor accounts.</p>
-                <p className="text-xs brand-text-muted mt-1 mb-0">A new patient is Pending Confirmation. {canConfirm ? "Select Confirm Patient once the patient is present" : "The Front Desk confirms each patient once present"}; only then can the assigned doctor call them.</p>
+                <p className="text-xs brand-text-muted mt-1 mb-0">A new patient is Pending Confirmation. {canConfirm ? "Select Confirm Patient once the patient is present" : "The Front Desk confirms each patient once present"}; only then can the assigned doctor call them. Each doctor has one patient to confirm at a time: the next one becomes available when the current visit is completed, cancelled or marked no-show.</p>
                 {canIssueTicket ? <p className="text-xs brand-text-muted mt-1 mb-0">Lost ticket? Choose All registered patients to search today's registrations, then select View Ticket to photograph, download, or reprint the same queue number.</p> : null}
               </div>
             </div>

@@ -121,11 +121,23 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.service.getPatientById(low.id)).completed_at, null);
   });
 
-  test(`${mode}: existing laboratory/dental fallback still uses Doctor 1 and queue priority`, async () => {
+  test(`${mode}: existing laboratory/dental visits still use Doctor 1 and queue priority; the retired keys get no new ticket`, async () => {
     const h = await setup(localFallback);
-    const dental = await h.service.createQueueEntry(registration("Dental regular", "dental"));
+    // Service ticket codes (2026-11-14): a service without a ticket prefix is refused, so these
+    // retired keys exist only on earlier visits. Model such visits: saved as GP, key restored.
+    for (const service of ["dental", "laboratory"]) {
+      await assert.rejects(h.service.createQueueEntry(registration(`New ${service}`, service)), (error) => error.statusCode === 400);
+    }
+    const historical = async (name, service, flags) => {
+      const visit = await h.service.createQueueEntry(registration(name, "consultation", flags));
+      const stored = localFallback ? await h.service.getPatientById(visit.id) : h.database.patients.find((row) => row.id === visit.id);
+      stored.service_type = service;
+      return { ...visit, service_type: service };
+    };
+    const dental = await historical("Dental regular", "dental");
     h.advance();
-    const laboratory = await h.service.createQueueEntry(registration("Laboratory senior", "laboratory", ["senior"]));
+    const laboratory = await historical("Laboratory senior", "laboratory", ["senior"]);
+    assert.equal((await h.service.getPatientById(dental.id)).service_type, "dental");
     assert.match(dental.queue_number, /^GP-\d{3}$/);
     assert.match(laboratory.queue_number, /^GP-\d{3}$/);
     await assert.rejects(h.service.callPatient(dental.id, "Doctor 1"), /priority|next eligible/i);

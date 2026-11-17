@@ -18,7 +18,7 @@ export const DESKTOP_ALERT_KEY = "city_health_queue_desktop_alert";
 export const NOTIFICATION_HISTORY_LIMIT = 20;
 export const SEEN_VISIT_LIMIT = 1000;
 export const TOAST_VISIBLE_MS = 15000;
-export const SYSTEM_TITLE = "Smart Queue System";
+export const SYSTEM_TITLE = "Smart Queue Management System";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const COUNT_KEYS = ["waiting", "ready", "awaiting_confirmation", "not_present"];
@@ -190,7 +190,7 @@ export const patientsWaitingText = (count) =>
 export const newArrivalText = (count) =>
   `${count} new ${plural(count, "patient was", "patients were")} assigned to your queue.`;
 
-// "(3) Doctor 2 Queue | Smart Queue System" while patients wait; null (the page's own title) at 0.
+// "(3) Doctor 2 Queue | Smart Queue Management System" while patients wait; null (the page's own title) at 0.
 export function queueTabTitle(count, queueLabel) {
   if (!Number.isInteger(count) || count <= 0) return null;
   const label = String(queueLabel || "").trim() || "My Queue";

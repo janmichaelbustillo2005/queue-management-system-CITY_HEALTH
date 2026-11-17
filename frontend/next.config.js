@@ -6,5 +6,6 @@ const repositoryRoot = path.join(__dirname, "..");
 
 module.exports = {
   turbopack: { root: repositoryRoot },
-  outputFileTracingRoot: repositoryRoot
+  outputFileTracingRoot: repositoryRoot,
+  experimental: { agentUpgrade: "security" }
 };

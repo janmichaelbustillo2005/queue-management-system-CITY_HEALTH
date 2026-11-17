@@ -117,7 +117,52 @@ export function saveTracker(storage, tracker) {
 export function clearNotificationStorage(sessionStore, localStore) {
   try { sessionStore?.removeItem(NOTIFICATION_STORAGE_KEY); } catch { /* best effort */ }
   try { localStore?.removeItem(DESKTOP_ALERT_KEY); } catch { /* best effort */ }
+  try { localStore?.removeItem(READ_SYNC_KEY); } catch { /* best effort */ }
 }
+
+// Reading in one tab reads in the other tabs of the same account, doctor and business day (the
+// tracker key). The reading tab shares the visits it knew when it read (shared localStorage; other
+// tabs hear it through the "storage" event, and a tab that sees the same arrival later finds it
+// already read). Another account or doctor has another key and is never affected.
+export const READ_SYNC_KEY = "city_health_queue_notifications_read";
+
+// The visits of one arrival entry: its id is `${key}|${visit ids joined by ","}`.
+export function entryVisitIds(entry) {
+  const tail = typeof entry?.id === "string" ? entry.id.slice(entry.id.lastIndexOf("|") + 1) : "";
+  const ids = tail ? tail.split(",").map(Number) : [];
+  return ids.length && ids.every(isVisitId) ? ids : [];
+}
+
+export function shareReadState(storage, tracker) {
+  if (!isTracker(tracker)) return;
+  try { storage?.setItem(READ_SYNC_KEY, JSON.stringify({ key: tracker.key, seen: tracker.seen })); } catch { /* best effort */ }
+}
+
+export function loadSharedRead(storage) {
+  try {
+    const value = JSON.parse(storage?.getItem(READ_SYNC_KEY) || "null");
+    return value && typeof value.key === "string" && Array.isArray(value.seen) && value.seen.every(isVisitId) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+// Marks read the entries whose visits were all known to the tab that read. Same tracker when
+// nothing changes (no re-render, no storage write).
+export function applySharedRead(tracker, shared) {
+  if (!isTracker(tracker) || !shared || shared.key !== tracker.key) return tracker;
+  const known = new Set(shared.seen);
+  const covered = (entry) => {
+    const ids = entryVisitIds(entry);
+    return ids.length > 0 && ids.every((id) => known.has(id));
+  };
+  if (!tracker.entries.some((entry) => !entry.read && covered(entry))) return tracker;
+  return { ...tracker, entries: tracker.entries.map((entry) => (!entry.read && covered(entry) ? { ...entry, read: true } : entry)) };
+}
+
+// The favicon red dot (lib/faviconBadge.js): only while this tab is in the background and has
+// unread notifications. Coming back to the tab hides it; the notifications stay unread until read.
+export const showFaviconDot = (hidden, unread) => Boolean(hidden) && unread > 0;
 
 // Several tabs of the same doctor each see the same arrival; only the first shows a desktop
 // notification (shared localStorage). Without storage every tab may notify (the tag still

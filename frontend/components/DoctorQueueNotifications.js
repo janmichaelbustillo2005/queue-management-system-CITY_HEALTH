@@ -2,14 +2,18 @@ import Head from "next/head";
 import { useEffect, useRef, useState } from "react";
 import { AUTH_SESSION_CHANGED_EVENT } from "../lib/api";
 import { OFFICE_IDENTITY, SYSTEM_BRANDING } from "../lib/branding";
+import { createFaviconBadge } from "../lib/faviconBadge";
 import {
+  READ_SYNC_KEY,
   SYSTEM_TITLE,
   TOAST_VISIBLE_MS,
+  applySharedRead,
   badgeText,
   claimDesktopAlert,
   clearEntries,
   clearNotificationStorage,
   desktopNotificationState,
+  loadSharedRead,
   loadTracker,
   markEntriesRead,
   newArrivalText,
@@ -18,6 +22,8 @@ import {
   queueTabTitle,
   readDoctorQueueSummary,
   saveTracker,
+  shareReadState,
+  showFaviconDot,
   trackerKey,
   unreadCount
 } from "../lib/queueNotifications";
@@ -32,8 +38,8 @@ const formatTime = (value) => {
   return date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
 };
 
-// The doctor dashboard's notification bell, new-patient toast, tab title count and desktop
-// notification. `summary` is GET /queue's my_queue (the signed-in doctor's own waiting visits,
+// The doctor dashboard's notification bell, new-patient toast, tab title count, favicon red dot
+// (while the tab is in the background with unread notifications) and desktop notification. `summary` is GET /queue's my_queue (the signed-in doctor's own waiting visits,
 // chosen by the server from the validated session), refreshed by the dashboard's existing queue
 // polling; `onRefresh` re-reads it at once when the tab becomes visible again or the network
 // returns. Rules live in lib/queueNotifications.js. Shows nothing without a doctor summary.
@@ -52,6 +58,7 @@ export default function DoctorQueueNotifications({ summary: rawSummary, status =
   const notificationRef = useRef(null);
   const refreshRef = useRef(onRefresh);
   const anchorRef = useRef(queueAnchorId);
+  const faviconRef = useRef(null);
 
   useEffect(() => { refreshRef.current = onRefresh; anchorRef.current = queueAnchorId; });
 
@@ -99,10 +106,12 @@ export default function DoctorQueueNotifications({ summary: rawSummary, status =
     setVisible(!pageHidden());
   }, []);
 
-  // Each new server summary: baseline, nothing new, or one arrival entry.
+  // Each new server summary: baseline, nothing new, or one arrival entry. An arrival another tab
+  // of this account has already read arrives read (no favicon dot for it here).
   useEffect(() => {
     if (!signature) return;
-    const { tracker: next, arrival } = observeDoctorQueue(trackerRef.current, summary, { key });
+    const { tracker: observed, arrival } = observeDoctorQueue(trackerRef.current, summary, { key });
+    const next = arrival ? applySharedRead(observed, loadSharedRead(browserStorage("localStorage"))) : observed;
     if (next === trackerRef.current) return;
     commit(next);
     if (!arrival) return;
@@ -110,10 +119,37 @@ export default function DoctorQueueNotifications({ summary: rawSummary, status =
     if (pageHidden()) showDesktopNotification(arrival, summary);
   }, [signature]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Opening the panel marks its notifications read.
+  // Opening the panel marks its notifications read, here and in this account's other tabs. A panel
+  // left open in a background tab reads nothing until the doctor is back on the tab.
   useEffect(() => {
-    if (open && unreadCount(trackerRef.current)) commit(markEntriesRead(trackerRef.current));
-  }, [open, tracker]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!open || !visible || !unreadCount(trackerRef.current)) return;
+    const next = markEntriesRead(trackerRef.current);
+    commit(next);
+    shareReadState(browserStorage("localStorage"), next);
+  }, [open, tracker, visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Read in another tab of the same account, doctor and day (other keys are ignored).
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event?.key !== READ_SYNC_KEY) return;
+      const next = applySharedRead(trackerRef.current, loadSharedRead(browserStorage("localStorage")));
+      if (next !== trackerRef.current) commit(next);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  // The favicon red dot: one controller for this page, original favicon restored on unmount.
+  useEffect(() => {
+    faviconRef.current = createFaviconBadge(document);
+    return () => {
+      faviconRef.current?.dispose();
+      faviconRef.current = null;
+    };
+  }, []);
+  const unreadHere = key && tracker?.key === key ? unreadCount(tracker) : 0;
+  const faviconDot = showFaviconDot(!visible, unreadHere);
+  useEffect(() => { faviconRef.current?.show(faviconDot); }, [faviconDot]);
 
   // Back on the tab or back online: read the authoritative queue now instead of waiting for the
   // next poll (background tabs are throttled by the browser).
@@ -196,7 +232,7 @@ export default function DoctorQueueNotifications({ summary: rawSummary, status =
   const count = summary.waiting;
   const title = queueTabTitle(count, queueLabel);
   const entries = tracker?.key === key ? tracker.entries : [];
-  const unread = tracker?.key === key ? unreadCount(tracker) : 0;
+  const unread = unreadHere;
   const stale = status !== "ready";
   const countLabel = count === 1 ? "patient waiting" : "patients waiting";
 

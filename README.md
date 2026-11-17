@@ -162,6 +162,26 @@ If a voice service is already running, stop that instance before starting its re
 
 For another voice port, failed health checks, silent playback, and diagnostic logs, see the [detailed voice service guide](backend/voice/README.md). A custom `NEXT_PUBLIC_PYTTSX3_TTS_URL` belongs in the frontend environment; restart the development frontend after changing it, or rebuild and restart a production frontend.
 
+## Print queue tickets on the JK-5802H 58mm thermal printer
+
+**Print Thermal Ticket** lays the ticket out 48mm wide, the printable width of the driver's **58(48) × 210 mm** paper, with the browser's page margins set to 0. In Chrome's print dialog, choose:
+
+| Setting | Value |
+| --- | --- |
+| Paper size | 58(48) × 210 mm, or the shorter custom size below |
+| Margins | None (Default also works: the ticket sets them to 0) |
+| Scale | Default (100%) |
+| Headers and footers | Off |
+
+**Paper length.** The physical length comes from the printer driver's paper size, not from the web page. Measured in Chrome at 48mm wide, a waiting or called ticket uses about 121–134mm. A reprint of a cancelled, completed or no-show ticket is the longest at about 150mm, because of its inactive box and longer footer. If the driver feeds the full 210mm for every ticket, a shorter custom paper size saves paper:
+
+1. Open **Control Panel → Devices and Printers**, select the JK-5802H, then choose **Print server properties → Forms**.
+2. Select the existing **58(48) × 210 mm** form and note its width. Tick **Create a new form**, name it `58(48) x 160 mm`, keep that width, set the height to **160mm**, and choose **Save Form**.
+3. In the printer's **Printing preferences → Advanced → Paper Size** (if the driver lists custom forms), and in Chrome's **Paper size**, select the new form.
+4. Print a reprint of a cancelled ticket and check that its footer prints in full on one ticket.
+
+Do not go shorter than 160mm. A ticket longer than the paper continues on a second ticket. Some drivers offer only their built-in sizes; in that case keep 58(48) × 210 mm and tear after the footer.
+
 ## Validate changes
 
 ```sh

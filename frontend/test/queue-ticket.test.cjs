@@ -212,13 +212,34 @@ test("thermal printing keeps the existing popup and Courier layout while using o
   api.printQueueTicket(api.createQueueTicket(patient({ status: "cancelled" })));
   assert.deepEqual(calls[0], ["", "_blank", "width=300,height=600"]);
   assert.match(written[0], /Courier New/);
-  assert.match(written[0], /width:280px/);
+  assert.match(written[0], /width:48mm/);
   assert.match(written[0], /OB-002/);
   assert.match(written[0], /Oct 13, 2026/);
   assert.match(written[0], /8:15 AM PHT/);
   assert.match(written[0], /Cancelled/);
   assert.match(written[0], /INACTIVE TICKET/);
   for (const secret of ["Private", "CONFIDENTIAL-ID", "Priority Score"]) assert.ok(!written[0].includes(secret));
+});
+
+test("thermal ticket fits the JK-5802H's 48mm printable width without clipping", () => {
+  const { api } = helpers();
+  const html = api.thermalTicketHtml(api.createQueueTicket(patient()));
+  assert.equal(api.THERMAL_PRINT_WIDTH_MM, 48);
+  // No browser margins, and the 48mm includes the padding, centered on a wider page.
+  assert.match(html, /@page\{margin:0\}/);
+  assert.match(html, /body\{[^}]*box-sizing:border-box;width:48mm;max-width:100%;margin:0 auto;[^}]*padding:20px 1mm;overflow-wrap:anywhere\}/);
+  // Only the paper width changes: the 6-character number, fonts and spacing stay as designed.
+  assert.match(html, /\.queue-num\{font-size:48px;font-weight:bold;margin:20px 0;overflow-wrap:anywhere\}/);
+  for (const rule of [".header{font-weight:bold;font-size:16px;margin-bottom:5px}", ".info{font-size:14px;margin-bottom:10px;text-align:left}",
+    ".footer{font-size:10px;margin-top:30px;border-top:1px dashed #000;padding-top:10px}", ".inactive{font-weight:bold;border:1px solid #000;padding:8px}"]) {
+    assert.ok(html.includes(rule), rule);
+  }
+  assert.doesNotMatch(html, /overflow:\s*hidden/);
+  // A longer number shrinks to stay on one 46mm line rather than breaking mid-number.
+  const numberSize = (queueNumber) => /\.queue-num\{font-size:([^;]+);/.exec(api.thermalTicketHtml(api.createQueueTicket(patient({ queue_number: queueNumber }))))[1];
+  assert.equal(numberSize("MC-001"), "48px");
+  assert.equal(numberSize("MC-1000"), "10.83mm");
+  assert.equal(numberSize("MC-100000"), "8.43mm");
 });
 
 function actionsHarness(ticketApi, props = {}) {

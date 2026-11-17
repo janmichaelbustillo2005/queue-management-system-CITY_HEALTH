@@ -126,7 +126,7 @@ function TimeRow({ title, description, metric, samples, sampleWord, better, labe
 // EP1: a counter's current display name, keeping the counter ID it was reported under beside it.
 function doctorRowLabel(names, counterName) {
   const name = typeof names?.[counterName] === "string" ? names[counterName].trim() : "";
-  return name ? `${name} (${counterName})` : counterName;
+  return name && name !== counterName ? `${name} (${counterName})` : counterName;
 }
 
 function DoctorTable({ counters, loading, names }) {

@@ -1,7 +1,7 @@
 const path = require("node:path");
 
-// The Algorithm Simulation page runs the research simulator from backend/simulation in the
-// browser, so the build root is the repository folder that holds frontend/ and backend/.
+// The build root is the repository folder that holds frontend/ and backend/ (kept unchanged
+// when the Algorithm Simulation page, which imported backend/simulation, was removed).
 const repositoryRoot = path.join(__dirname, "..");
 
 module.exports = {

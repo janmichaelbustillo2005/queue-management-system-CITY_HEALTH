@@ -426,7 +426,7 @@ export default function FillUpFormPage() {
       // RR1: the doctor the round robin assigned at submit, "Name (Doctor N)" when a display name is set.
       const assignedDoctor = typeof data.assigned_doctor === "string" && data.assigned_doctor.trim() ? data.assigned_doctor.trim() : "";
       const assignedDoctorName = typeof data.assigned_doctor_name === "string" ? data.assigned_doctor_name.trim() : "";
-      const assignedDoctorLabel = assignedDoctor ? (assignedDoctorName ? `${assignedDoctorName} (${assignedDoctor})` : assignedDoctor) : "";
+      const assignedDoctorLabel = assignedDoctor ? (assignedDoctorName && assignedDoctorName !== assignedDoctor ? `${assignedDoctorName} (${assignedDoctor})` : assignedDoctor) : "";
       setMessage({
         type: "success",
         text: "Your queue number has been generated successfully!",

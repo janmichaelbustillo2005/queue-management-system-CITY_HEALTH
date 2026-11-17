@@ -137,7 +137,6 @@ test("each role sees one organized menu of its own sections", () => {
     ["Queue Operations", ["Queue Management", "Historical Backlog", "Live Queue Display"]],
     ["Records Management", ["Patient Records", "Staff Records", "User Accounts"]],
     ["Reports & Analytics", ["Analytics"]],
-    ["Simulation Mode", ["Algorithm Simulation"]],
     ["System Administration", ["Staff Management", "System Settings"]]
   ]);
   assert.deepEqual(plain(menu(accounts.frontdesk)), [
@@ -174,7 +173,10 @@ test("every menu link is an existing page, and no role is shown another role's p
       assert.ok(fs.existsSync(path.join(__dirname, "../pages", `${file}.js`)), `${user.id_num}: ${href}`);
     }
   }
-  const superadminOnly = href => href.startsWith("/?") || href.startsWith("/records") || href === "/analytics" || href === "/algorithm-simulation";
+  const superadminOnly = href => href.startsWith("/?") || href.startsWith("/records") || href === "/analytics";
+  // The Algorithm Simulation page was removed: no role links to it and the route no longer exists.
+  for (const user of Object.values(accounts)) assert.ok(!links(user).includes("/algorithm-simulation"), user.id_num);
+  assert.ok(!fs.existsSync(path.join(__dirname, "../pages/algorithm-simulation.js")));
   assert.ok(!links(accounts.frontdesk).some(superadminOnly));
   assert.ok(!links(accounts.frontdesk).some(href => /^\/admin\d/.test(href)), "front desk gets no doctor console");
   for (const id of ["admin1", "admin2", "admin3"]) {

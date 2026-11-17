@@ -61,7 +61,7 @@ export function createQueueTicket(patient, { dispatchMode, dispatchStrategy, doc
     patientId: patient.id,
     queueNumber: String(patient.queue_number),
     serviceLabel: SERVICE_LABELS[patient.service_type] || "Service unavailable",
-    doctorName: displayName ? `${displayName} (${assignedDoctor})` : assignedDoctor,
+    doctorName: displayName && displayName !== assignedDoctor ? `${displayName} (${assignedDoctor})` : assignedDoctor,
     registeredDate: validDate ? registeredAt.toLocaleDateString("en-US", {
       month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila"
     }) : "Unavailable",
@@ -216,10 +216,25 @@ export function openThermalTicketWindow() {
   return popup;
 }
 
+// JK-5802H 58mm thermal printer: its driver's "58(48) x 210 mm" paper has a 48mm printable width,
+// which is the page Chrome lays the ticket out on. The ticket is exactly that wide, padding and
+// borders included, and centered if a driver reports a wider page. Margins are 0 so Chrome's own
+// default margins cannot narrow it. Paper length is the driver's paper size, not CSS (see README).
+export const THERMAL_PRINT_WIDTH_MM = 48;
+const THERMAL_SIDE_PADDING_MM = 1;
+// Courier New's characters are 0.6em wide: a 6-character number (MC-001) keeps its 48px size;
+// a longer one (MC-1000) shrinks just enough (with 0.5mm to spare) to stay on one line instead
+// of breaking mid-number.
+function thermalNumberFontSize(queueNumber) {
+  const textWidthMm = THERMAL_PRINT_WIDTH_MM - 2 * THERMAL_SIDE_PADDING_MM;
+  const ems = 0.6 * Math.max(1, queueNumber.length);
+  return 48 * ems * 25.4 / 96 <= textWidthMm ? "48px" : `${((textWidthMm - 0.5) / ems).toFixed(2)}mm`;
+}
+
 export function thermalTicketHtml(ticket) {
   const esc = escapeTicketText;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Queue Ticket ${esc(ticket.queueNumber)}</title>
-    <style>body{font-family:'Courier New',Courier,monospace;width:280px;margin:0 auto;text-align:center;padding:20px}.header{font-weight:bold;font-size:16px;margin-bottom:5px}.subheader{font-size:12px;margin-bottom:20px;border-bottom:1px dashed #000;padding-bottom:10px}.queue-num{font-size:48px;font-weight:bold;margin:20px 0;overflow-wrap:anywhere}.info{font-size:14px;margin-bottom:10px;text-align:left}.footer{font-size:10px;margin-top:30px;border-top:1px dashed #000;padding-top:10px}.inactive{font-weight:bold;border:1px solid #000;padding:8px}${ticket.isPriority ? `.priority{font-size:12px;line-height:14px;font-weight:600;color:${PRIORITY_INDICATOR_COLOR};margin:-18px 0 4px}` : ""}</style></head>
+    <style>@page{margin:0}body{font-family:'Courier New',Courier,monospace;box-sizing:border-box;width:${THERMAL_PRINT_WIDTH_MM}mm;max-width:100%;margin:0 auto;text-align:center;padding:20px ${THERMAL_SIDE_PADDING_MM}mm;overflow-wrap:anywhere}.header{font-weight:bold;font-size:16px;margin-bottom:5px}.subheader{font-size:12px;margin-bottom:20px;border-bottom:1px dashed #000;padding-bottom:10px}.queue-num{font-size:${thermalNumberFontSize(ticket.queueNumber)};font-weight:bold;margin:20px 0;overflow-wrap:anywhere}.info{font-size:14px;margin-bottom:10px;text-align:left}.footer{font-size:10px;margin-top:30px;border-top:1px dashed #000;padding-top:10px}.inactive{font-weight:bold;border:1px solid #000;padding:8px}${ticket.isPriority ? `.priority{font-size:12px;line-height:14px;font-weight:600;color:${PRIORITY_INDICATOR_COLOR};margin:-18px 0 4px}` : ""}</style></head>
     <body><div class="header">CHO &amp; Family Planning Center</div><div class="subheader">Cabadbaran City</div>
     <div class="info">Service: ${esc(ticket.serviceLabel)}</div><div class="queue-num">${esc(ticket.queueNumber)}</div>${ticket.isPriority ? '<div class="priority">PRIORITY</div>' : ""}
     <div class="info">Assigned: ${esc(ticket.doctorName)}</div><div class="info">Registered: ${esc(ticket.registeredDate)}</div><div class="info">Time: ${esc(ticket.registeredTime)} PHT</div>

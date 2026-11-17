@@ -39,7 +39,7 @@ export function recordCell(row, key) {
   if (key === "created_at" && !value) return muted("Not recorded");
   // Patients: a stored assignment, or the doctor the service routes to before one is stored.
   // EP1: the counter's current display name, keeping the stored counter ID beside it.
-  if (key === "doctor" && value && row.doctor_display_name && row.doctor_source !== "unresolved") {
+  if (key === "doctor" && value && row.doctor_display_name && row.doctor_display_name.trim() !== value && row.doctor_source !== "unresolved") {
     return `${row.doctor_display_name} (${value}${row.doctor_source === "service" ? ", by service" : ""})`;
   }
   if (key === "doctor" && row.doctor_source === "service") return value ? `${value} (by service)` : muted("Not assigned");

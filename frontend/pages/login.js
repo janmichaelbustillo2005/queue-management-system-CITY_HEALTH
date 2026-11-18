@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { useAuth } from "../context/AuthContext";
 import SystemLogo from "../components/SystemLogo";
 import { OFFICE_IDENTITY } from "../lib/branding";
+import { canRegisterPatients } from "../lib/navigation";
 import styles from "../styles/login.module.css";
 
 // The photo is shown whole (never cropped) so the building sign and the
@@ -33,7 +34,8 @@ export default function Login() {
         if (user.id_num === "admin1") router.push("/admin1");
         else if (user.id_num === "admin2") router.push("/admin2");
         else if (user.id_num === "admin3") router.push("/admin3");
-        else if (user.id_num === "frontdesk") router.push("/fill-up_form");
+        // Every Front Desk account (by role and doctor assignment), not only the one named "frontdesk".
+        else if (canRegisterPatients(user)) router.push("/fill-up_form");
         else router.push("/");
       }
     }

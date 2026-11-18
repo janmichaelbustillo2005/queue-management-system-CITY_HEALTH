@@ -901,6 +901,53 @@ function assertPatientRecordsActor(actor) {
   throw patientRecordError("Only Front Desk staff and the Super Admin can search or register patient records.", 403);
 }
 
+// Patient registration (POST /queue and POST /queue/website): Front Desk and Super Admin only, the
+// same rule as patient records. The decision comes from the signed-in account's role and doctor
+// assignment, never from its username, so a newly created Front Desk account (an admin account
+// without a doctor assignment) registers patients and a doctor account never does.
+function canRegisterPatients(account) {
+  if (account?.role === "superadmin") return true;
+  return account?.role === "admin" && isFrontdeskAssignment(account.doctor_name);
+}
+
+function assertRegistrationActor(account) {
+  if (!canRegisterPatients(account)) {
+    throw patientRecordError("Only Front Desk staff and the Super Admin can register patients.", 403);
+  }
+}
+
+// The identity fields of POST /queue and POST /queue/website, checked as Front Desk registration
+// (readNewPatientRecord) checks them, so bad input is a 400 and never reaches the database (where an
+// over-long value would fail with a raw column error). Optional fields stay optional on these routes.
+// The name is stored in patients.id_num, a 100-character column.
+const REGISTRATION_NAME_MAX = 100;
+const REGISTRATION_SEXES = ["Male", "Female"];
+const CONTROL_CHARACTERS_IN_INPUT = /[\u0000-\u001f\u007f-\u009f]/;
+
+function optionalRegistrationText(value, message) {
+  if (value == null) return "";
+  if (typeof value !== "string" && typeof value !== "number") throw registrationError(message);
+  return String(value).trim();
+}
+
+function readRegistrationFields({ fullName, sex, mobileNumber, philhealthId } = {}) {
+  if (typeof fullName !== "string" || !fullName.trim()) throw registrationError("Full name is required.");
+  const name = cleanNamePart(fullName);
+  if (name.length > REGISTRATION_NAME_MAX) {
+    throw registrationError(`Full name can have at most ${REGISTRATION_NAME_MAX} characters.`);
+  }
+  if (CONTROL_CHARACTERS_IN_INPUT.test(name)) throw registrationError("Full name contains characters that are not allowed.");
+  const sexValue = optionalRegistrationText(sex, "Select the patient's sex (Male or Female).");
+  if (sexValue && !REGISTRATION_SEXES.includes(sexValue)) throw registrationError("Select the patient's sex (Male or Female).");
+  const mobile = optionalRegistrationText(mobileNumber, "Mobile Number can contain digits only (at most 15).");
+  if (mobile && !/^\d{1,15}$/.test(mobile)) throw registrationError("Mobile Number can contain digits only (at most 15).");
+  const philhealth = cleanNamePart(optionalRegistrationText(philhealthId, "PhilHealth / YAKAP ID can have at most 100 characters."));
+  if (philhealth.length > 100 || CONTROL_CHARACTERS_IN_INPUT.test(philhealth)) {
+    throw registrationError("PhilHealth / YAKAP ID can have at most 100 characters.");
+  }
+  return { fullName: name, sex: sexValue || null, mobileNumber: mobile || null, philhealthId: philhealth || null };
+}
+
 function formatPatientCode(id) {
   return `PAT-${id < 10000 ? String(id).padStart(4, "0") : id}`;
 }
@@ -4578,6 +4625,9 @@ module.exports = {
   getPatientRecord,
   registerPatientVisit,
   assertPatientRecordsActor,
+  canRegisterPatients,
+  assertRegistrationActor,
+  readRegistrationFields,
   findActiveDuplicate,
   getAnalytics,
   getDashboardStats,

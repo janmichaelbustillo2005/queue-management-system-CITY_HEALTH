@@ -6,6 +6,7 @@ import QueueTicketDialog from "../components/QueueTicketDialog";
 import { defaultQueueSettings } from "../components/SettingsModal";
 import { useAuth } from "../context/AuthContext";
 import { request } from "../lib/api";
+import { canRegisterPatients } from "../lib/navigation";
 import { createQueueTicket, fetchExistingQueueTicket } from "../lib/queueTicket";
 import { fetchQueueSettings, loadLocalQueueSettings, mergeQueueSettings } from "../lib/queueSettings";
 import { QUEUE_SEARCH_PLACEHOLDER, QUEUE_STATUS_FILTERS, isWpsAgingOn } from "../lib/queueView";
@@ -68,7 +69,9 @@ export default function PatientManagementPage() {
   // presence; Superadmin sees the confirmation state only. The backend decides from the account.
   const canConfirm = user?.role === "admin" &&
     ["", "front desk", "frontdesk"].includes(String(user?.doctor_name ?? "").trim().toLowerCase());
-  const canIssueTicket = user?.id_num === "frontdesk" || user?.role === "superadmin";
+  // Viewing or reprinting a ticket is registration work: Front Desk and Super Admin, by role and
+  // doctor assignment (the same rule as the registration form), not by username.
+  const canIssueTicket = canRegisterPatients(user);
   const canIssueTicketRef = useRef(canIssueTicket);
   canIssueTicketRef.current = canIssueTicket;
 

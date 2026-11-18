@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const swc = require("next/dist/build/swc");
 
-let authCode, apiCode, heartbeatCode;
+let authCode, apiCode, heartbeatCode, navigationCode;
 before(async () => {
   await swc.loadBindings();
   async function compile(relative) {
@@ -16,8 +16,8 @@ before(async () => {
       module: { type: "commonjs" }
     })).code;
   }
-  [authCode, apiCode, heartbeatCode] = await Promise.all([
-    compile("context/AuthContext.js"), compile("lib/api.js"), compile("lib/authHeartbeat.js")
+  [authCode, apiCode, heartbeatCode, navigationCode] = await Promise.all([
+    compile("context/AuthContext.js"), compile("lib/api.js"), compile("lib/authHeartbeat.js"), compile("lib/navigation.js")
   ]);
 });
 
@@ -84,6 +84,8 @@ function harness(options = {}) {
   const heartbeatModule = { exports: {} };
   vm.runInNewContext(heartbeatCode, { module: heartbeatModule, exports: heartbeatModule.exports, Map, AbortController });
   const router = { push: (route) => routes.push(route) };
+  const navigationModule = { exports: {} };
+  vm.runInNewContext(navigationCode, { module: navigationModule, exports: navigationModule.exports });
   const authModule = { exports: {} };
   vm.runInNewContext(authCode, {
     module: authModule, exports: authModule.exports, window, localStorage: storage, console, Event, AbortController,
@@ -94,6 +96,7 @@ function harness(options = {}) {
       if (name === "next/router") return { useRouter: () => router };
       if (name === "../lib/api") return apiModule.exports;
       if (name === "../lib/authHeartbeat") return heartbeatModule.exports;
+      if (name === "../lib/navigation") return navigationModule.exports;
       throw new Error(`Unexpected dependency: ${name}`);
     }
   });

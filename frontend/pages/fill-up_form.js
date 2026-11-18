@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import SiteFrame from "../components/SiteFrame";
 import DigitalQueuePass from "../components/DigitalQueuePass";
 import PatientRecordSearch, { formatRecordBirthdate } from "../components/PatientRecordSearch";
@@ -11,6 +12,7 @@ import ResidencySearch from "../components/ResidencySearch";
 import { RESIDENCY_NOT_SELECTED, normalizeResidency, parseResidency, residencyProblem } from "../lib/residency";
 import { createQueueTicket, getPatientsAheadSnapshot } from "../lib/queueTicket";
 import { useAuth } from "../context/AuthContext";
+import { canRegisterPatients, registrationRedirectFor } from "../lib/navigation";
 
 // The 13 Types of Services offered at registration (lib/services.js).
 const serviceOptions = OFFERED_SERVICES;
@@ -155,8 +157,10 @@ function formFromRecord(record) {
 }
 
 export default function FillUpFormPage() {
-  const { user } = useAuth();
-  const isFrontdesk = user?.id_num === "frontdesk";
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+  // Registration is Front Desk and Super Admin work (the backend enforces the same rule).
+  const canRegister = canRegisterPatients(user);
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState({ type: "", text: "", queue: "", priorityScore: 0, serviceType: "" });
   const [isLoading, setIsLoading] = useState(false);
@@ -173,10 +177,10 @@ export default function FillUpFormPage() {
   const successHeadingRef = useRef(null);
   const ticketGenerationRef = useRef(0);
   const savedPatientIdRef = useRef(null);
-  const canIssueTicket = isFrontdesk || user?.role === "superadmin";
+  const canIssueTicket = canRegister;
   // Staff registrations save a permanent patient record (or reuse a selected one); the API
-  // enforces the same Frontdesk/Superadmin rule. Others keep the original registration.
-  const canUsePatientRecords = isFrontdesk || user?.role === "superadmin";
+  // enforces the same Frontdesk/Superadmin rule.
+  const canUsePatientRecords = canRegister;
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [duplicateCandidates, setDuplicateCandidates] = useState(null);
   const [recordLoading, setRecordLoading] = useState(false);
@@ -208,6 +212,14 @@ export default function FillUpFormPage() {
       if (!data?.error) setDispatchMode(data?.dispatch_mode === SHARED_DISPATCH ? SHARED_DISPATCH : "service", data);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    // Signed out: to Login. Signed in without registration permission (a doctor): to the account's
+    // own home page (a doctor's queue), never back here.
+    if (authLoading) return;
+    const target = registrationRedirectFor(user);
+    if (target) router.replace(target);
+  }, [user, authLoading, router]);
 
   useEffect(() => {
     // Keep server and initial browser markup identical, including across midnight.
@@ -365,39 +377,28 @@ export default function FillUpFormPage() {
         return;
       }
 
-      let route = "/queue/website";
-      let payload = {
-        fullName: buildFullName(form),
-        serviceType: form.serviceType,
-        mobileNumber: form.mobileNumber,
-        residency: normalizeResidency(form.residency),
-        philhealthId: form.philhealthId,
-        birthdate: form.birthdate,
-        sex: form.sex,
-        vulnerabilityFlags: form.vulnerabilityFlags
-      };
-      if (canUsePatientRecords) {
-        route = "/patient-records/visits";
-        // A selected patient is identified by record id only; the server uses the stored
-        // details, so the permanent record is never overwritten from this form.
-        payload = selectedPatient
-          ? { patientRecordId: selectedPatient.id, serviceType: form.serviceType, vulnerabilityFlags: form.vulnerabilityFlags }
-          : {
-              firstName: cleanNamePart(form.firstName),
-              middleInitial: form.middleInitial,
-              lastName: cleanNamePart(form.lastName),
-              serviceType: form.serviceType,
-              mobileNumber: form.mobileNumber,
-              residency: normalizeResidency(form.residency),
-              // Proof that a map place was verified by the backend; it decides map vs manual itself.
-              ...(residencySelection?.place?.token ? { residencyPlaceToken: residencySelection.place.token } : {}),
-              philhealthId: form.philhealthId,
-              birthdate: form.birthdate,
-              sex: form.sex,
-              vulnerabilityFlags: form.vulnerabilityFlags,
-              ...(confirmNewRecord ? { confirmNewRecord: true } : {})
-            };
-      }
+      // Only Front Desk and Super Admin reach this form, so every registration saves (or reuses) a
+      // permanent patient record through the staff route, with its duplicate check.
+      const route = "/patient-records/visits";
+      // A selected patient is identified by record id only; the server uses the stored
+      // details, so the permanent record is never overwritten from this form.
+      const payload = selectedPatient
+        ? { patientRecordId: selectedPatient.id, serviceType: form.serviceType, vulnerabilityFlags: form.vulnerabilityFlags }
+        : {
+            firstName: cleanNamePart(form.firstName),
+            middleInitial: form.middleInitial,
+            lastName: cleanNamePart(form.lastName),
+            serviceType: form.serviceType,
+            mobileNumber: form.mobileNumber,
+            residency: normalizeResidency(form.residency),
+            // Proof that a map place was verified by the backend; it decides map vs manual itself.
+            ...(residencySelection?.place?.token ? { residencyPlaceToken: residencySelection.place.token } : {}),
+            philhealthId: form.philhealthId,
+            birthdate: form.birthdate,
+            sex: form.sex,
+            vulnerabilityFlags: form.vulnerabilityFlags,
+            ...(confirmNewRecord ? { confirmNewRecord: true } : {})
+          };
 
       const data = await request(route, {
         method: "POST",
@@ -487,6 +488,11 @@ export default function FillUpFormPage() {
     setResidencyError("");
     setResidencySelection(null);
   };
+
+  // Nothing of the form is shown until a registering account is confirmed (the effect above redirects).
+  if (!canRegister) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  }
 
   return (
     <SiteFrame

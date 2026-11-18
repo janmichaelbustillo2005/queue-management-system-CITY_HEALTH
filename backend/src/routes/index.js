@@ -32,6 +32,8 @@ const {
   getPatientRecord,
   registerPatientVisit,
   assertPatientRecordsActor,
+  assertRegistrationActor,
+  readRegistrationFields,
   getAnalytics,
   getDashboardStats,
   getDisplayData,
@@ -230,24 +232,38 @@ router.get("/queue", authenticateToken, async (req, res) => {
   }
 });
 
-router.post("/queue", authenticateToken, async (req, res) => {
+// Patient registration is staff work: only Front Desk and Super Admin accounts may create a visit.
+// authenticateToken has already answered 401 for a missing, invalid or expired session. The account
+// is the database-validated session (req.authSession), the same identity every other queue action
+// trusts; doctors are refused with 403 before anything is read or saved.
+function requireRegistrationStaff(req, res, next) {
   try {
-    const { fullName, service_type, mobile_number, residency, philhealth_id, birthdate, sex, vulnerabilityFlags } = req.body;
+    assertRegistrationActor(req.authSession ?? req.user);
+  } catch (error) {
+    return res.status(error.statusCode || 403).json({ success: false, message: error.message });
+  }
+  return next();
+}
+
+router.post("/queue", authenticateToken, requireRegistrationStaff, async (req, res) => {
+  try {
+    const { fullName, service_type, mobile_number, residency, philhealth_id, birthdate, sex, vulnerabilityFlags } = req.body || {};
 
     if (!fullName || !service_type) {
       return res.status(400).json({ success: false, message: "Full name and service type are required" });
     }
+    const identity = readRegistrationFields({ fullName, sex, mobileNumber: mobile_number, philhealthId: philhealth_id });
     // RES1: required, and only an address within Cabadbaran City, Agusan del Norte.
     const residencyText = readResidency(residency);
 
     const row = await createQueueEntry({
-      idNum: fullName,
+      idNum: identity.fullName,
       serviceType: service_type,
-      mobileNumber: mobile_number,
+      mobileNumber: identity.mobileNumber,
       residency: residencyText,
-      philhealthId: philhealth_id,
+      philhealthId: identity.philhealthId,
       birthdate,
-      sex,
+      sex: identity.sex,
       vulnerabilityFlags: vulnerabilityFlags || [],
       source: "admin"
     });
@@ -265,23 +281,26 @@ router.post("/queue", authenticateToken, async (req, res) => {
   }
 });
 
-router.post("/queue/website", async (req, res) => {
+// The original registration form route, kept for compatibility. It is staff-only like POST /queue:
+// it was never meant for anonymous use (no patient-facing page posts here).
+router.post("/queue/website", authenticateToken, requireRegistrationStaff, async (req, res) => {
   try {
-    const { fullName, serviceType, mobileNumber, residency, philhealthId, birthdate, sex, vulnerabilityFlags } = req.body;
+    const { fullName, serviceType, mobileNumber, residency, philhealthId, birthdate, sex, vulnerabilityFlags } = req.body || {};
 
     if (!fullName || !serviceType) {
       return res.status(400).json({ success: false, message: "Please fill in all required fields." });
     }
+    const identity = readRegistrationFields({ fullName, sex, mobileNumber, philhealthId });
     const residencyText = readResidency(residency);
 
     const row = await createQueueEntry({
-      idNum: fullName,
+      idNum: identity.fullName,
       serviceType,
-      mobileNumber,
+      mobileNumber: identity.mobileNumber,
       residency: residencyText,
-      philhealthId,
+      philhealthId: identity.philhealthId,
       birthdate,
-      sex,
+      sex: identity.sex,
       vulnerabilityFlags: vulnerabilityFlags || [],
       source: "website"
     });

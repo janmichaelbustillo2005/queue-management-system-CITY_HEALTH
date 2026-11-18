@@ -13,7 +13,8 @@ before(async () => {
   await swc.loadBindings();
   for (const [name, relative] of Object.entries({
     table: "../components/PatientQueueTable.js",
-    management: "../pages/patient-management.js"
+    management: "../pages/patient-management.js",
+    navigation: "../lib/navigation.js"
   })) {
     const filename = path.join(__dirname, relative);
     code[name] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
@@ -84,6 +85,12 @@ function harness(name, options = {}) {
       if (dependency === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
       if (isQueuePaginationModule(dependency)) return loadQueuePagination({ jsx, jsxs: jsx, Fragment: "fragment" });
       if (dependency === "next/router") return { useRouter: () => ({ replace() {} }) };
+      if (dependency === "../lib/navigation") {
+        // The real permission rule (role and doctor assignment), not a stub.
+        const navigation = { exports: {} };
+        vm.runInNewContext(code.navigation, { module: navigation, exports: navigation.exports });
+        return navigation.exports;
+      }
       if (dependency === "../context/AuthContext") return { useAuth: () => ({
         user: options.user || { id_num: "frontdesk", role: "admin" }, loading: false
       }) };
@@ -274,10 +281,11 @@ test("delivery callbacks reject updates after ticket permission is lost", async 
   const h = harness("management", { user });
   await h.table().props.onViewTicket(patient(6));
   const update = h.dialog().props.onTicketUpdate;
-  user.id_num = "other";
+  // Permission follows the account's doctor assignment: assigned to a doctor, it may not issue tickets.
+  user.doctor_name = "Doctor 1";
   h.render();
   update(safeTicket(patient(6, { status: "completed" })));
-  user.id_num = "frontdesk";
+  user.doctor_name = null;
   h.render();
   assert.equal(h.dialog().props.ticket.status, "waiting", "unauthorized callback did not update cached state");
 });
@@ -338,8 +346,14 @@ test("a failed queue status refresh closes the open pass instead of presenting s
 });
 
 test("ticket actions are exposed for Frontdesk and Superadmin, but not other accounts", () => {
-  for (const user of [{ id_num: "frontdesk", role: "admin" }, { id_num: "superadmin", role: "superadmin" }]) {
-    assert.equal(typeof harness("management", { user }).table().props.onViewTicket, "function");
+  // A newly created Front Desk account (any username, no doctor assignment) is Front Desk too.
+  for (const user of [{ id_num: "frontdesk", role: "admin" }, { id_num: "superadmin", role: "superadmin" },
+    { id_num: "frontdesk2", role: "admin", doctor_name: null }, { id_num: "maria.fd", role: "admin", doctor_name: "Front Desk" }]) {
+    assert.equal(typeof harness("management", { user }).table().props.onViewTicket, "function", user.id_num);
   }
-  assert.equal(harness("management", { user: { id_num: "other", role: "admin" } }).table().props.onViewTicket, undefined);
+  for (const user of [{ id_num: "admin1", role: "admin", doctor_name: "Doctor 1" }, { id_num: "drnew", role: "admin", doctor_name: "Doctor 3" },
+    { id_num: "other", role: "unknown" }]) {
+    // Patient Management itself redirects admin1-3 (no table at all); others see no ticket action.
+    assert.equal(harness("management", { user }).table()?.props.onViewTicket, undefined, user.id_num);
+  }
 });

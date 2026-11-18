@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import { AUTH_SESSION_CHANGED_EVENT, request } from "../lib/api";
 import { startAuthHeartbeat } from "../lib/authHeartbeat";
+import { canRegisterPatients } from "../lib/navigation";
 
 const AuthContext = createContext(null);
 
@@ -87,7 +88,8 @@ export function AuthProvider({ children }) {
           if (response.user.id_num === "admin1") router.push("/admin1");
           else if (response.user.id_num === "admin2") router.push("/admin2");
           else if (response.user.id_num === "admin3") router.push("/admin3");
-          else if (response.user.id_num === "frontdesk") router.push("/fill-up_form");
+          // Every Front Desk account (by role and doctor assignment), not only the one named "frontdesk".
+          else if (canRegisterPatients(response.user)) router.push("/fill-up_form");
           else router.push("/");
         }
         return { success: true };

@@ -18,6 +18,15 @@ export function isFrontdeskAssignment(value) {
   return !label || FRONTDESK_LABELS.includes(label);
 }
 
+// Patient registration and ticket issuing: Front Desk and Super Admin only, decided exactly as the
+// backend decides (queueService canRegisterPatients): by the session's role and doctor assignment,
+// never by the username. A newly created Front Desk account qualifies; a doctor account never does.
+export function canRegisterPatients(user) {
+  if (!user || typeof user !== "object") return false;
+  if (user.role === "superadmin") return true;
+  return user.role === "admin" && isFrontdeskAssignment(user.doctor_name);
+}
+
 // "Doctor 2", "doctor2" and "2" all name counter Doctor 2; anything else is not a doctor counter.
 export function normalizeDoctorAssignment(value) {
   const label = String(value ?? "").trim();
@@ -46,6 +55,16 @@ export function resolveAccount(user) {
     return { ...base, kind: "frontdesk", roleLabel: "Front Desk Staff", assignment: "Front desk", icon: "fas fa-id-badge", homeHref: "/fill-up_form" };
   }
   return { ...base, kind: "staff", roleLabel: "Staff", assignment: doctor || String(user.doctor_name), icon: "fas fa-user", homeHref: "/patient-management" };
+}
+
+// Where the registration page sends an account that may not register: Login when signed out;
+// otherwise the account's own home page (a doctor's queue), or Login when it has none. Null when the
+// account may register. Display only: the backend refuses the registration itself (401/403).
+export function registrationRedirectFor(user) {
+  if (canRegisterPatients(user)) return null;
+  if (!user) return "/login";
+  const home = resolveAccount(user)?.homeHref;
+  return home && home !== "/fill-up_form" ? home : "/login";
 }
 
 export function readNavLocation(router) {

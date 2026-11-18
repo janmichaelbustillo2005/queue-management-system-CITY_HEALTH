@@ -5,7 +5,7 @@ const routes = require("./routes");
 const { seedCounters, requestDispatch, isRoundRobin } = require("./services/queueService");
 const { startVoiceService } = require("./services/voiceServiceLauncher");
 const { redactQueryValues } = require("./lib/requestLog");
-const { loginLimiter, publicRegistrationLimiter, addressSearchLimiter } = require("./middleware/rateLimit");
+const { loginLimiter, registrationLimiter, addressSearchLimiter } = require("./middleware/rateLimit");
 
 const app = express();
 
@@ -55,7 +55,8 @@ app.use((req, _res, next) => {
 });
 
 app.use("/api/auth/login", loginLimiter);
-app.use("/api/queue/website", publicRegistrationLimiter);
+// Per registering staff account; anonymous and doctor requests are not counted (the routes refuse them).
+app.post(["/api/queue", "/api/queue/website"], registrationLimiter);
 app.use("/api/address-search", addressSearchLimiter);
 
 app.use("/api/records", require("./routes/records"));

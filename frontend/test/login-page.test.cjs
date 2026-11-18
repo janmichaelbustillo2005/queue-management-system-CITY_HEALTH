@@ -8,7 +8,7 @@ const swc = require("next/dist/build/swc");
 const compiled = {};
 before(async () => {
   await swc.loadBindings();
-  for (const relative of ["pages/login.js", "lib/branding.js"]) {
+  for (const relative of ["pages/login.js", "lib/branding.js", "lib/navigation.js"]) {
     const filename = path.join(__dirname, "..", relative);
     compiled[relative] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
       filename,
@@ -60,6 +60,8 @@ async function mountLogin({ user = null, authLoading = false, login } = {}) {
   };
   const branding = { exports: {} };
   vm.runInNewContext(compiled["lib/branding.js"], { module: branding, exports: branding.exports });
+  const navigation = { exports: {} };
+  vm.runInNewContext(compiled["lib/navigation.js"], { module: navigation, exports: navigation.exports });
   const pushes = [], logins = [], focused = [];
   const auth = {
     user, loading: authLoading,
@@ -77,6 +79,7 @@ async function mountLogin({ user = null, authLoading = false, login } = {}) {
       if (name === "../context/AuthContext") return { useAuth: () => auth };
       if (name === "../components/SystemLogo") return SystemLogo;
       if (name === "../lib/branding") return branding.exports;
+      if (name === "../lib/navigation") return navigation.exports;
       if (name === "../styles/login.module.css") return css;
       throw new Error(`Unexpected dependency: ${name}`);
     }
@@ -229,7 +232,11 @@ test("signed-in accounts are sent to their existing home pages", async () => {
     [{ id_num: "admin2", role: "admin" }, "/admin2"],
     [{ id_num: "admin3", role: "admin" }, "/admin3"],
     [{ id_num: "frontdesk", role: "admin" }, "/fill-up_form"],
-    [{ id_num: "other", role: "admin" }, "/"]
+    // A newly created Front Desk account (no doctor assignment) also opens registration, by role.
+    [{ id_num: "frontdesk2", role: "admin", doctor_name: null }, "/fill-up_form"],
+    [{ id_num: "maria.fd", role: "admin", doctor_name: "Front Desk" }, "/fill-up_form"],
+    // An account assigned to a doctor never opens registration.
+    [{ id_num: "other", role: "admin", doctor_name: "Doctor 2" }, "/"]
   ];
   for (const [user, target] of cases) assert.deepEqual((await mountLogin({ user })).pushes, [target], user.id_num);
   assert.deepEqual((await mountLogin()).pushes, [], "a signed-out or expired session stays on the form");

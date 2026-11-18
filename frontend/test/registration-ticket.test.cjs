@@ -42,7 +42,7 @@ const savedPatient = {
 
 function harness(options = {}) {
   let cursor = 0;
-  const hooks = [], calls = [];
+  const hooks = [], calls = [], effects = [], replaced = [];
   const user = "user" in options ? options.user : { id_num: "frontdesk", role: "admin" };
   const request = async (route, init = {}) => {
     calls.push({ route, method: init.method || "GET", ...(init.body ? { body: JSON.parse(init.body) } : {}) });
@@ -57,7 +57,8 @@ function harness(options = {}) {
     return [];
   };
   const react = {
-    useEffect() {},
+    // Effects are recorded (not run) so a test can run them on purpose, e.g. the access redirect.
+    useEffect(callback) { effects.push(callback); },
     useState(initial) {
       const index = cursor++;
       if (!(index in hooks)) hooks[index] = initial;
@@ -73,7 +74,8 @@ function harness(options = {}) {
     react, "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" }, "next/link": "Link",
     "../lib/api": { request }, "./api": { request },
     "./branding": { SYSTEM_BRANDING: { logoSrc: "/cho_logo-transparent.png" } },
-    "../context/AuthContext": { useAuth: () => ({ user }) }
+    "../context/AuthContext": { useAuth: () => ({ user }) },
+    "next/router": { useRouter: () => ({ replace: target => replaced.push(target) }) }
   };
   const load = name => {
     const module = { exports: {} };
@@ -90,12 +92,15 @@ function harness(options = {}) {
     return module.exports;
   };
   dependencies["../lib/queueTicket"] = load("lib/queueTicket.js");
+  dependencies["../lib/navigation"] = load("lib/navigation.js");
   // The search component renders as a named stub; its date formatter is the real one.
   dependencies["../components/PatientRecordSearch"] = {
     __esModule: true, default: "PatientRecordSearch", formatRecordBirthdate: load("components/PatientRecordSearch.js").formatRecordBirthdate
   };
   const page = load("pages/fill-up_form.js").default;
-  const render = () => { cursor = 0; return page(); };
+  const render = () => { cursor = 0; effects.length = 0; return page(); };
+  // Runs the effects of the latest render one by one; an effect needing browser timers is skipped.
+  const runEffects = () => { for (const effect of effects.splice(0)) { try { effect(); } catch { /* browser-only effect */ } } };
   const field = id => nodes(render(), node => node.props.id === id)[0];
   const change = (id, value) => {
     const node = field(id);
@@ -115,7 +120,7 @@ function harness(options = {}) {
     field("vuln-pregnant").props.onChange();
   }
   const submit = () => nodes(render(), node => node.type === "form")[0].props.onSubmit({ preventDefault() {} });
-  return { render, calls, field, change, fill, submit, load };
+  return { render, calls, field, change, fill, submit, load, runEffects, replaced };
 }
 
 test("registration sends the patient details, retrieves the actual saved record, and exposes safe delivery", async () => {
@@ -261,7 +266,8 @@ test("cached preview, snapshot, and delayed delivery disappear when the account 
   const user = { id_num: "frontdesk", role: "admin" };
   const h = harness({ user }); h.fill(); await h.submit();
   const actions = nodes(h.render(), node => node.type === "QueueTicketActions")[0];
-  user.id_num = "admin1";
+  // Permission follows the account's doctor assignment, not its username.
+  user.doctor_name = "Doctor 1";
   h.render();
   actions.props.onView(actions.props.ticket);
   actions.props.onTicketUpdate(actions.props.ticket);
@@ -313,20 +319,52 @@ const recordRequests = (extra = () => undefined) => route => route === "/patient
 const searchProps = h => nodes(h.render(), node => node.type === "PatientRecordSearch")[0]?.props;
 const button = (h, label) => nodes(h.render(), node => node.type === "button" && text(node).includes(label))[0];
 
-test("only Front Desk and Super Admin see patient search; anyone else keeps the original registration", async () => {
-  assert.ok(searchProps(harness()));
-  assert.ok(searchProps(harness({ user: { id_num: "superadmin", role: "superadmin" } })));
-  for (const user of [null, { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" }]) {
-    const h = harness({ user });
-    assert.equal(searchProps(h), undefined);
+test("only Front Desk and Super Admin get the registration form; it always registers through patient records", async () => {
+  // A newly created Front Desk account (any username, no doctor assignment) registers like "frontdesk".
+  for (const user of [undefined, { id_num: "superadmin", role: "superadmin" }, { id_num: "frontdesk2", role: "admin", doctor_name: null },
+    { id_num: "maria.fd", role: "admin", doctor_name: "Front Desk" }]) {
+    const h = harness(user ? { user } : {});
+    assert.ok(searchProps(h), user?.id_num || "frontdesk");
     h.fill(); await h.submit();
-    assert.equal(h.calls.some(call => call.route.startsWith("/patient-records")), false);
-    assert.deepEqual(h.calls.find(call => call.route === "/queue/website").body, {
-      fullName: "Juan D. Dela Cruz", serviceType: "prenatal", mobileNumber: "9123456789",
-      residency: "Purok 3, Rizal St., Brgy. Bayabas, Cabadbaran City, Agusan del Norte", philhealthId: "Private Identifier", birthdate: "1990-01-01", sex: "Female", vulnerabilityFlags: ["pregnant"]
-    });
+    assert.equal(h.calls.filter(call => call.method === "POST").map(call => call.route).join(), REGISTRATION, user?.id_num || "frontdesk");
+    assert.equal(h.calls.some(call => call.route === "/queue/website"), false);
   }
 });
+
+test("signed-out visitors and doctor accounts get no registration form and are redirected", () => {
+  const cases = [[null, "/login"], [{ id_num: "admin1", role: "admin", doctor_name: "Doctor 1" }, "/admin1"],
+    [{ id_num: "admin3", role: "admin", doctor_name: "Doctor 3" }, "/admin3"]];
+  for (const [user, target] of cases) {
+    const h = harness({ user });
+    const tree = h.render();
+    assert.equal(nodes(tree, node => node.type === "form").length, 0, user?.id_num || "signed out");
+    assert.equal(nodes(tree, node => node.type === "PatientRecordSearch").length, 0);
+    h.runEffects();
+    assert.deepEqual(h.replaced, [target], user?.id_num || "signed out");
+    assert.equal(h.calls.some(call => call.method === "POST"), false);
+  }
+  // A registering account is never redirected away.
+  const allowed = harness({ user: { id_num: "frontdesk2", role: "admin", doctor_name: null } });
+  allowed.render(); allowed.runEffects();
+  assert.deepEqual(allowed.replaced, []);
+});
+
+test("the registration access rule follows role and doctor assignment, never the username", () => {
+  const navigation = harness().load("lib/navigation.js");
+  const allowed = [{ id_num: "superadmin", role: "superadmin" }, { id_num: "frontdesk", role: "admin" },
+    { id_num: "frontdesk2", role: "admin", doctor_name: null }, { id_num: "fd", role: "admin", doctor_name: " front desk " }];
+  const refused = [null, undefined, {}, { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" },
+    { id_num: "frontdesk", role: "admin", doctor_name: "Doctor 2" }, { id_num: "x", role: "patient" }];
+  for (const user of allowed) {
+    assert.equal(navigation.canRegisterPatients(user), true, JSON.stringify(user));
+    assert.equal(navigation.registrationRedirectFor(user), null);
+  }
+  for (const user of refused) assert.equal(navigation.canRegisterPatients(user), false, JSON.stringify(user));
+  assert.equal(navigation.registrationRedirectFor(null), "/login");
+  assert.equal(navigation.registrationRedirectFor({ id_num: "admin2", role: "admin", doctor_name: "Doctor 2" }), "/admin2");
+  assert.equal(navigation.registrationRedirectFor({ id_num: "x", role: "patient" }), "/login");
+});
+
 
 test("selecting a patient reads the record by id and fills the form read-only, without registering", async () => {
   const h = harness({ request: recordRequests() });
@@ -582,8 +620,10 @@ test("RES2: a map-selected address sends the backend's place token; a manual one
 test("RES2: only Front Desk and Super Admin get map search; Register Another Patient forgets the previous selection", async () => {
   assert.equal(harness().field("patient-residency").props.mapSearch, true);
   assert.equal(harness({ user: { id_num: "superadmin", role: "superadmin" } }).field("patient-residency").props.mapSearch, true);
-  assert.equal(harness({ user: { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" } }).field("patient-residency").props.mapSearch, false);
-  assert.equal(harness({ user: null }).field("patient-residency").props.mapSearch, false);
+  assert.equal(harness({ user: { id_num: "frontdesk2", role: "admin", doctor_name: null } }).field("patient-residency").props.mapSearch, true);
+  // Doctors and signed-out visitors never see the form (they are redirected).
+  assert.equal(harness({ user: { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" } }).field("patient-residency"), undefined);
+  assert.equal(harness({ user: null }).field("patient-residency"), undefined);
   const h = harness(); h.fill(); await h.submit();
   nodes(h.render(), node => node.type === "button" && text(node).includes("Register Another Patient"))[0].props.onClick();
   assert.equal(h.field("patient-residency").props.selection, null);

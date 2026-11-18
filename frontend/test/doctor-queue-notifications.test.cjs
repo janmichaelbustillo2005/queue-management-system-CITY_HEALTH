@@ -131,7 +131,7 @@ test("only a consistent server summary is used", () => {
 });
 
 test("tab title shows the doctor's own count and returns to the page title at zero", () => {
-  assert.equal(lib.queueTabTitle(3, "Doctor 2 Queue"), "(3) Doctor 2 Queue | Smart Queue Management System");
+  assert.equal(lib.queueTabTitle(3, "Doctor 2 Queue"), "(3) Doctor 2 Queue | Smart Queuing System");
   assert.equal(lib.queueTabTitle(0, "Doctor 2 Queue"), null);
   assert.equal(lib.badgeText(120), "99+");
 });
@@ -278,7 +278,7 @@ test("bell badge and tab title show the doctor's current count; the first load r
   const view = mount(env, props([11, 12, 13]));
   const tree = view.flush();
   assert.equal(text(byClass(tree, "queue-notify-badge")), "3");
-  assert.equal(tabTitle(tree), "(3) Doctor 2 Queue | Smart Queue Management System");
+  assert.equal(tabTitle(tree), "(3) Doctor 2 Queue | Smart Queuing System");
   assert.equal(byClass(tree, "queue-toast").length, 0);
   assert.equal(env.shown.length, 0);
 });
@@ -288,12 +288,12 @@ test("a new patient while the tab is hidden: toast, title and one desktop notifi
   const view = mount(env, props([11, 12, 13]));
   view.flush();
   const tree = view.update({ summary: summary([11, 12, 13, 14]) });
-  assert.equal(tabTitle(tree), "(4) Doctor 2 Queue | Smart Queue Management System");
+  assert.equal(tabTitle(tree), "(4) Doctor 2 Queue | Smart Queuing System");
   assert.match(text(byClass(tree, "queue-toast")), /New Patient Waiting.*1 new patient was assigned to your queue\. 4 patients are currently waiting/);
   assert.equal(env.shown.length, 1);
   const [n] = env.shown;
   assert.equal(n.title, "New Patient Waiting");
-  assert.match(n.body, /^4 patients are currently waiting in your queue\.\nCabadbaran City Health Office – Smart Queue Management System$/);
+  assert.match(n.body, /^4 patients are currently waiting in your queue\.\nCabadbaran City Health Office – Smart Queuing System$/);
   assert.equal(n.icon, "/cho_logo-transparent.png");
   assert.equal(n.tag, "city-health-queue-Doctor 2");
   // The same queue state polled again does not notify twice.
@@ -317,7 +317,7 @@ test("denied, unsupported or failing desktop notifications leave the in-app aler
     let tree;
     assert.doesNotThrow(() => { tree = view.update({ summary: summary([11, 12]) }); });
     assert.equal(byClass(tree, "queue-toast").length, 1);
-    assert.equal(tabTitle(tree), "(2) Doctor 2 Queue | Smart Queue Management System");
+    assert.equal(tabTitle(tree), "(2) Doctor 2 Queue | Smart Queuing System");
     assert.equal(env.shown.length, 0);
   }
   const unsupported = browser({ hidden: true });
@@ -395,7 +395,7 @@ test("a connection problem keeps the last known count and says so", () => {
   view.flush();
   const tree = view.update({ status: "unavailable" });
   assert.equal(text(byClass(tree, "queue-notify-badge")), "2");
-  assert.equal(tabTitle(tree), "(2) Doctor 2 Queue | Smart Queue Management System");
+  assert.equal(tabTitle(tree), "(2) Doctor 2 Queue | Smart Queuing System");
 });
 
 test("no summary (Superadmin, Front Desk or an older backend) renders nothing", () => {
@@ -487,7 +487,7 @@ test("a new patient while the doctor views another tab puts the dot on this tab'
   assert.equal(iconHref(env), ORIGINAL, "no dot on the first load (baseline)");
   const tree = view.update({ summary: summary([11, 12]) });
   assert.equal(iconHref(env), DOT);
-  assert.equal(tabTitle(tree), "(2) Doctor 2 Queue | Smart Queue Management System");
+  assert.equal(tabTitle(tree), "(2) Doctor 2 Queue | Smart Queuing System");
 });
 
 test("dot: off while the tab is active, back when the doctor leaves with unread notifications, off once read", () => {

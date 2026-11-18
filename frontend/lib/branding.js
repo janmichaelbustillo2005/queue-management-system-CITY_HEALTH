@@ -3,7 +3,7 @@ export const OFFICE_IDENTITY = {
   name: "Cabadbaran City Health Office",
   center: "and Family Planning Center",
   fullName: "Cabadbaran City Health Office and Family Planning Center",
-  system: "Smart Queue Management System"
+  system: "Smart Queuing System"
 };
 
 export const SYSTEM_BRANDING = {

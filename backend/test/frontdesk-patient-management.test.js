@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHarness, clone } = require("./helpers/queueHarness");
+const { makeLegacyCompleted } = require("./helpers/legacyCompleted");
 
 const registration = (name, service = "checkup") => ({
   idNum: name, serviceType: service, vulnerabilityFlags: []
@@ -64,14 +65,26 @@ test("a carryover read failure reports unavailable instead of hiding the blockin
 
 for (const localFallback of [false, true]) {
   for (const [service, doctor] of [["checkup", "Doctor 1"], ["prenatal", "Doctor 2"], ["family_planning", "Doctor 3"]]) {
-    test(`${localFallback ? "local" : "Supabase double"}: Undo keeps ${doctor}'s patient waiting without reserving any doctor`, async () => {
+    test(`${localFallback ? "local" : "Supabase double"}: a cancelled ${doctor} patient cannot be undone; Undo of a legacy completion keeps it waiting without reserving any doctor`, async () => {
       const h = createHarness({ localFallback });
       await h.initialize();
+      // A cancellation is permanent: the Front Desk's Undo is refused and nothing changes.
+      const cancelled = await h.service.createQueueEntry(registration("Cancelled visit", service));
+      assert.equal((await h.request("POST", "/queue/call", { patient_id: cancelled.id, counterId: doctor })).status, 200);
+      assert.equal((await h.request("POST", "/queue/cancel", {
+        patient_id: cancelled.id, counter_id: doctor, reason: "Isolated cancellation"
+      })).status, 200);
+      const kept = clone(await h.service.getPatientById(cancelled.id));
+      const refused = await h.request("POST", "/queue/undo", { patient_id: cancelled.id });
+      assert.equal(refused.status, 409, refused.body.message);
+      assert.match(refused.body.message, /Cancellation is permanent/);
+      assert.deepEqual(clone(await h.service.getPatientById(cancelled.id)), kept);
+      assert.ok((await h.service.getQueueOverview()).counters.every((counter) => counter.current_patient_id == null));
+
+      // Undo still recovers a legacy completed-without-start visit.
       const patient = await h.service.createQueueEntry(registration("Undo visit", service));
       assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id, counterId: doctor })).status, 200);
-      assert.equal((await h.request("POST", "/queue/cancel", {
-        patient_id: patient.id, counter_id: doctor, reason: "Isolated cancellation"
-      })).status, 200);
+      await makeLegacyCompleted(h, patient.id);
       assert.equal((await h.request("POST", "/queue/undo", { patient_id: patient.id })).status, 200);
 
       const overview = await h.service.getQueueOverview();

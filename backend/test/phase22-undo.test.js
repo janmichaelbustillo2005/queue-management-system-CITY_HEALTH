@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHarness, createDatabase, clone } = require("./helpers/queueHarness");
+const { makeLegacyCompleted } = require("./helpers/legacyCompleted");
 
 const baseTime = Date.parse("2026-10-14T01:00:00.000Z");
 const services = ["consultation", "prenatal", "family_planning"];
@@ -26,13 +27,13 @@ async function active(h, number) {
   assert.equal(started.status, 200, started.body.message);
   return patient;
 }
-async function cancel(h, patient, number) {
+// A cancellation is permanent, so Undo/Requeue recover only a legacy completed-without-start
+// visit; finish() produces one from the active visit (see helpers/legacyCompleted.js).
+async function finish(h, patient, number) {
   h.advance();
-  const response = await h.request("POST", "/queue/cancel", {
-    patient_id: patient.id, reason: "Cancelled after start", counter_id: `Doctor ${number}`
-  }, doctor(number));
-  assert.equal(response.status, 200, response.body.message);
-  return clone(await h.service.getPatientById(patient.id));
+  const finished = await makeLegacyCompleted(h, patient.id, { reason: "Completed before consultation start" });
+  assert.equal(finished.counter_id, `Doctor ${number}`);
+  return finished;
 }
 const cleanWaiting = (after, before) => {
   assert.equal(after.status, "waiting");
@@ -46,12 +47,12 @@ const cleanWaiting = (after, before) => {
 for (const localFallback of [false, true]) {
   const mode = localFallback ? "development memory" : "deployed RPC model";
   for (const number of [1, 2, 3]) {
-    test(`Phase 2.2 ${mode}: Doctor ${number} call/accept/start/cancel/Undo returns clean waiting and can be called again`, async () => {
+    test(`Phase 2.2 ${mode}: Doctor ${number} call/accept/legacy completion/Undo returns clean waiting and can be called again`, async () => {
       const h = await setup(localFallback);
       const patient = await active(h, number);
       // Other doctors' consultations must survive this Undo and the next Call.
       for (const other of [1, 2, 3].filter(value => value !== number)) await active(h, other);
-      const before = await cancel(h, patient, number);
+      const before = await finish(h, patient, number);
       const countersBefore = clone((await h.service.getQueueOverview()).counters);
       const othersBefore = clone((await h.service.getQueueOverview()).patients.filter(row => row.id !== patient.id));
       const response = await h.request("POST", "/queue/undo", { patient_id: patient.id });
@@ -82,7 +83,7 @@ for (const localFallback of [false, true]) {
     const h = await setup(localFallback);
     const patient = await active(h, 2);
     const busy = await active(h, 3);
-    const before = await cancel(h, patient, 2);
+    const before = await finish(h, patient, 2);
     if (localFallback) {
       // The existing local availability setter returns the in-memory row;
       // overview counters are presentation copies and cannot inject state.
@@ -108,7 +109,7 @@ for (const localFallback of [false, true]) {
   test(`Phase 2.2 ${mode}: busy correct counter is never overwritten by Undo`, async () => {
     const h = await setup(localFallback);
     const patient = await active(h, 2);
-    const before = await cancel(h, patient, 2);
+    const before = await finish(h, patient, 2);
     const busy = await active(h, 2);
     const countersBefore = clone((await h.service.getQueueOverview()).counters);
     const undone = await h.request("POST", "/queue/undo", { patient_id: patient.id });
@@ -118,7 +119,7 @@ for (const localFallback of [false, true]) {
       // as the database trigger does (oc1-one-confirmation-postgres.test.js); nothing changes.
       assert.equal(undone.status, 409, undone.body.message);
       assert.match(undone.body.message, /^Undo was not applied\. Doctor 2 already has an active patient/);
-      assert.equal((await h.service.getPatientById(patient.id)).status, "cancelled");
+      assert.equal((await h.service.getPatientById(patient.id)).status, "completed");
       assert.deepEqual(clone((await h.service.getQueueOverview()).counters), countersBefore);
       return;
     }
@@ -139,7 +140,7 @@ test("Phase 2.2 RPC model: competing Undo/Requeue consumes one terminal revision
   const first = await setup(false, { database, files });
   const second = await setup(false, { database, files, clock: first.clock });
   const patient = await active(first, 2);
-  await cancel(first, patient, 2);
+  await finish(first, patient, 2);
   const countersBefore = clone(database.counters);
   const entered = deferred();
   const resume = deferred();
@@ -164,7 +165,7 @@ test("Phase 2.2 RPC model: a delayed Undo cannot clear counters from a newer cal
   const first = await setup(false, { database, files });
   const second = await setup(false, { database, files, clock: first.clock });
   const patient = await active(first, 2);
-  await cancel(first, patient, 2);
+  await finish(first, patient, 2);
   const entered = deferred();
   const resume = deferred();
   let paused = false;
@@ -194,7 +195,7 @@ test("Phase 2.2 RPC model: a delayed Undo cannot clear counters from a newer cal
 test("Phase 2.2 RPC model: a missing versioned Undo RPC fails before writes and never retries the old recovery RPC", async () => {
   const h = await setup();
   const patient = await active(h, 2);
-  await cancel(h, patient, 2);
+  await finish(h, patient, 2);
   const before = { patients: clone(h.database.patients), counters: clone(h.database.counters) };
   h.database.beforeRpc = async name => {
     assert.equal(name, "undo_patient_visit_waiting");

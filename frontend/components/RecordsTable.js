@@ -8,14 +8,13 @@ import { SERVICE_LABELS } from "../lib/services";
 
 const TIME_KEYS = ["created_at", "called_at", "consultation_started_at", "completed_at", "last_login", "last_seen", "occurred_at"];
 const NUMERIC_KEYS = ["priority_score"];
-const WRAP_KEYS = ["display_name", "doctor", "patient_name", "event", "flags"];
+const WRAP_KEYS = ["display_name", "doctor", "patient_name", "event"];
 // Queue status: the same readable names the Queue status filter uses.
 const QUEUE_STATUS = {
   waiting: ["amber", "far fa-clock", "Waiting"],
   serving: ["blue", "fas fa-user-md", "Being served"],
   completed: ["green", "fas fa-check-circle", "Completed"],
-  cancelled: ["red", "fas fa-times-circle", "Cancelled"],
-  "no-show": ["gray", "fas fa-user-slash", "No-show"]
+  cancelled: ["red", "fas fa-times-circle", "Cancelled"]
 };
 
 const stamp = (value) => new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila" });
@@ -51,17 +50,6 @@ export function recordCell(row, key) {
   if (key === "authenticated") return value ? indicator("teal", "fas fa-key", "Active session") : indicator("neutral", "far fa-circle", "No active session");
   // Shown exactly as stored: the schema has no enabled/disabled flag to verify.
   if (key === "account_status") return value ? indicator("neutral", "far fa-id-badge", value) : muted("Unavailable");
-  // Historical Backlog review flags from the server: words first, then which ones apply.
-  if (key === "flags") {
-    if (!Array.isArray(value) || !value.length) return muted("None");
-    const blocked = value.some((flag) => flag.blocking);
-    return (
-      <span className={styles.flags}>
-        {blocked ? indicator("red", "fas fa-ban", "Cancel blocked") : indicator("amber", "fas fa-exclamation-triangle", "Requires review")}
-        <span className={styles.flagList}>{value.map((flag) => flag.label).join(" · ")}</span>
-      </span>
-    );
-  }
   if (key === "status" && QUEUE_STATUS[value]) return indicator(...QUEUE_STATUS[value]);
   if (key === "service_type" && SERVICE_LABELS[value]) return SERVICE_LABELS[value];
   return value ?? muted("Unavailable");

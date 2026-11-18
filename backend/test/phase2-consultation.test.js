@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHarness, createDatabase, clone } = require("./helpers/queueHarness");
+const { makeLegacyCompleted } = require("./helpers/legacyCompleted");
 
 const doctorUser = (number = 1) => ({ id_num: `admin${number}`, role: "admin", doctor_name: `Doctor ${number}` });
 const registration = (name, serviceType = "consultation") => ({
@@ -88,7 +89,7 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.service.getQueueOverview()).counters[0].current_patient_id, patient.id);
   });
 
-  test(`${mode}: a new call after cancellation and re-queue never replays the previous Accept or Re-Call`, async () => {
+  test(`${mode}: a cancellation clears the call's announcements and is permanent: no Re-queue and no new call`, async () => {
     const h = await setup(localFallback);
     const patient = await acceptedPatient(h);
     assert.equal((await h.request("POST", "/queue/re-call", { patient_id: patient.id }, doctorUser())).status, 200);
@@ -96,6 +97,22 @@ for (const localFallback of [false, true]) {
     h.advance();
     assert.equal((await h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Patient left" }, doctorUser())).status, 200);
     assert.equal((await h.service.getDisplayData()).voice_announcements.length, 0);
+    h.advance();
+    const requeued = await h.request("POST", "/queue/requeue", { patient_id: patient.id }, doctorUser());
+    assert.equal(requeued.status, 409, requeued.body.message);
+    assert.match(requeued.body.message, /Cancellation is permanent/);
+    assert.notEqual((await h.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
+    assert.equal((await h.service.getPatientById(patient.id)).status, "cancelled");
+    assert.equal((await h.service.getDisplayData()).voice_announcements.length, 0);
+  });
+
+  test(`${mode}: a new call after a legacy completion and re-queue never replays the previous Accept or Re-Call`, async () => {
+    const h = await setup(localFallback);
+    const patient = await acceptedPatient(h);
+    assert.equal((await h.request("POST", "/queue/re-call", { patient_id: patient.id }, doctorUser())).status, 200);
+    assert.equal((await h.service.getDisplayData()).voice_announcements.length, 2);
+    h.advance();
+    await makeLegacyCompleted(h, patient.id);
     h.advance();
     assert.equal((await h.request("POST", "/queue/requeue", { patient_id: patient.id }, doctorUser())).status, 200);
     h.advance();
@@ -126,7 +143,7 @@ for (const localFallback of [false, true]) {
     assert.equal(h.database.calls.filter((entry) => entry.action === "rpc" && entry.function !== "call_patient_visit").length, 0, "No consultation RPC was attempted");
   });
 
-  for (const status of ["waiting", "completed", "cancelled", "no-show"]) {
+  for (const status of ["waiting", "completed", "cancelled"]) {
     test(`${mode}: start rejects a ${status} patient without changing records`, async () => {
       const h = await setup(localFallback);
       const patient = await acceptedPatient(h);
@@ -309,19 +326,6 @@ for (const localFallback of [false, true]) {
     }
   });
 
-  test(`${mode}: No-show cannot erase a completed consultation or its historical duration`, async () => {
-    const h = await setup(localFallback);
-    const patient = await acceptedPatient(h);
-    await start(h, patient);
-    h.advance(1000);
-    assert.equal((await h.request("POST", "/queue/complete", { patient_id: patient.id }, doctorUser())).status, 200);
-    const before = clone(await h.service.getPatientById(patient.id));
-    const response = await h.request("POST", "/queue/no-show", { patient_id: patient.id, reason: "Stale no-show action" });
-    assert.equal(response.status, 400);
-    assert.deepEqual(clone(await h.service.getPatientById(patient.id)), before);
-    assert.equal((await h.service.getQueueOverview()).patients.find((row) => row.id === patient.id).service_duration_seconds, 1);
-  });
-
   test(`${mode}: queue responses identify whether consultation records use Supabase or development memory`, async () => {
     const h = await setup(localFallback);
     const expected = localFallback ? "local_fallback" : "supabase";
@@ -351,21 +355,24 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.service.getQueueOverview()).counters[0].current_patient_id, null);
   });
 
-  test(`${mode}: re-queueing a cancelled attempt resets its old consultation start for the next call cycle`, async () => {
+  test(`${mode}: a cancelled started attempt keeps its consultation start and can never be re-queued, called or started again`, async () => {
     const h = await setup(localFallback);
     const patient = await acceptedPatient(h);
-    await start(h, patient);
+    const started = clone(await start(h, patient));
     h.advance();
     assert.equal((await h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Visit interrupted" }, doctorUser())).status, 200);
-    assert.equal((await h.request("POST", "/queue/requeue", { patient_id: patient.id, reason: "Patient returned" })).status, 200);
-    const waiting = await h.service.getPatientById(patient.id);
-    assert.equal(waiting.status, "waiting");
-    for (const field of ["consultation_started_at", "completed_at", "called_at", "counter_id"]) assert.equal(waiting[field], null);
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
-    assert.equal((await h.request("POST", "/queue/start", { patient_id: patient.id }, doctorUser())).status, 400);
-    assert.equal((await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctorUser())).status, 200);
-    h.advance();
-    assert.equal((await h.request("POST", "/queue/start", { patient_id: patient.id }, doctorUser())).status, 200);
+    const cancelled = clone(await h.service.getPatientById(patient.id));
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.consultation_started_at, started.consultation_started_at);
+    assert.equal(cancelled.reason, "Visit interrupted");
+    for (const [route, user] of [["/queue/requeue", undefined], ["/queue/undo", undefined], ["/queue/call", undefined],
+      ["/queue/accept", doctorUser()], ["/queue/start", doctorUser()], ["/queue/complete", doctorUser()]]) {
+      h.advance();
+      const response = await h.request("POST", route, { patient_id: patient.id, reason: "Patient returned" }, user);
+      assert.notEqual(response.status, 200, `${route}: ${response.body?.message}`);
+      assert.deepEqual(clone(await h.service.getPatientById(patient.id)), cancelled, `${route} changed nothing`);
+    }
+    assert.equal((await h.service.getQueueOverview()).counters[0].current_patient_id ?? null, null);
   });
 
   test(`${mode}: completed consultation history cannot be erased by legacy Undo or Re-queue actions`, async () => {
@@ -386,7 +393,6 @@ for (const localFallback of [false, true]) {
     const h = await setup(localFallback);
     for (const [name, fields] of [
       ["Legacy completed", { status: "completed", consultation_started_at: null, completed_at: "2026-10-10T01:01:00.000Z" }],
-      ["No-show", { status: "no-show", consultation_started_at: "2026-10-10T01:00:00.000Z", completed_at: "2026-10-10T01:01:00.000Z" }],
       ["Missing end", { status: "completed", consultation_started_at: "2026-10-10T01:00:00.000Z", completed_at: null }],
       ["Wrong order", { status: "completed", consultation_started_at: "2026-10-10T01:01:00.000Z", completed_at: "2026-10-10T01:00:00.000Z" }],
       ["Invalid timestamp", { status: "completed", consultation_started_at: "bad timestamp", completed_at: "2026-10-10T01:01:00.000Z" }]
@@ -395,7 +401,7 @@ for (const localFallback of [false, true]) {
       Object.assign(await storedPatient(h, patient, localFallback), fields);
     }
     const overview = await h.service.getQueueOverview();
-    assert.equal(overview.patients.length, 5);
+    assert.equal(overview.patients.length, 4);
     assert.ok(overview.patients.every((row) => row.service_duration_seconds === null));
     assert.equal(overview.patients.find((row) => row.id_num === "Legacy completed").consultation_started_at, null);
   });
@@ -421,7 +427,6 @@ for (const localFallback of [false, true]) {
       ["90 second consultation", "consultation", { status: "completed", consultation_started_at: "2026-10-10T01:01:00.000Z", completed_at: "2026-10-10T01:02:30.000Z" }],
       ["Legacy completed", "prenatal", { status: "completed", consultation_started_at: null, completed_at: "2026-10-10T01:10:00.000Z" }],
       ["Cancelled", "prenatal", { status: "cancelled", consultation_started_at: validStart, completed_at: "2026-10-10T01:20:00.000Z" }],
-      ["No-show", "prenatal", { status: "no-show", consultation_started_at: validStart, completed_at: "2026-10-10T01:20:00.000Z" }],
       ["Still serving", "prenatal", { status: "serving", consultation_started_at: validStart, completed_at: null }],
       ["Waiting", "prenatal", { status: "waiting", consultation_started_at: validStart, completed_at: "2026-10-10T01:20:00.000Z" }],
       ["Negative duration", "prenatal", { status: "completed", consultation_started_at: "2026-10-10T01:02:00.000Z", completed_at: validStart }],
@@ -433,7 +438,7 @@ for (const localFallback of [false, true]) {
       Object.assign(await storedPatient(h, patient, localFallback), { called_at: "2026-10-10T00:45:00.000Z", ...fields });
     }
     const analytics = await h.service.getAnalytics();
-    assert.equal(analytics.metrics.totalPatients, 11);
+    assert.equal(analytics.metrics.totalPatients, 10);
     assert.equal(analytics.metrics.avgServiceTime, 1.1, "Average 42 and 90 actual seconds before rounding the final minute value");
     assert.equal(analytics.tableData.find((row) => row.service_type === "consultation").avg_service_time, "1.1");
     assert.equal(analytics.tableData.find((row) => row.service_type === "prenatal").avg_service_time, "0.0");
@@ -539,7 +544,8 @@ test("RPC simulation: acceptance from an old call cannot start a newly called, u
     if (name !== "start_patient_consultation") return;
     h.database.beforeRpc = null;
     h.advance();
-    assert.equal((await h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Visit interrupted" }, doctorUser())).status, 200);
+    // A cancellation is permanent, so the new call cycle follows a legacy completion + Re-queue.
+    await makeLegacyCompleted(h, patient.id);
     assert.equal((await h.request("POST", "/queue/requeue", { patient_id: patient.id })).status, 200);
     h.advance();
     assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
@@ -556,7 +562,7 @@ test("RPC simulation: acceptance from an old call cannot start a newly called, u
   assert.equal(h.database.counters[0].current_patient_id, patient.id);
 });
 
-test("RPC simulation: a delayed completion cannot complete a new attempt after cancel, requeue, call and start", async () => {
+test("RPC simulation: a delayed completion cannot complete a new attempt after a legacy completion, requeue, call and start", async () => {
   const database = createDatabase();
   const clock = { now: baseTime };
   const files = new Map();
@@ -570,7 +576,8 @@ test("RPC simulation: a delayed completion cannot complete a new attempt after c
     if (name !== "complete_patient_consultation") return;
     database.beforeRpc = null;
     second = await setup(false, { database, clock, files });
-    assert.equal((await second.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Interrupted attempt" }, doctorUser())).status, 200);
+    // A cancellation is permanent; the new attempt follows a legacy completion (no start) + Re-queue.
+    await makeLegacyCompleted(second, patient.id);
     assert.equal((await second.request("POST", "/queue/requeue", { patient_id: patient.id })).status, 200);
     second.advance();
     assert.equal((await second.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
@@ -592,30 +599,6 @@ test("RPC simulation: a delayed completion cannot complete a new attempt after c
   const staleRpc = database.calls.find((entry) => entry.function === "complete_patient_consultation");
   assert.equal(staleRpc.args.p_expected_started_at, oldStart);
   assert.equal((await second.request("POST", "/queue/complete", { patient_id: patient.id }, doctorUser())).status, 200);
-});
-
-test("RPC simulation: a stale No-show write cannot overwrite an intervening completed consultation", async () => {
-  const h = await setup();
-  const patient = await h.service.createQueueEntry(registration("No-show race"));
-  await h.service.callPatient(patient.id, "Doctor 1");
-  h.advance(11 * 60 * 1000);
-  let completed;
-  h.database.beforeQuery = async (query) => {
-    if (query.table !== "patients" || query.action !== "update" || query.payload.status !== "no-show") return;
-    h.database.beforeQuery = null;
-    assert.equal((await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctorUser())).status, 200);
-    h.advance();
-    await start(h, patient);
-    h.advance(1500);
-    assert.equal((await h.request("POST", "/queue/complete", { patient_id: patient.id }, doctorUser())).status, 200);
-    completed = clone(await h.service.getPatientById(patient.id));
-  };
-  const response = await h.request("POST", "/queue/no-show", { patient_id: patient.id, reason: "Old no-show attempt" });
-  assert.equal(response.status, 400, response.body.message);
-  assert.ok(completed, "The completion occurred before the original conditional No-show write");
-  assert.deepEqual(clone(await h.service.getPatientById(patient.id)), completed);
-  assert.equal(h.database.counters[0].current_patient_id, null);
-  assert.equal((await h.service.getQueueOverview()).patients.find((row) => row.id === patient.id).service_duration_seconds, 1.5);
 });
 
 test("RPC simulation: a counter reassignment during completion validation cannot release another active patient", async () => {

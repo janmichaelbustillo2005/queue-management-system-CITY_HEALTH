@@ -1,5 +1,5 @@
 // PH1 Doctor Patient History: GET /doctor/patient-history and /doctor/patient-history/:id, and the
-// cancelled / no-show attribution written after Cancel and No-show commit
+// cancellation attribution written after Cancel commits
 // (backend/scripts/20261114-ph1-patient-history.sql). Routes and queueService run over the isolated
 // in-memory database (helpers/queueHarness.js); the SQL itself is checked in the last tests.
 const { test } = require("node:test");
@@ -58,7 +58,7 @@ test("each doctor sees only the visits it completed; other doctors' and active v
   assert.equal(one.status, 200);
   assert.equal(one.headers["Cache-Control"], "no-store");
   assert.deepEqual(one.body.rows.map((row) => row.id), [mine[1].id, mine[0].id], "newest first, own visits only");
-  assert.deepEqual(one.body.summary, { total_handled: 2, completed: 2, cancelled: 0, no_show: 0 });
+  assert.deepEqual(one.body.summary, { total_handled: 2, completed: 2, cancelled: 0 });
   assert.equal(one.body.doctor, "Doctor 1");
 
   const two = await get(DOCTOR[2]);
@@ -82,55 +82,64 @@ test("rows carry only the history fields: no mobile number, birthdate, residency
   for (const secret of ["09170000000", "1950-01-01", "Poblacion 1", "PH-SECRET"]) assert.ok(!text.includes(secret), secret);
 });
 
-test("a doctor's own Cancel and No-show are attributed to it; Front Desk and Superadmin cancellations never are", async () => {
+test("a doctor's own Cancel is attributed to it; Front Desk and Superadmin cancellations never are", async () => {
   const byDoctor = visit({ counter_id: "Doctor 1" });
   const byFrontDesk = visit({ counter_id: "Doctor 1" });
   const bySuperadmin = visit({ counter_id: "Doctor 1" });
-  const noShow = visit({ counter_id: "Doctor 1" });
-  const { harness, database, get } = setup({ patients: [byDoctor, byFrontDesk, bySuperadmin, noShow] });
+  const { harness, database, get } = setup({ patients: [byDoctor, byFrontDesk, bySuperadmin] });
 
   assert.equal((await harness.request("POST", "/queue/cancel", { patient_id: byDoctor.id, reason: "Patient left" }, DOCTOR[1])).status, 200);
   harness.advance(1000);
   assert.equal((await harness.request("POST", "/queue/cancel", { patient_id: byFrontDesk.id, reason: "Duplicate" }, FRONTDESK)).status, 200);
   harness.advance(1000);
   assert.equal((await harness.request("POST", "/queue/cancel", { patient_id: bySuperadmin.id, reason: "Reset" }, SUPERADMIN)).status, 200);
-  harness.advance(1000);
-  assert.equal((await harness.request("POST", "/queue/no-show", { patient_id: noShow.id, reason: "Did not answer" }, DOCTOR[1])).status, 200);
 
   assert.deepEqual(database.patient_outcome_attribution.map((row) => [row.patient_id, row.outcome, row.actor_role, row.actor_id_num, row.actor_doctor]), [
     [byDoctor.id, "cancelled", "doctor", "admin1", "Doctor 1"],
     [byFrontDesk.id, "cancelled", "frontdesk", "frontdesk", null],
-    [bySuperadmin.id, "cancelled", "superadmin", "superadmin", null],
-    [noShow.id, "no-show", "doctor", "admin1", "Doctor 1"]
+    [bySuperadmin.id, "cancelled", "superadmin", "superadmin", null]
   ]);
   const stored = database.patients.find((row) => row.id === byDoctor.id);
   assert.equal(database.patient_outcome_attribution[0].outcome_at, stored.completed_at, "keyed to that exact outcome");
 
   const history = (await get(DOCTOR[1])).body;
-  assert.deepEqual(history.rows.map((row) => [row.id, row.status]), [[noShow.id, "no-show"], [byDoctor.id, "cancelled"]]);
-  assert.deepEqual(history.summary, { total_handled: 2, completed: 0, cancelled: 1, no_show: 1 });
+  assert.deepEqual(history.rows.map((row) => [row.id, row.status]), [[byDoctor.id, "cancelled"]]);
+  assert.deepEqual(history.summary, { total_handled: 1, completed: 0, cancelled: 1 });
   assert.equal(history.attribution_available, true);
-  assert.deepEqual((await get(DOCTOR[2])).body.summary, { total_handled: 0, completed: 0, cancelled: 0, no_show: 0 });
+  assert.deepEqual((await get(DOCTOR[2])).body.summary, { total_handled: 0, completed: 0, cancelled: 0 });
 });
 
-test("Undo returns a visit to the queue and drops it from history; a later Front Desk cancel is not the doctor's", async () => {
+test("a doctor's cancellation is permanent: Undo, Re-queue and a repeat cancel never remove it from history or rewrite it", async () => {
   const row = visit({ counter_id: "Doctor 1" });
-  const { harness, database, get } = setup({ patients: [row] });
-  await harness.request("POST", "/queue/cancel", { patient_id: row.id, reason: "Patient left" }, DOCTOR[1]);
-  assert.equal((await get(DOCTOR[1])).body.summary.cancelled, 1);
+  const { harness, database, get, detail } = setup({ patients: [row] });
+  const cancelled = await harness.request("POST", "/queue/cancel", { patient_id: row.id, reason: "Patient left" }, DOCTOR[1]);
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+  const stored = JSON.parse(JSON.stringify(database.patients.find((p) => p.id === row.id)));
+  const history = (await get(DOCTOR[1])).body;
+  assert.equal(history.summary.total_handled, 1);
+  assert.equal(history.summary.cancelled, 1);
+  assert.deepEqual(history.rows.map((entry) => [entry.id, entry.status, entry.outcome_at]), [[row.id, "cancelled", stored.completed_at]]);
+  const visitDetail = (await detail(DOCTOR[1], row.id)).body.visit;
+  assert.equal(visitDetail.reason, "Patient left");
+  assert.equal(visitDetail.assigned_doctor, "Doctor 1");
+  assert.equal(visitDetail.outcome_by.doctor, "Doctor 1");
 
+  for (const user of [FRONTDESK, SUPERADMIN, DOCTOR[1]]) {
+    for (const route of ["/queue/undo", "/queue/requeue"]) {
+      harness.advance(60000);
+      const response = await harness.request("POST", route, { patient_id: row.id }, user);
+      assert.equal(response.status, 409, `${route} by ${user.id_num}: ${JSON.stringify(response.body)}`);
+      assert.match(response.body.message, /Cancellation is permanent/);
+    }
+  }
   harness.advance(60000);
-  const undo = await harness.request("POST", "/queue/undo", { patient_id: row.id }, FRONTDESK);
-  assert.equal(undo.status, 200, JSON.stringify(undo.body));
-  assert.equal(database.patients.find((p) => p.id === row.id).status, "waiting");
-  assert.equal((await get(DOCTOR[1])).body.summary.total_handled, 0, "a temporary state is not a final outcome");
-
-  harness.advance(60000);
-  database.patients.find((p) => p.id === row.id).counter_id = "Doctor 1";
-  assert.equal((await harness.request("POST", "/queue/cancel", { patient_id: row.id, reason: "Left again" }, FRONTDESK)).status, 200);
-  assert.equal(database.patient_outcome_attribution.length, 2, "the old attribution is kept, not rewritten");
-  assert.deepEqual((await get(DOCTOR[1])).body.summary, { total_handled: 0, completed: 0, cancelled: 0, no_show: 0 },
-    "the doctor's earlier cancellation does not apply to the newer Front Desk cancellation");
+  const repeat = await harness.request("POST", "/queue/cancel", { patient_id: row.id, reason: "Left again" }, FRONTDESK);
+  assert.equal(repeat.body.already_cancelled, true);
+  assert.deepEqual(database.patients.find((p) => p.id === row.id), stored, "the cancelled visit is unchanged");
+  assert.equal(database.patient_outcome_attribution.length, 1, "the attribution is kept, never rewritten");
+  const after = (await get(DOCTOR[1])).body;
+  assert.equal(after.summary.cancelled, 1);
+  assert.deepEqual(after.rows.map((entry) => [entry.id, entry.status]), [[row.id, "cancelled"]]);
 });
 
 test("only doctor accounts may read history, and only their own", async () => {
@@ -272,7 +281,7 @@ test("without the PH1 table: Cancel still works and history lists completed visi
     ? { data: null, error: { code: "PGRST205", message: "Could not find the table 'public.patient_outcome_attribution'" } } : null;
   const history = (await get(DOCTOR[1])).body;
   assert.equal(history.attribution_available, false);
-  assert.deepEqual(history.summary, { total_handled: 1, completed: 1, cancelled: 0, no_show: 0 });
+  assert.deepEqual(history.summary, { total_handled: 1, completed: 1, cancelled: 0 });
 });
 
 test("development memory: the doctor's own completion and cancellation appear in its history", async () => {
@@ -296,7 +305,7 @@ test("development memory: the doctor's own completion and cancellation appear in
   assert.equal((await harness.request("POST", "/queue/complete", { patient_id: first }, DOCTOR[1])).status, 200);
 
   const history = (await harness.request("GET", HISTORY, {}, DOCTOR[1])).body;
-  assert.deepEqual(history.summary, { total_handled: 2, completed: 1, cancelled: 1, no_show: 0 });
+  assert.deepEqual(history.summary, { total_handled: 2, completed: 1, cancelled: 1 });
   assert.deepEqual((await harness.request("GET", HISTORY, {}, DOCTOR[2])).body.summary.total_handled, 0);
 });
 

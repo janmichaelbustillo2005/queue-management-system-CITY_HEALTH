@@ -6,8 +6,7 @@ const STATUS_LABELS = {
   waiting: "Waiting",
   serving: "Called / in service",
   completed: "Completed",
-  cancelled: "Cancelled",
-  "no-show": "No-show"
+  cancelled: "Cancelled"
 };
 export const QUEUE_PASS_WIDTH = 760;
 export const QUEUE_PASS_HEIGHT = 820;

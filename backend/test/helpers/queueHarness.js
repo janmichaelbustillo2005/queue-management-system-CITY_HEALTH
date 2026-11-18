@@ -283,6 +283,7 @@ function fakeSupabase(database, now, localFallback) {
         }
         let confirmedFor = null;
         if (name === "confirm_next_patient_visit") {
+          // Mirrors the retained (now inert) Not Present check in the SQL; NS1 removed every writer.
           if (patient.not_present_at != null) {
             return { data: null, error: { code: "P0001", hint: "patient_not_present",
               message: "This patient is marked Not Present. Mark the patient present before confirming." } };
@@ -305,28 +306,6 @@ function fakeSupabase(database, now, localFallback) {
         if (database.beforeRpcCommit) await database.beforeRpcCommit({ name, args, patients, counters });
         database.patients.splice(0, database.patients.length, ...patients);
         return { data: { already_confirmed: false, patient: clone(patient) }, error: null };
-      }
-      if (name === "set_patient_presence") {
-        // Mirrors OC1's set_patient_presence; the real function is covered by oc1-one-confirmation-postgres.test.js.
-        if (database.confirmRpcInstalled === false || database.oneConfirmationRpcInstalled === false) {
-          return { data: null, error: { code: "PGRST202", message: "Could not find the function public.set_patient_presence" } };
-        }
-        const fail = (code, message) => ({ data: null, error: { code, message } });
-        if (!user || user.role !== "admin" || !["", "front desk", "frontdesk"].includes(String(user.doctor_name ?? "").trim().toLowerCase())) {
-          return fail("42501", "Only the Front Desk can mark a patient Not Present or present");
-        }
-        if (!patient) return fail("P0002", "Patient not found");
-        if ((patient.not_present_at == null) === args.p_present) return { data: { changed: false, patient: clone(patient) }, error: null };
-        if (!args.p_present && (patient.status !== "waiting" || patient.completed_at != null)) {
-          return fail("P0001", `Only a waiting patient can be marked Not Present. This visit is ${patient.status}.`);
-        }
-        if (!args.p_present && patient.confirmed_at != null) {
-          return fail("P0001", "This patient is already confirmed. A confirmed patient who leaves can be cancelled, or marked no-show after the call.");
-        }
-        Object.assign(patient, args.p_present ? { not_present_at: null, not_present_by: null }
-          : { not_present_at: timestamp, not_present_by: user.id_num }, { visit_state_revision: crypto.randomUUID() });
-        database.patients.splice(0, database.patients.length, ...patients);
-        return { data: { changed: true, patient: clone(patient) }, error: null };
       }
       if (name === "cancel_patient_visit") {
         // Mirrors 20261025-w1-atomic-cancel.sql step by step, with all-or-nothing writes;

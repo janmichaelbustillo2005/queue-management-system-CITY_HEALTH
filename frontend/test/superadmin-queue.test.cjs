@@ -684,10 +684,10 @@ test("Queue Management keeps its own actions and does not gain Patient Managemen
   assert.equal(buttons(tree, "View Ticket").length, 0);
   assert.equal(nodes(queueRow(tree, "GP-007"), node => node.type === "button" && /Call/.test(text(node))).length, 1, "the waiting head keeps its Call button");
   assert.equal(nodes(queueTable(tree), node => node.type === "button" && /Cancel/.test(text(node))).length, 2, "Cancel on the waiting and serving visits only");
-  const lastFinal = nodes(queueRow(tree, "OB-043"), node => node.type === "button");
-  assert.deepEqual(lastFinal.map(node => node.props.title), ["More actions"], "the latest final visit keeps only the three-dot menu");
-  lastFinal[0].props.onClick();
-  assert.deepEqual(buttons(queueRow(h.render(), "OB-043"), "Undo").length, 1, "the three-dot menu still opens Undo");
+  // OB-043 is the latest final visit, and it is cancelled: a cancellation is permanent, so it has
+  // no Cancel and no three-dot Undo menu.
+  assert.deepEqual(nodes(queueRow(tree, "OB-043"), node => node.type === "button").length, 0, "a cancelled visit offers no actions");
+  assert.equal(buttons(tree, "Undo").length, 0);
 });
 
 test("EP1: Superadmin monitoring, filters, assignments and transfers show display names; values stay counter ids", async () => {

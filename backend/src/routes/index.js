@@ -16,15 +16,10 @@ const {
   buildAnalyticsCsv,
   callPatient,
   confirmPatient,
-  setPatientPresence,
   requestDispatch,
   transferConsultation,
   cancelPatient,
-  cancelHistoricalWaitingVisit,
-  getHistoricalBacklog,
-  getHistoricalBacklogVisit,
   authorizeVisitAction,
-  noShowPatient,
   recallPatient,
   requeuePatient,
   undoPatientAction,
@@ -409,29 +404,6 @@ router.post("/queue/confirm", authenticateToken, async (req, res) => {
   }
 });
 
-// OC1: the Front Desk sets an absent pending patient aside (Not Present) and back (present). The
-// visit keeps its ticket, priority, registration time and doctor; nothing is called or reassigned.
-for (const [route, present] of [["/queue/not-present", false], ["/queue/present", true]]) {
-  router.post(route, authenticateToken, async (req, res) => {
-    try {
-      const { changed, patient } = await setPatientPresence(Number(req.body?.patient_id), present, req.user);
-      res.setHeader("Cache-Control", "no-store");
-      res.json({
-        success: true,
-        changed,
-        patient: { id: patient.id, queue_number: patient.queue_number, not_present_at: patient.not_present_at, not_present_by: patient.not_present_by },
-        message: !changed
-          ? `${patient.queue_number} was already marked ${present ? "present" : "Not Present"}; no changes were made`
-          : present
-          ? `${patient.queue_number} is present again and keeps its original place in the queue.`
-          : `${patient.queue_number} marked Not Present. The doctor's next patient can be confirmed; this patient keeps its place.`
-      });
-    } catch (error) {
-      res.status(error.statusCode || 400).json({ success: false, message: error.message });
-    }
-  });
-}
-
 router.post("/queue/call", authenticateToken, async (req, res) => {
   try {
     const { patient_id, counterId, counter_id } = req.body;
@@ -630,30 +602,6 @@ router.get("/doctor/patient-history/:id", authenticateToken, async (req, res) =>
   }
 });
 
-// Historical Waiting Backlog (H1 Stage 1): Superadmin only, by the persisted session's role.
-// Reads never write; Cancel is one reviewed visit through the W1 cancellation path.
-router.get("/queue/backlog", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
-  try {
-    const { search, date, service, doctor, page, limit } = req.query;
-    const data = await getHistoricalBacklog({ search, date, service, doctor, page, limit });
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ success: true, ...data });
-  } catch (error) {
-    // Unexpected failures never echo database details to the browser.
-    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : "Historical backlog is unavailable. Please retry." });
-  }
-});
-
-router.get("/queue/backlog/:id", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
-  try {
-    const visit = await getHistoricalBacklogVisit(Number(req.params.id));
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ success: true, visit });
-  } catch (error) {
-    res.status(error.statusCode || 500).json({ success: false, message: error.statusCode ? error.message : "Historical backlog is unavailable. Please retry." });
-  }
-});
-
 // RR1 intervention: Frontdesk or Superadmin move a serving visit whose doctor signed out to a
 // signed-in, free doctor. Authority is the persisted account (checked again in the database).
 router.post("/queue/transfer", authenticateToken, async (req, res) => {
@@ -662,37 +610,6 @@ router.post("/queue/transfer", authenticateToken, async (req, res) => {
     const patient = await transferConsultation(Number(patient_id), doctor, req.user);
     await afterQueueChange();
     res.json({ success: true, patient, message: `Consultation transferred to ${patient.counter_id}` });
-  } catch (error) {
-    res.status(error.statusCode || 400).json({ success: false, message: error.message });
-  }
-});
-
-router.post("/queue/backlog/:id/cancel", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
-  try {
-    const patientId = Number(req.params.id);
-    const { reason, expected_revision, acknowledge_review } = req.body || {};
-    const result = await cancelHistoricalWaitingVisit(patientId,
-      { reason, expectedRevision: expected_revision, acknowledged: acknowledge_review === true }, req.user);
-    if (result?.already_cancelled) {
-      return res.json({ success: true, already_cancelled: true, message: "This visit was already cancelled; no changes were made" });
-    }
-    clearAwaitingAccept(patientId);
-    res.json({ success: true, message: "Visit cancelled. Its registration history was kept." });
-  } catch (error) {
-    res.status(error.statusCode || 400).json({ success: false, message: error.message });
-  }
-});
-
-router.post("/queue/no-show", authenticateToken, async (req, res) => {
-  try {
-    // Identity comes only from the verified token; the stored assignment decides ownership.
-    const { patient_id, reason } = req.body;
-    const result = await noShowPatient(Number(patient_id), reason, req.user);
-    if (result?.already_no_show) {
-      return res.json({ success: true, already_no_show: true, message: "Patient was already marked no-show; no changes were made" });
-    }
-    await afterQueueChange();
-    res.json({ success: true, message: "Patient marked as no-show" });
   } catch (error) {
     res.status(error.statusCode || 400).json({ success: false, message: error.message });
   }
@@ -866,6 +783,24 @@ router.get("/analytics/status", authenticateToken, authorizeRole(["superadmin"])
     res.status(error.statusCode || 503).json({ success: false, message: error.message });
   }
 });
+
+// Trends and Status Analytics tabs: date-range reports (Today, Last 7/30 Days, custom). Read-only.
+// doctor_display_names (EP1) sits beside `data` so labels never change the counting keys.
+function rangeAnalyticsRoute(load, withNames = true) {
+  return async (req, res) => {
+    try {
+      const service = require("../services/rangeAnalyticsService");
+      const [data, doctorDisplayNames] = await Promise.all([service[load](req.query), withNames ? doctorDisplayNamesOrNone() : {}]);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ success: true, data, ...(withNames ? { doctor_display_names: doctorDisplayNames } : {}) });
+    } catch (error) {
+      res.status(error.statusCode || 503).json({ success: false, message: error.message });
+    }
+  };
+}
+router.get("/analytics/trends", authenticateToken, authorizeRole(["superadmin"]), rangeAnalyticsRoute("getTrendsAnalytics"));
+router.get("/analytics/status/overview", authenticateToken, authorizeRole(["superadmin"]), rangeAnalyticsRoute("getStatusOverview"));
+router.get("/analytics/status/records", authenticateToken, authorizeRole(["superadmin"]), rangeAnalyticsRoute("getStatusRecords", false));
 
 router.get("/analytics", authenticateToken, authorizeRole(["superadmin"]), async (req, res) => {
   try {

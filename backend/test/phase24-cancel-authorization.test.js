@@ -264,19 +264,6 @@ for (const localFallback of [false, true]) {
     assert.ok(stored.consultation_started_at && stored.completed_at);
   });
 
-  test(`${mode}: a no-show record keeps its outcome and cannot be rewritten as a cancellation`, async () => {
-    const h = await setup(localFallback);
-    const patient = await calledPatient(h, 3);
-    h.advance(11 * 60 * 1000);
-    assert.equal((await h.request("POST", "/queue/no-show", { patient_id: patient.id, reason: "Did not arrive" }, FRONTDESK)).status, 200);
-    const before = await snapshot(h, [patient]);
-    h.advance(1000);
-    const response = await cancel(h, patient, FRONTDESK);
-    assert.equal(response.status, 409);
-    assert.deepEqual(await snapshot(h, [patient]), before);
-    assert.equal((await row(h, patient)).status, "no-show");
-  });
-
   test(`${mode}: cancelling releases only the cancelled patient's counter`, async () => {
     const h = await setup(localFallback);
     const one = await startedPatient(h, 1);
@@ -342,7 +329,7 @@ for (const localFallback of [false, true]) {
     assert.deepEqual(await snapshot(h, [waiting]), before);
   });
 
-  test(`${mode}: a cancelled in-progress visit retains consultation history and Undo still restores clean waiting`, async () => {
+  test(`${mode}: a cancelled in-progress visit retains consultation history and is permanent: Undo and Re-queue are refused`, async () => {
     const h = await setup(localFallback);
     const patient = await startedPatient(h, 1);
     const before = await row(h, patient);
@@ -351,16 +338,22 @@ for (const localFallback of [false, true]) {
     const cancelled = await row(h, patient);
     assert.equal(cancelled.consultation_started_at, before.consultation_started_at);
     assert.equal(cancelled.called_at, before.called_at);
-    h.advance();
-    const undo = await h.request("POST", "/queue/undo", { patient_id: patient.id }, FRONTDESK);
-    assert.equal(undo.status, 200, undo.body?.message);
-    const waiting = await row(h, patient);
-    assert.equal(waiting.status, "waiting");
-    for (const field of ["called_at", "consultation_started_at", "completed_at", "counter_id"]) assert.equal(waiting[field], null, field);
-    assert.notEqual(waiting.visit_state_revision, cancelled.visit_state_revision);
-    // Cancelling the recovered waiting visit again is a fresh, valid cancellation.
-    h.advance();
-    assert.equal((await cancel(h, patient, FRONTDESK)).body.already_cancelled, undefined);
+    assert.equal(cancelled.counter_id, "Doctor 1");
+    assert.equal(cancelled.reason, "Synthetic cancellation");
+    assert.ok(cancelled.completed_at, "the cancellation time is recorded");
+    for (const user of [FRONTDESK, SUPERADMIN, doctor(1)]) {
+      for (const route of ["/queue/undo", "/queue/requeue"]) {
+        h.advance();
+        const response = await h.request("POST", route, { patient_id: patient.id }, user);
+        assert.equal(response.status, 409, `${route} by ${user.id_num}: ${response.body?.message}`);
+        assert.match(response.body.message, /Cancellation is permanent/);
+        assert.deepEqual(await row(h, patient), cancelled, `${route} by ${user.id_num} changed nothing`);
+      }
+    }
+    // Calling it again is refused too, and repeating the cancel is an idempotent no-op.
+    assert.notEqual((await h.request("POST", "/queue/call", { patient_id: patient.id }, doctor(1))).status, 200);
+    assert.equal((await cancel(h, patient, FRONTDESK)).body.already_cancelled, true);
+    assert.deepEqual(await row(h, patient), cancelled);
   });
 
   test(`${mode}: normal Call -> Accept -> Start -> Complete and weighted-priority order are unchanged`, async () => {
@@ -428,19 +421,18 @@ test("mock Supabase: Complete committed by another instance before Cancel's writ
   assert.notEqual(stored.reason, "Synthetic cancellation");
 });
 
-// F5: a waiting visit can no longer be re-queued, so the waiting -> waiting ABA is produced by
-// a committed Cancel followed by Undo (both rotate the revision and restore "waiting").
-for (const installed of [true, false]) test(`mock Supabase (W1 RPC ${installed ? "installed" : "absent"}): a Cancel and Undo between Cancel's validation and write make the stale Cancel fail without touching the new visit`, async () => {
+// A waiting visit can be neither re-queued nor revived after a cancel (cancellation is permanent),
+// so the waiting -> waiting ABA is modelled as another committed change that rotates the waiting
+// visit's revision (as a Front Desk confirmation or a reassignment does).
+for (const installed of [true, false]) test(`mock Supabase (W1 RPC ${installed ? "installed" : "absent"}): a committed change between Cancel's validation and write makes the stale Cancel fail without touching the visit`, async () => {
   const h = await setup(false);
   const patient = await waitingPatient(h, 1);
   let revisionAtRace;
   beforeCancelWrite(h, installed, async () => {
     h.advance();
-    const intervening = await h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Intervening cancellation" }, FRONTDESK);
-    assert.equal(intervening.status, 200, intervening.body.message);
-    const undo = await h.request("POST", "/queue/undo", { patient_id: patient.id }, FRONTDESK);
-    assert.equal(undo.status, 200, undo.body.message);
-    revisionAtRace = (await row(h, patient)).visit_state_revision;
+    const stored = h.database.patients.find((entry) => entry.id === patient.id);
+    stored.visit_state_revision = crypto.randomUUID();
+    revisionAtRace = stored.visit_state_revision;
   });
   const response = await cancel(h, patient, FRONTDESK);
   assert.equal(response.status, 409, response.body.message);
@@ -465,51 +457,24 @@ for (const installed of [true, false]) test(`mock Supabase (W1 RPC ${installed ?
   assert.equal(await counterPointer(h, 3), patient.id, "the new call keeps its counter");
 });
 
-// F5: Requeue of a serving visit is refused outright, so the in-flight Requeue starts from a
-// cancelled snapshot and loses to a committed Undo + Call + Cancel (cancelled -> cancelled ABA).
-test("mock Supabase: Cancel committed while Requeue is in flight makes the stale Requeue fail", async () => {
+// A cancellation is permanent: Undo and Re-queue of a cancelled visit are refused before any
+// recovery RPC runs, so no in-flight recovery can race a later change.
+for (const route of ["/queue/requeue", "/queue/undo"]) test(`mock Supabase: ${route} of a cancelled visit is refused before any database write and the cancellation stands`, async () => {
   const h = await setup(false);
   const patient = await startedPatient(h, 1);
   assert.equal((await cancel(h, patient, doctor(1))).status, 200);
-  h.advance();
+  const cancelled = await row(h, patient);
+  let recoveryRpc = false;
   h.database.beforeRpc = async (name) => {
-    if (name !== "recover_patient_visit") return;
-    h.database.beforeRpc = null;
-    h.advance();
-    assert.equal((await h.request("POST", "/queue/undo", { patient_id: patient.id }, FRONTDESK)).status, 200);
-    h.advance();
-    assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
-    h.advance();
-    assert.equal((await cancel(h, patient, doctor(1))).status, 200);
+    if (["recover_patient_visit", "requeue_patient_visit", "undo_patient_visit_waiting"].includes(name)) recoveryRpc = true;
   };
   h.advance();
-  const requeue = await h.request("POST", "/queue/requeue", { patient_id: patient.id }, FRONTDESK);
-  assert.equal(requeue.status, 409, requeue.body?.message);
-  const stored = await row(h, patient);
-  assert.equal(stored.status, "cancelled", "the committed Cancel stands");
-  assert.equal(stored.reason, "Synthetic cancellation");
-});
-
-test("mock Supabase: Cancel between Undo's snapshot and commit makes the stale Undo fail and keeps the cancellation", async () => {
-  const h = await setup(false);
-  const patient = await startedPatient(h, 1);
-  assert.equal((await cancel(h, patient, doctor(1))).status, 200);
-  let cancelledAgain;
-  h.database.beforeRpc = async (name) => {
-    if (name !== "undo_patient_visit_waiting") return;
-    h.database.beforeRpc = null;
-    h.advance();
-    // Another instance undoes and the visit is cancelled again before this Undo commits.
-    const undo = await h.service.undoPatientAction(patient.id, FRONTDESK);
-    assert.equal(undo.status, "waiting");
-    h.advance();
-    assert.equal((await cancel(h, patient, FRONTDESK)).status, 200);
-    cancelledAgain = await row(h, patient);
-  };
-  h.advance();
-  const stale = await h.request("POST", "/queue/undo", { patient_id: patient.id }, FRONTDESK);
-  assert.equal(stale.status, 409, stale.body?.message);
-  assert.deepEqual(await row(h, patient), cancelledAgain);
+  const response = await h.request("POST", route, { patient_id: patient.id }, FRONTDESK);
+  assert.equal(response.status, 409, response.body?.message);
+  assert.match(response.body.message, /Cancellation is permanent/);
+  assert.equal(recoveryRpc, false, "no recovery RPC was attempted");
+  assert.deepEqual(await row(h, patient), cancelled);
+  assert.equal(cancelled.reason, "Synthetic cancellation");
 });
 
 test("mock Supabase: two simultaneous Cancels write once; the loser is rejected or idempotent, never a rewrite", async () => {

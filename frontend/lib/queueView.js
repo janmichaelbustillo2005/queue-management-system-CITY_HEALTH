@@ -35,15 +35,9 @@ export const CONFIRMATION_CONFIRMED_CLASS = "bg-emerald-100 text-emerald-800";
 // doctor the Front Desk may confirm now (confirmable: the head of the doctor's pending list in
 // queue-priority order, while the doctor has no active patient). The others say why they wait.
 // The backend and the database enforce the same rule; this only decides what a row shows.
-export const isConfirmableNow = (row) => isAwaitingConfirmation(row) && row?.confirmable === true && row?.not_present_at == null;
-// OC1 Not Present: the Front Desk set this pending patient aside. It keeps its ticket, priority,
-// registration time and doctor, and is skipped until marked present again.
-export const isNotPresent = (row) => isAwaitingConfirmation(row) && row?.not_present_at != null;
-export const NOT_PRESENT_LABEL = "Not Present";
-export const NOT_PRESENT_CLASS = "bg-slate-200 text-slate-800";
+export const isConfirmableNow = (row) => isAwaitingConfirmation(row) && row?.confirmable === true;
 export function confirmationWaitLabel(row) {
   const ticket = row?.confirmation_blocked_by;
-  if (row?.not_present_at != null) return "Set aside: keeps its place";
   switch (row?.confirmation_blocked) {
     case "doctor_has_active_patient":
       return ticket ? `Waiting for ${ticket} to finish` : "Waiting for the current patient to finish";
@@ -129,10 +123,7 @@ export const QUEUE_STATUS_COUNTERS = [
   { status: "cancelled", label: "Cancelled", className: "bg-gray-200 brand-text" }
 ];
 
-const STATUS_BADGE_CLASSES = {
-  ...Object.fromEntries(QUEUE_STATUS_COUNTERS.map(({ status, className }) => [status, className])),
-  "no-show": "bg-red-100 text-red-700"
-};
+const STATUS_BADGE_CLASSES = Object.fromEntries(QUEUE_STATUS_COUNTERS.map(({ status, className }) => [status, className]));
 
 export const queueStatusClass = (status) => STATUS_BADGE_CLASSES[status] || "bg-gray-100 brand-text-muted";
 
@@ -172,8 +163,7 @@ export const QUEUE_STATUS_FILTERS = [
   { value: "waiting", label: "Waiting" },
   { value: "serving", label: "Serving" },
   { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "no-show", label: "No-show" }
+  { value: "cancelled", label: "Cancelled" }
 ];
 
 export const QUEUE_SEARCH_PLACEHOLDER = "Patient name or queue number";

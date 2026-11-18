@@ -7,7 +7,6 @@
   "voiceAnnouncements": true,
   "announceDoctorRoom": true,
   "announceGapSeconds": 3,
-  "noShowWaitMinutes": 10,
   "recallAttempts": 2,
   "allowQueueReassignment": true,
   "preventDuplicateRegistration": true,

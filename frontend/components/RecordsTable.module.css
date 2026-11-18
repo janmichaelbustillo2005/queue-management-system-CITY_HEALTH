@@ -78,10 +78,6 @@
 .dangerButton:hover { background: #fef2f2; border-color: #b91c1c; }
 .dangerButton:focus-visible { outline-color: rgba(185, 28, 28, 0.3); }
 
-/* Review flags: the indicator, then the specific flags in small text. */
-.flags { align-items: flex-start; display: inline-flex; flex-direction: column; gap: 3px; }
-.flagList { color: #64748b; font-size: 12px; line-height: 1.4; }
-
 /* Footer: what is shown on the left, page navigation on the right. */
 .footer {
   align-items: center; border-top: 1px solid #eef2f6; display: flex; flex-wrap: wrap; gap: 12px 20px;

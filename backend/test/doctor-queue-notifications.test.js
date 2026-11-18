@@ -18,7 +18,7 @@ function visit(overrides = {}) {
   return {
     id, id_num: `Synthetic patient ${id}`, queue_number: `GP-${String(id).padStart(3, "0")}`, service_type: "consultation",
     status: "waiting", priority_score: 1, created_at: today(id % 50), counter_id: null, called_at: null,
-    completed_at: null, confirmed_at: null, confirmed_by: null, confirmed_for: null, not_present_at: null, ...overrides
+    completed_at: null, confirmed_at: null, confirmed_by: null, confirmed_for: null, ...overrides
   };
 }
 const confirmed = (overrides = {}) => visit({ confirmed_at: today(), confirmed_by: "frontdesk", ...overrides });
@@ -30,13 +30,12 @@ function scenario() {
   const rows = [];
   for (let i = 0; i < 5; i++) rows.push(visit({ counter_id: "Doctor 1" }));
   rows.push(confirmed({ counter_id: "Doctor 2" }), visit({ counter_id: "Doctor 2" }),
-    visit({ counter_id: "Doctor 2", not_present_at: today(), service_type: "prenatal" }));
+    visit({ counter_id: "Doctor 2", service_type: "prenatal" }));
   rows.push(visit({ counter_id: "Doctor 3" }), confirmed({ counter_id: "Doctor 3" }));
   rows.push(
     visit({ counter_id: "Doctor 2", status: "serving", called_at: today() }),
     visit({ counter_id: "Doctor 2", status: "completed", completed_at: today() }),
     visit({ counter_id: "Doctor 2", status: "cancelled" }),
-    visit({ counter_id: "Doctor 2", status: "no-show" }),
     visit({ counter_id: "Doctor 2", created_at: YESTERDAY }),
     visit({ counter_id: null }) // round robin: pending reassignment, no doctor yet
   );
@@ -47,13 +46,13 @@ test("each doctor's waiting count covers only its own waiting visits, confirmed 
   const rows = scenario();
   assert.deepEqual([1, 2, 3].map((n) => summaryFor(rows, `Doctor ${n}`).waiting), [5, 3, 2]);
   const doctor2 = summaryFor(rows, "Doctor 2");
-  assert.deepEqual({ ready: doctor2.ready, awaiting: doctor2.awaiting_confirmation, notPresent: doctor2.not_present },
-    { ready: 1, awaiting: 1, notPresent: 1 });
+  assert.deepEqual({ ready: doctor2.ready, awaiting: doctor2.awaiting_confirmation }, { ready: 1, awaiting: 2 });
+  assert.equal("not_present" in doctor2, false, "the removed Not Present count is never reported");
   assert.equal(doctor2.visit_ids.length, 3);
   assert.equal(new Set([1, 2, 3].flatMap((n) => summaryFor(rows, `Doctor ${n}`).visit_ids)).size, 10, "no visit counts for two doctors");
 });
 
-test("serving, completed, cancelled, no-show, earlier days and duplicate records are excluded", () => {
+test("serving, completed, cancelled, earlier days and duplicate records are excluded", () => {
   const rows = scenario();
   const duplicate = { ...rows[0] };
   assert.equal(summaryFor([...rows, duplicate], "Doctor 1").waiting, 5);
@@ -114,7 +113,7 @@ test("GET /queue gives each doctor account only its own count, chosen from the v
     assert.equal(body.my_queue.visit_ids.length, waiting);
     assert.match(body.my_queue.business_date, /^\d{4}-\d{2}-\d{2}$/);
     assert.deepEqual(Object.keys(body.my_queue).sort(),
-      ["awaiting_confirmation", "business_date", "doctor", "not_present", "observed_at", "ready", "visit_ids", "waiting"],
+      ["awaiting_confirmation", "business_date", "doctor", "observed_at", "ready", "visit_ids", "waiting"],
       "the summary carries counts and visit ids only, never names or tickets");
   }
 });

@@ -211,11 +211,11 @@ test("a visit without the backend's confirmable flag (or blocked) never posts a 
   assert.deepEqual(h.calls, []);
 });
 
-// OC1 Not Present.
-const away = (id, overrides = {}) => patient(id, { confirmable: false, confirmation_blocked: "patient_not_present",
-  not_present_at: `2026-11-11T01:1${id}:00Z`, not_present_by: "frontdesk", ...overrides });
+// Not Present was removed entirely. A row that still carries the old columns (always NULL after
+// the NS1 database script, but possible from an older backend) is an ordinary pending patient.
+const leftover = (id, overrides = {}) => patient(id, { not_present_at: `2026-11-11T01:1${id}:00Z`, not_present_by: "frontdesk", ...overrides });
 
-test("Patient Management has no Not Present action (removed 2026-11-13); pending rows keep Confirm Patient and Cancel", () => {
+test("Patient Management has no Not Present action; pending rows keep Confirm Patient and Cancel", () => {
   const h = harness([patient(1), blocked(2, "not_next_for_doctor", "GP-1")]);
   const tree = h.render();
   assert.equal(nodes(tree, (node) => node.type === "button" && /not present/i.test(text(node))).length, 0);
@@ -223,26 +223,19 @@ test("Patient Management has no Not Present action (removed 2026-11-13); pending
   assert.deepEqual([buttons(rowOf(tree, 2), "Confirm Patient").length, buttons(rowOf(tree, 2), "Cancel").length], [0, 1]);
 });
 
-test("a Not Present patient shows the badge, Mark Present and Cancel, and never Confirm Patient", async () => {
-  const h = harness([away(1, { confirmable: true })]);
-  const tree = h.render();
-  const row = rowOf(tree, 1);
-  assert.match(text(row), /Not Present/);
-  assert.match(text(row), /Pending Confirmation/);
-  assert.equal(nodes(row, (node) => node.props?.["data-presence"] === "not-present").length, 1);
-  assert.equal(buttons(row, "Confirm Patient").length, 0, "even a stale confirmable flag cannot confirm an absent patient");
-  assert.equal(buttons(row, "Cancel").length, 1);
-  buttons(row, "Mark Present")[0].props.onClick();
-  assert.equal(h.confirmation.title, "Mark Present");
-  assert.match(h.confirmation.message, /original place/);
-  await h.confirmation.onConfirm("");
-  assert.deepEqual(h.calls, [{ route: "/queue/present", method: "POST", body: { patient_id: 1 } }]);
-});
+test("no Not Present badge or Mark Present action remains, even for a row with leftover Not Present data", async () => {
+  const front = harness([leftover(1, { confirmable: true })]);
+  const row = rowOf(front.render(), 1);
+  assert.doesNotMatch(text(row), /Not Present|Mark Present|Set aside/);
+  assert.equal(nodes(row, (node) => node.props?.["data-presence"] != null).length, 0);
+  assert.deepEqual([buttons(row, "Confirm Patient").length, buttons(row, "Cancel").length], [1, 1]);
+  buttons(row, "Confirm Patient")[0].props.onClick();
+  await front.confirmation?.onConfirm?.("");
+  assert.ok(!front.calls.some((call) => /\/queue\/(not-)?present/.test(call.route)), "no presence route is ever called");
 
-test("Superadmin sees the Not Present state but has no presence actions", () => {
-  const h = harness([away(1), patient(2)], { props: { canConfirm: false } });
+  const h = harness([leftover(1), patient(2)], { props: { canConfirm: false } });
   const tree = h.render();
-  assert.match(text(rowOf(tree, 1)), /Not Present/);
+  assert.doesNotMatch(text(rowOf(tree, 1)), /Not Present/);
   for (const label of ["Mark Present", "Not Present", "Confirm Patient"]) {
     assert.equal(nodes(tree, (node) => node.type === "button" && text(node).trim() === label).length, 0, label);
   }

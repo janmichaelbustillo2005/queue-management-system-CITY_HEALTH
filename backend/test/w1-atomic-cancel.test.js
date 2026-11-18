@@ -216,29 +216,31 @@ test("installed: success withdraws only this patient's pending acceptance and re
   assert.deepEqual({ announced: sideState(h, announced.id), bystander: sideState(h, bystander.id) }, others);
 });
 
-test("installed (W1 with F5 and C1): a delayed Cancel loses to Cancel + Requeue + Call and never clears the new call's counter or acceptance", async () => {
+test("installed (W1 with F5 and C1): a delayed Cancel loses to an intervening Cancel; Undo/Re-queue cannot revive the visit and its first cancellation stands", async () => {
   for (const [requeue, call] of [[true, true], [true, false], [false, true], [false, false]]) {
     const h = harness({ requeue, call });
     const patient = await called(h, 3);
     let raced = false;
+    let firstCancellation;
     // The delayed request authorized the serving snapshot; before its write, other operators act.
     h.database.beforeRpc = async (name) => {
       if (name !== "cancel_patient_visit" || raced) return undefined;
       raced = true;
       assert.equal((await cancel(h, patient, FRONTDESK, { reason: "Intervening" })).status, 200);
+      firstCancellation = clone(row(h, patient.id));
       h.advance();
       const recovered = await h.request("POST", requeue ? "/queue/requeue" : "/queue/undo", { patient_id: patient.id }, FRONTDESK);
-      assert.equal(recovered.status, 200, recovered.body.message);
+      assert.equal(recovered.status, 409, recovered.body.message);
       h.advance();
-      assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
+      assert.notEqual((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
       return undefined;
     };
     const late = await cancel(h, patient, doctor(3), { reason: "Delayed" });
-    assert.equal(late.status, 409, `${requeue}/${call}: ${late.body.message}`);
+    assert.ok(late.status === 409 || late.body.already_cancelled === true, `${requeue}/${call}: ${late.status} ${late.body.message}`);
     const after = row(h, patient.id);
-    assert.deepEqual([after.status, after.counter_id, pointer(h, 3)], ["serving", "Doctor 3", patient.id], `${requeue}/${call}: new pair intact`);
-    assert.equal(h.settings.isAwaitingAccept(patient.id), true, "the new call still awaits the doctor's Accept");
-    assert.notEqual(after.reason, "Delayed");
+    assert.deepEqual(after, firstCancellation, `${requeue}/${call}: the first cancellation is unchanged`);
+    assert.deepEqual([after.status, after.reason, pointer(h, 3)], ["cancelled", "Intervening", null]);
+    assert.equal(h.settings.isAwaitingAccept(patient.id), false, "no acceptance survives the cancellation");
   }
 });
 

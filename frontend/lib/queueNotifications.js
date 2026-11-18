@@ -21,7 +21,7 @@ export const TOAST_VISIBLE_MS = 15000;
 export const SYSTEM_TITLE = "Smart Queuing System";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const COUNT_KEYS = ["waiting", "ready", "awaiting_confirmation", "not_present"];
+const COUNT_KEYS = ["waiting", "ready", "awaiting_confirmation"];
 const isVisitId = (id) => Number.isSafeInteger(id) && id > 0;
 
 // GET /queue my_queue, checked; null for anything else (no doctor account, an older backend, a
@@ -34,14 +34,13 @@ export function readDoctorQueueSummary(value) {
   if (!Array.isArray(value.visit_ids) || !value.visit_ids.every(isVisitId)) return null;
   const visitIds = [...new Set(value.visit_ids)].sort((a, b) => a - b);
   if (visitIds.length !== value.waiting ||
-      value.ready + value.awaiting_confirmation + value.not_present !== value.waiting) return null;
+      value.ready + value.awaiting_confirmation !== value.waiting) return null;
   return {
     doctor,
     businessDate: value.business_date,
     waiting: value.waiting,
     ready: value.ready,
     awaitingConfirmation: value.awaiting_confirmation,
-    notPresent: value.not_present,
     visitIds,
     observedAt: Number.isFinite(Date.parse(value.observed_at)) ? value.observed_at : null
   };

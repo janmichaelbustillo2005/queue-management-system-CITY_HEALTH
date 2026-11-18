@@ -2,9 +2,8 @@
 // A doctor has at most one ACTIVE visit: one it is serving (any day), an Undo reservation on its
 // counter, or a CONFIRMED visit of the doctor still waiting in today's queue. While it has one, the
 // Front Desk cannot confirm another patient for it. Otherwise only the doctor's next patient may be
-// confirmed: the head of its pending (unconfirmed), PRESENT waiting visits in the existing WPS /
-// WPS-A order (lib/wpsPriority.js, unchanged). A visit marked Not Present keeps its ticket,
-// priority, registration time and doctor; it is only skipped until marked present again.
+// confirmed: the head of its pending (unconfirmed) waiting visits in the existing WPS / WPS-A
+// order (lib/wpsPriority.js, unchanged).
 //
 // This module mirrors the SQL (confirm_next_patient_visit and the patients_one_confirmation_per_doctor
 // trigger), which enforces the rule under the counter and patient locks. Here it decides which row
@@ -12,7 +11,7 @@
 //   Doctor of a PENDING visit, by dispatch mode:
 //     round_robin: the stored assignment (counter_id); none while pending reassignment.
 //     service:     the stored assignment, else the service's doctor (routeOf).
-//     shared:      none before the Call, so the next-patient rule does not apply (Not Present still does).
+//     shared:      none before the Call, so the next-patient rule does not apply.
 //   Doctor of an ACTIVE visit (every mode): serving -> counter_id, else (legacy) its service's
 //   doctor; confirmed waiting -> counter_id, else confirmed_for (the doctor it was confirmed for).
 const { compareWps } = require("./wpsPriority");
@@ -20,11 +19,9 @@ const { compareWps } = require("./wpsPriority");
 const BLOCKED_DOCTOR_BUSY = "doctor_has_active_patient";
 const BLOCKED_NOT_NEXT = "not_next_for_doctor";
 const BLOCKED_UNASSIGNED = "awaiting_doctor_assignment";
-const BLOCKED_NOT_PRESENT = "patient_not_present";
 
 const trimmed = (value) => String(value ?? "").trim();
 const isPending = (p) => p?.status === "waiting" && p.completed_at == null && p.confirmed_at == null;
-const isNotPresent = (p) => p?.not_present_at != null;
 
 function visitDoctor(patient, mode, routeOf) {
   const assigned = trimmed(patient?.counter_id);
@@ -59,13 +56,10 @@ function findActiveVisit({ patients, counters, doctor, excludeId, inQueueWindow,
 // The same sentences the SQL raises.
 function blockedMessage(reason, doctor, queueNumber) {
   if (reason === BLOCKED_DOCTOR_BUSY) {
-    return `${doctor} already has an active patient (${queueNumber || "unknown"}). The next patient can be confirmed after that visit is completed, cancelled or marked no-show.`;
+    return `${doctor} already has an active patient (${queueNumber || "unknown"}). The next patient can be confirmed after that visit is completed or cancelled.`;
   }
   if (reason === BLOCKED_NOT_NEXT) {
     return `Only the next patient in ${doctor}'s queue (${queueNumber}) can be confirmed now.`;
-  }
-  if (reason === BLOCKED_NOT_PRESENT) {
-    return "This patient is marked Not Present. Mark the patient present before confirming.";
   }
   return "This patient is waiting for a doctor assignment. It can be confirmed once a doctor is assigned.";
 }
@@ -86,13 +80,13 @@ function buildConfirmationGate({ patients, counters, mode, rankedAt, aging, inQu
   });
   const pending = (patients || []).filter((p) => isPending(p) && inQueueWindow(p));
   if (mode !== "service" && mode !== "round_robin") {
-    for (const p of pending) gate.set(Number(p.id), entry(isNotPresent(p) ? BLOCKED_NOT_PRESENT : null, null, null));
+    for (const p of pending) gate.set(Number(p.id), entry(null, null, null));
     return gate;
   }
 
-  // The head of each doctor's present, pending visits.
+  // The head of each doctor's pending visits.
   const heads = new Map();
-  for (const p of pending.filter((row) => !isNotPresent(row)).sort((a, b) => compareWps(a, b, rankedAt, aging))) {
+  for (const p of pending.slice().sort((a, b) => compareWps(a, b, rankedAt, aging))) {
     const doctor = visitDoctor(p, mode, routeOf);
     if (doctor && !heads.has(doctor)) heads.set(doctor, p);
   }
@@ -100,10 +94,6 @@ function buildConfirmationGate({ patients, counters, mode, rankedAt, aging, inQu
   for (const p of pending) {
     const id = Number(p.id);
     const doctor = visitDoctor(p, mode, routeOf);
-    if (isNotPresent(p)) {
-      gate.set(id, entry(BLOCKED_NOT_PRESENT, doctor, null));
-      continue;
-    }
     if (!doctor) {
       gate.set(id, entry(BLOCKED_UNASSIGNED, null, null));
       continue;
@@ -131,8 +121,7 @@ function waitingVisitDoctor(patient, mode, routeOf) {
 // Front Desk Patient Management counts as Waiting, confirmed or not. Read-only; nothing here
 // assigns, confirms or ranks. visit_ids lets the doctor's screen tell a newly assigned visit from
 // one it already saw; it carries no name, ticket or service.
-//   ready: confirmed by the Front Desk (callable); awaiting_confirmation: pending and present;
-//   not_present: pending, set aside by the Front Desk (keeps its place).
+//   ready: confirmed by the Front Desk (callable); awaiting_confirmation: pending.
 function buildDoctorWaitingSummary({ patients, doctor, mode, inQueueWindow, routeOf, normalizeDoctor = trimmed }) {
   const visits = new Map();
   for (const p of patients || []) {
@@ -143,23 +132,21 @@ function buildDoctorWaitingSummary({ patients, doctor, mode, inQueueWindow, rout
     if (!owner || normalizeDoctor(owner) !== doctor) continue;
     visits.set(id, p);
   }
-  let ready = 0, notPresent = 0;
+  let ready = 0;
   for (const p of visits.values()) {
     if (p.confirmed_at != null) ready++;
-    else if (isNotPresent(p)) notPresent++;
   }
   return {
     doctor,
     waiting: visits.size,
     ready,
-    awaiting_confirmation: visits.size - ready - notPresent,
-    not_present: notPresent,
+    awaiting_confirmation: visits.size - ready,
     visit_ids: [...visits.keys()].sort((a, b) => a - b)
   };
 }
 
 module.exports = {
-  BLOCKED_DOCTOR_BUSY, BLOCKED_NOT_NEXT, BLOCKED_UNASSIGNED, BLOCKED_NOT_PRESENT,
+  BLOCKED_DOCTOR_BUSY, BLOCKED_NOT_NEXT, BLOCKED_UNASSIGNED,
   visitDoctor, activeDoctor, findActiveVisit, blockedMessage, activeConflictMessage, buildConfirmationGate,
   waitingVisitDoctor, buildDoctorWaitingSummary
 };

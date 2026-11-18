@@ -86,7 +86,7 @@ function createPgBackendHarness(pool, { onRequest, clockOffsetMs = 0, doctorDisp
     "../services/presenceService": presence, "../services/queueService": queue, "../services/addressSearchService": require("../../src/services/addressSearchService"), "../services/settingsService": settings
   }, DateImpl);
 
-  // `route` is the registered pattern (e.g. "/queue/backlog/:id"); `params` fills it.
+  // `route` is the registered pattern (e.g. "/doctor/patient-history/:id"); `params` fills it.
   async function request(method, route, { token, body = {}, query = {}, params = {} } = {}) {
     const chain = handlers.get(`${method.toUpperCase()} ${route}`);
     if (!chain) throw new Error(`Missing route ${method} ${route}`);

@@ -64,8 +64,8 @@ const defaultSettings = defaultQueueSettings;
 // the status choices shared with Front Desk Patient Management.
 const QUEUE_DEFAULT_VIEW = "default";
 const QUEUE_STATUS_OPTIONS = [{ value: QUEUE_DEFAULT_VIEW, label: "Queue view (per Settings)" }, ...QUEUE_STATUS_FILTERS];
-// Final visit outcomes: Cancel does not apply; Undo/Re-queue are the recovery actions.
-const TERMINAL_QUEUE_STATUSES = ["completed", "cancelled", "no-show"];
+// Final visit outcomes: Cancel does not apply.
+const TERMINAL_QUEUE_STATUSES = ["completed", "cancelled"];
 
 // The 13 Types of Services offered at registration (lib/services.js).
 const serviceOptions = OFFERED_SERVICES;
@@ -133,7 +133,10 @@ function isDashboardSummary(data) {
     ["total_tokens", "served_tokens", "walk_ins", "wait_samples"].every((key) =>
       Number.isInteger(day[key]) && day[key] >= 0) &&
     (day.average_wait_minutes === null ||
-      (Number.isFinite(day.average_wait_minutes) && day.average_wait_minutes >= 0)));
+      (Number.isFinite(day.average_wait_minutes) && day.average_wait_minutes >= 0))) &&
+    // Waiting Patients: a count, or null/absent when the backend cannot read confirmations.
+    (data.awaiting_confirmation == null ||
+      (Number.isInteger(data.awaiting_confirmation) && data.awaiting_confirmation >= 0));
 }
 
 function buildDashboardCards(summary, counters, doctorPresence, now) {
@@ -149,39 +152,50 @@ function buildDashboardCards(summary, counters, doctorPresence, now) {
   const total = Array.isArray(counters) ? counters.length : null;
   const operational = total ? (active / total) * 100 : 0;
 
+  // Labels name what the backend counts (queueService summarizeDashboardDay): one "patients" row
+  // is one visit holding one queue ticket, so a returning patient is counted once per visit.
   return [
     {
-      key: "total", title: "Total Tokens Today", value: countValue(today?.total_tokens),
+      key: "total", title: "Total Queue Tickets Today", value: countValue(today?.total_tokens),
       comparison: comparison("total_tokens"), icon: "fas fa-file-lines",
       tone: "blue",
-      description: "Queue registrations today, compared with the full previous day. Dates use Asia/Manila."
+      description: "Queue tickets generated today (one per patient visit), including visits later cancelled. " +
+        "Compared with the full previous day; dates use Asia/Manila."
     },
     {
-      key: "served", title: "Served Tokens", value: countValue(today?.served_tokens),
+      key: "served", title: "Completed Visits Today", value: countValue(today?.served_tokens),
       comparison: comparison("served_tokens"), icon: "fas fa-circle-check",
       tone: "green",
-      description: "Completed tokens by completion date, including visits registered on earlier days."
+      description: "Consultations or services completed today, by completion time, including visits registered on " +
+        "earlier days. Waiting, serving and cancelled visits are not counted."
     },
     {
-      key: "waiting", title: "Average Waiting Time",
+      key: "waiting", title: "Average Patient Wait Time",
       value: Number.isFinite(today?.average_wait_minutes) ? `${today.average_wait_minutes.toFixed(1)} min` : "—",
       comparison: today ? (Number.isFinite(today.average_wait_minutes)
-        ? formatDashboardChange(today.average_wait_minutes, yesterday?.average_wait_minutes) : "No calls yet") : "Awaiting statistics",
+        ? formatDashboardChange(today.average_wait_minutes, yesterday?.average_wait_minutes) : "No patients called yet") : "Awaiting statistics",
       icon: "fas fa-clock", tone: "orange",
-      description: "Registration to call, averaged over serving/completed tokens called today. Cancelled and no-show visits are excluded."
+      description: "Minutes from registration to being called by a doctor, averaged over patients called today who are " +
+        "being served or completed. Cancelled visits and visits with missing timestamps are excluded."
     },
     {
-      key: "counters", title: "Active Counters",
+      key: "counters", title: "Active Doctor Counters",
       value: countersKnown ? `${countValue(active)}/${countValue(total)}` : total === null ? "—" : `—/${countValue(total)}`,
       comparison: countersKnown ? `${operational.toFixed(1)}% operational` : total === null ? "Counters unavailable" : "Presence unavailable",
       icon: "fas fa-users", tone: "purple",
-      description: "Enabled counters with a verified online doctor session. Counters serving a patient remain active."
+      description: "Doctor counters (Doctor 1–3) that are enabled and have a verified online doctor session. " +
+        "A doctor serving a patient still counts as active."
     },
     {
-      key: "walkins", title: "No. of Walk-ins", value: countValue(today?.walk_ins),
-      comparison: comparison("walk_ins"), icon: "fas fa-person-walking",
+      // The current Front Desk confirmation workload (queueService countPendingFrontDeskConfirmations):
+      // waiting visits in today's queue without confirmed_at, the rows Front Desk Patient Management
+      // marks "Pending Confirmation". Not a daily total, so there is no comparison with yesterday.
+      key: "awaiting", title: "Waiting Patients", value: countValue(summary?.awaiting_confirmation),
+      comparison: "Awaiting Front Desk confirmation", icon: "fas fa-user-clock",
       tone: "teal",
-      description: "Registered at the front desk: tokens stored with source admin. Website registrations are excluded."
+      description: "Registered patients awaiting confirmation by the Front Desk. Counts pending queue visits " +
+        "(one per ticket) in today's queue; registration allows one active visit per patient. Patients already " +
+        "confirmed and waiting for a doctor, being served, completed or cancelled are not counted."
     }
   ];
 }
@@ -272,7 +286,7 @@ export default function HomePage() {
     let rows = queueRows ?? [];
     if (queueStatusFilter === QUEUE_DEFAULT_VIEW) {
       if (!settings.showCompleted) {
-        rows = rows.filter((row) => !["completed", "cancelled", "no-show"].includes(row.status));
+        rows = rows.filter((row) => !TERMINAL_QUEUE_STATUSES.includes(row.status));
       }
     } else {
       rows = rows.filter((row) => matchesQueueStatus(row, queueStatusFilter));
@@ -769,8 +783,8 @@ export default function HomePage() {
       return;
     }
     if (path === "/queue/cancel") {
-      // Completed, cancelled and no-show visits are final; recovery is Undo/Re-queue. The backend still decides.
-      if (TERMINAL_QUEUE_STATUSES.includes(patient.status)) { setError(`This patient is already ${patient.status}. Use Undo to recover the visit first.`); return; }
+      // Completed and cancelled visits are final. A cancellation is permanent; the backend still decides.
+      if (TERMINAL_QUEUE_STATUSES.includes(patient.status)) { setError(`This patient is already ${patient.status}.`); return; }
       const reason = window.prompt(`Reason for cancelling ${patient.id_num} (${patient.queue_number}):`);
       if (reason == null) return;
       if (!reason.trim()) { setError("A reason for cancel is required."); return; }
@@ -1678,8 +1692,7 @@ export default function HomePage() {
                                     <i className="fas fa-birthday-cake mr-1" />
                                     {formatQueueDate(patient.birthdate)}
                                   </span>
-                                )}
-                                {patient.mobile_number && (
+                                )}                                {patient.mobile_number && (
                                   <span className="text-[10px] brand-text-muted">
                                     <i className="fas fa-phone-alt mr-1" />
                                     {patient.mobile_number}
@@ -1766,7 +1779,8 @@ export default function HomePage() {
                                 </button>
                               ) : null}
 
-                              {patient.id === lastActionId && !(patient.status === "completed" && patient.consultation_started_at) && (
+                              {/* A cancellation is permanent: no Undo. */}
+                              {patient.id === lastActionId && patient.status !== "cancelled" && !(patient.status === "completed" && patient.consultation_started_at) && (
                                 <div className="flex items-center gap-2 action-menu-container">
                                   <button
                                     type="button"

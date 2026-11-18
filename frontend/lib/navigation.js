@@ -5,7 +5,10 @@
 
 const DOCTOR_PAGES = { admin1: "/admin1", admin2: "/admin2", admin3: "/admin3" };
 const FRONTDESK_LABELS = ["front desk", "frontdesk"];
-const RECORD_CATEGORIES = ["patients", "staff", "accounts"];
+const RECORD_CATEGORIES = ["patients", "staff"];
+// The former User Accounts category showed the same rows, filters and actions as
+// Staff Records; its old links now open (and highlight) Staff Records.
+const LEGACY_RECORD_CATEGORIES = { accounts: "staff" };
 const DASHBOARD_SECTIONS = ["queue", "staff", "settings"];
 
 // Same reading as the backend (isFrontdeskAssignment): an empty assignment or a
@@ -63,8 +66,11 @@ const liveDisplay = link("live-display", "Live Queue Display", "fas fa-desktop",
 const onDashboard = (at, section) => at.path === "/" && (section === "home"
   ? !DASHBOARD_SECTIONS.includes(at.section) : at.section === section);
 // The Records page shows patients for a missing or unknown category.
-const onRecords = (at, category) => at.path === "/records" && (category === "patients"
-  ? !RECORD_CATEGORIES.slice(1).includes(at.category) : at.category === category);
+const onRecords = (at, category) => {
+  if (at.path !== "/records") return false;
+  const current = LEGACY_RECORD_CATEGORIES[at.category] || at.category;
+  return category === "patients" ? !RECORD_CATEGORIES.slice(1).includes(current) : current === category;
+};
 
 const SUPERADMIN_GROUPS = [
   { id: "overview", label: "Overview", items: [
@@ -74,13 +80,11 @@ const SUPERADMIN_GROUPS = [
     // Doctor / counter monitoring is part of Queue Management (its panel keeps the
     // #doctor-monitoring anchor, so old bookmarks still open and highlight this item).
     link("queue", "Queue Management", "fas fa-list", "/?section=queue", (at) => onDashboard(at, "queue")),
-    link("historical-backlog", "Historical Backlog", "fas fa-history", "/queue-backlog", (at) => at.path === "/queue-backlog"),
     liveDisplay
   ] },
   { id: "records", label: "Records Management", items: [
     link("patient-records", "Patient Records", "fas fa-notes-medical", "/records?category=patients", (at) => onRecords(at, "patients")),
-    link("staff-records", "Staff Records", "fas fa-id-card-alt", "/records?category=staff", (at) => onRecords(at, "staff")),
-    link("user-accounts", "User Accounts", "fas fa-users", "/records?category=accounts", (at) => onRecords(at, "accounts"))
+    link("staff-records", "Staff Records", "fas fa-id-card-alt", "/records?category=staff", (at) => onRecords(at, "staff"))
   ] },
   { id: "reports", label: "Reports & Analytics", items: [
     link("analytics", "Analytics", "fas fa-chart-bar", "/analytics", (at) => at.path === "/analytics")
@@ -106,7 +110,7 @@ export function navigationFor(account) {
     case "doctor": return [
       { id: "patient-queue", label: "Patient Queue", items: [
         link("my-queue", "My Patient Queue", "fas fa-user-md", account.homeHref, (at) => at.path === account.homeHref),
-        // PH1: the doctor's own completed, cancelled and no-show visits (the API returns only its own).
+        // PH1: the doctor's own completed and cancelled visits (the API returns only its own).
         link("patient-history", "Patient History", "fas fa-clipboard-list", "/patient-history", (at) => at.path === "/patient-history")
       ] },
       queueMonitoring

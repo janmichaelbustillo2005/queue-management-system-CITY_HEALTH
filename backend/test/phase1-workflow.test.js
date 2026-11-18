@@ -369,7 +369,7 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.service.getQueueOverview()).counters[0].current_patient_id, null);
   });
 
-  test(`${mode}: existing Re-Call, Complete, Cancel and No-show preserve counter state`, async () => {
+  test(`${mode}: existing Re-Call, Complete, Recall and Cancel preserve counter state`, async () => {
     const h = await setup(localFallback);
     const patient = await h.service.createQueueEntry(registration("Re-call"));
     await h.request("POST", "/queue/call", { patient_id: patient.id });
@@ -415,18 +415,19 @@ for (const localFallback of [false, true]) {
 
     const absent = await h.service.createQueueEntry(registration("Absent"));
     await h.request("POST", "/queue/call", { patient_id: absent.id });
-    const tooSoon = await h.request("POST", "/queue/no-show", { patient_id: absent.id, reason: "Absent" });
-    assert.equal(tooSoon.status, 400);
     assert.equal((await h.service.getPatientById(absent.id)).status, "serving");
     const recallOne = await h.request("POST", "/queue/recall", { patient_id: absent.id, counterId: "Doctor 1" });
     const recallTwo = await h.request("POST", "/queue/recall", { patient_id: absent.id, counterId: "Doctor 1" });
     assert.equal(recallOne.body.recall_count, 1);
     assert.equal(recallTwo.body.recall_count, 2);
-    assert.equal((await h.request("POST", "/queue/recall", { patient_id: absent.id })).status, 400);
-    h.advance(11 * 60 * 1000);
-    const noShow = await h.request("POST", "/queue/no-show", { patient_id: absent.id, reason: "Absent" });
-    assert.equal(noShow.status, 200);
-    assert.equal((await h.service.getPatientById(absent.id)).status, "no-show");
+    const limit = await h.request("POST", "/queue/recall", { patient_id: absent.id });
+    assert.equal(limit.status, 400);
+    assert.match(limit.body.message, /Recall limit reached \(2\)\. Cancel the patient if they do not respond\./);
+    // A patient who never responds is cancelled (there is no separate No-show action).
+    await assert.rejects(h.request("POST", "/queue/no-show", { patient_id: absent.id, reason: "Absent" }), /Missing route POST \/queue\/no-show/);
+    const cancelAbsent = await h.request("POST", "/queue/cancel", { patient_id: absent.id, reason: "Did not respond", counter_id: "Doctor 1" });
+    assert.equal(cancelAbsent.status, 200, cancelAbsent.body.message);
+    assert.equal((await h.service.getPatientById(absent.id)).status, "cancelled");
     assert.ok((await h.service.getPatientById(absent.id)).completed_at);
     assert.equal((await h.service.getQueueOverview()).counters[0].current_patient_id, null);
     assert.equal(h.settings.getRecallCount(absent.id), 0);

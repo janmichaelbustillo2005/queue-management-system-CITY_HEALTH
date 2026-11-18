@@ -25,8 +25,7 @@ const HEADER_CELL = "px-4 py-3 text-xs font-bold brand-text-muted uppercase trac
 const CARDS = [
   { key: "total_handled", label: "Total Handled", icon: "fas fa-clipboard-list", tone: "bg-blue-50 text-blue-600" },
   { key: "completed", label: "Completed", icon: "fas fa-check-circle", tone: "bg-emerald-50 text-emerald-600" },
-  { key: "cancelled", label: "Cancelled", icon: "fas fa-times-circle", tone: "bg-red-50 text-red-600" },
-  { key: "no_show", label: "No-show", icon: "fas fa-user-slash", tone: "bg-amber-50 text-amber-600" }
+  { key: "cancelled", label: "Cancelled", icon: "fas fa-times-circle", tone: "bg-red-50 text-red-600" }
 ];
 
 function Missing({ children = NOT_RECORDED, title }) {
@@ -43,8 +42,8 @@ function StatusBadge({ status }) {
   );
 }
 
-// PH1 Patient History: the signed-in doctor's own completed consultations, cancellations and
-// no-shows. Read-only. The server picks the doctor from the session and refuses any other, so this
+// PH1 Patient History: the signed-in doctor's own completed consultations and cancellations.
+// Read-only. The server picks the doctor from the session and refuses any other, so this
 // page never sends a doctor; it only filters, searches and pages that doctor's own records.
 export default function PatientHistoryPage() {
   const { user, loading } = useAuth();
@@ -147,7 +146,7 @@ export default function PatientHistoryPage() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" aria-live="polite">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-live="polite">
           {CARDS.map((card) => (
             <div key={card.key} data-history-card={card.key}
               className="stat-card bg-white p-4 rounded-xl shadow-sm border brand-border flex items-center gap-4">
@@ -301,8 +300,8 @@ export default function PatientHistoryPage() {
 
         <p className="text-xs brand-text-muted m-0">
           <i className="fas fa-info-circle me-1" aria-hidden="true" />
-          Only visits you handled are listed: consultations you completed, and visits you cancelled or marked no-show.
-          Cancellations by the Front Desk are not included. Cancellations and no-shows from before the system began
+          Only visits you handled are listed: consultations you completed, and visits you cancelled.
+          Cancellations by the Front Desk are not included. Cancellations from before the system began
           recording who made them are not attributed to any doctor. Times are shown in Manila.
         </p>
       </div>

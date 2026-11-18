@@ -44,7 +44,7 @@ test("charts show readable labels instead of stored database values", () => {
   });
   assert.deepEqual(Array.from(built.serviceTypesChart.data.labels), ["Family planning", "Medical Check-up"]);
   assert.deepEqual(Array.from(built.priorityChart.data.labels), ["Solo Parent", "Regular (no priority)"]);
-  assert.equal(charts.statusLabel("no-show"), "No-show");
+  assert.equal(charts.statusLabel("cancelled"), "Cancelled");
   assert.equal(charts.serviceLabel("dental_care"), "Dental Care");
   assert.equal(charts.readableLabel(""), "Not recorded");
 });
@@ -77,4 +77,25 @@ test("empty or all-zero series count as no data, and only Distribution draws pag
   assert.deepEqual(Object.keys(charts.TAB_CHARTS), ["distribution"]);
   assert.deepEqual(Array.from(charts.TAB_CHARTS.distribution), ["serviceTypesChart", "sexDistributionChart", "priorityChart", "ageGroupChart",
     "residencyChart", "patientsPerDayChart", "arrivalsByHourChart"]);
+});
+
+test("Patient Age Groups: green shade per age band, gray Not recorded, visit counts with share of total", () => {
+  const built = charts.buildAnalyticsCharts({ ageGroups: { labels: ["0–5", "6–17", "18–35", "36–59", "60+", "Not recorded"], data: [1, 2, 3, 2, 1, 1] } });
+  const config = built.ageGroupChart;
+  assert.equal(config.type, "bar");
+  assert.equal(config.options.indexAxis, "x", "vertical bars");
+  assert.deepEqual(Array.from(config.data.labels), ["0–5", "6–17", "18–35", "36–59", "60+", "Not recorded"]);
+  const fills = colors(config);
+  assert.equal(new Set(fills.slice(0, 5)).size, 5, "each age band has its own shade");
+  fills.slice(0, 5).forEach((fill) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(fill.slice(i, i + 2), 16));
+    assert.ok(g > r && g > b, `${fill} is a green shade`);
+  });
+  assert.equal(fills[5], "#9ca3af");
+  assert.equal(config.options.scales.y.title.text, "Visits");
+  assert.equal(config.options.scales.x.title.text, "Age group");
+  assert.equal(config.options.scales.x.ticks.autoSkip, false, "no age-group label is dropped on narrow screens");
+  const label = config.options.plugins.tooltip.callbacks.label;
+  assert.equal(label({ label: "18–35", raw: 3, dataset: config.data.datasets[0] }), "3 visits (30% of total)");
+  assert.equal(label({ label: "60+", raw: 1, dataset: config.data.datasets[0] }), "1 visit (10% of total)");
 });

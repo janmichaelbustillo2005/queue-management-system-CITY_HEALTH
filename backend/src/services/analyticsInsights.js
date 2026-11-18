@@ -249,7 +249,6 @@ function buildJourney(rows, ctx) {
     exits: {
       cancelled_before_call: rows.filter((row) => row.status === "cancelled" && !isCalled(row)).length,
       cancelled_after_call: rows.filter((row) => row.status === "cancelled" && isCalled(row)).length,
-      no_show: rows.filter((row) => row.status === "no-show").length,
       still_waiting: rows.filter((row) => row.status === "waiting").length,
       still_serving: rows.filter((row) => row.status === "serving").length
     },
@@ -263,24 +262,22 @@ function buildJourney(rows, ctx) {
   };
 }
 
-// 4. Abandonment over finished visits (completed, cancelled, no-show); visits still in the queue
+// 4. Abandonment over finished visits (completed, cancelled); visits still in the queue
 // have no outcome yet and are reported separately.
 function buildAbandonment(rows, ctx) {
   const count = (predicate) => rows.filter(predicate).length;
   const completed = count((row) => row.status === "completed");
   const cancelledBeforeCall = count((row) => row.status === "cancelled" && !isCalled(row));
   const cancelledAfterCall = count((row) => row.status === "cancelled" && isCalled(row));
-  const noShow = count((row) => row.status === "no-show");
   const cancelled = cancelledBeforeCall + cancelledAfterCall;
-  const resolved = completed + cancelled + noShow;
-  const reasons = [...groupBy(rows.filter((row) => ["cancelled", "no-show"].includes(row.status)), (row) => {
+  const resolved = completed + cancelled;
+  const reasons = [...groupBy(rows.filter((row) => row.status === "cancelled"), (row) => {
     const reason = String(row.reason ?? "").trim().replace(/\s+/g, " ");
     return reason ? reason.toLowerCase() : null;
   }).values()]
     .map((group) => ({
       reason: String(group[0].reason).trim().replace(/\s+/g, " "),
       cancelled: group.filter((row) => row.status === "cancelled").length,
-      no_show: group.filter((row) => row.status === "no-show").length,
       total: group.length
     }))
     .sort((a, b) => b.total - a.total || a.reason.localeCompare(b.reason))
@@ -291,13 +288,11 @@ function buildAbandonment(rows, ctx) {
     cancelled,
     cancelled_before_call: cancelledBeforeCall,
     cancelled_after_call: cancelledAfterCall,
-    no_show: noShow,
-    abandoned: cancelled + noShow,
-    abandonment_rate: percent(cancelled + noShow, resolved),
+    abandoned: cancelled,
+    abandonment_rate: percent(cancelled, resolved),
     cancellation_rate: percent(cancelled, resolved),
-    no_show_rate: percent(noShow, resolved),
     in_progress: count((row) => row.status === "waiting" || row.status === "serving"),
-    // Waiting visits registered on an earlier day are the Historical Backlog, not live demand.
+    // Waiting visits registered on an earlier day are carry-over, not live demand.
     waiting_from_earlier_days: count((row) => row.status === "waiting" && arrivalParts(row) && arrivalParts(row).date < ctx.today),
     top_reasons: reasons
   };
@@ -390,7 +385,6 @@ function buildVolumes(rows, ctx, utilization) {
       total: group.length,
       completed: completed.length,
       cancelled: group.filter((row) => row.status === "cancelled").length,
-      no_show: group.filter((row) => row.status === "no-show").length,
       in_queue: group.filter((row) => row.status === "waiting" || row.status === "serving").length,
       completed_share: percent(completed.length, completedTotal),
       active_days: activeDays,
@@ -413,7 +407,7 @@ function buildSla(rows, ctx, targetMinutes, now) {
   return {
     target_minutes: target,
     ...summarize(measured),
-    left_after_target: rows.filter((row) => ["cancelled", "no-show"].includes(row.status) && !isCalled(row) &&
+    left_after_target: rows.filter((row) => row.status === "cancelled" && !isCalled(row) &&
       (minutesBetween(row.created_at, row.completed_at) ?? 0) > target).length,
     waiting_over_target_now: rows.filter((row) => row.status === "waiting" && arrivalParts(row)?.date === ctx.today &&
       (now - toTime(row.created_at)) / MINUTE_MS > target).length,
@@ -741,22 +735,22 @@ function buildInsightsCsv(insights) {
   ]);
   const abandonment = insights.abandonment || {};
   block("Patient outcomes", ["Outcome", "Patients"], [
-    ["Completed", abandonment.completed], ["Cancelled", abandonment.cancelled], ["No-show", abandonment.no_show],
+    ["Completed", abandonment.completed], ["Cancelled", abandonment.cancelled],
     ["Currently waiting", journey.exits?.still_waiting], ["Being served", journey.exits?.still_serving]
   ]);
   block("Abandonment", ["Measure", "Value"], [
     ["Finished visits", abandonment.resolved], ["Completed", abandonment.completed],
     ["Cancelled before being called", abandonment.cancelled_before_call], ["Cancelled after being called", abandonment.cancelled_after_call],
-    ["No-show", abandonment.no_show], ["Abandonment rate (%)", abandonment.abandonment_rate],
-    ["Cancellation rate (%)", abandonment.cancellation_rate], ["No-show rate (%)", abandonment.no_show_rate],
+    ["Abandonment rate (%)", abandonment.abandonment_rate],
+    ["Cancellation rate (%)", abandonment.cancellation_rate],
     ["Still in the queue", abandonment.in_progress]
   ]);
   if (insights.utilization?.available) {
     block("Doctor utilization (breaks are not recorded)", ["Doctor", "Signed in (min)", "Busy (min)", "Idle (min)", "Utilization (%)", "Busy outside sign-in (min)"],
       insights.utilization.doctors.map((row) => [row.doctor, row.signed_in_minutes, row.busy_minutes, row.idle_minutes, row.utilization, row.busy_outside_session_minutes]));
   } else note("Doctor utilization", insights.utilization?.message);
-  block("Transaction volume by doctor", ["Doctor", "Total", "Completed", "Cancelled", "No-show", "In queue", "Share of completed (%)", "Completed per active day", "Completed per signed-in hour"],
-    (insights.volumes || []).map((row) => [row.doctor, row.total, row.completed, row.cancelled, row.no_show, row.in_queue,
+  block("Transaction volume by doctor", ["Doctor", "Total", "Completed", "Cancelled", "In queue", "Share of completed (%)", "Completed per active day", "Completed per signed-in hour"],
+    (insights.volumes || []).map((row) => [row.doctor, row.total, row.completed, row.cancelled, row.in_queue,
       row.completed_share, row.completed_per_active_day, row.completed_per_signed_in_hour]));
   const sla = insights.sla || {};
   const slaHeaders = ["Measured", "On time", "Late", "Compliance (%)"];

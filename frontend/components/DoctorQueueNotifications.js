@@ -267,7 +267,6 @@ export default function DoctorQueueNotifications({ summary: rawSummary, status =
             <ul className="queue-notify-breakdown">
               <li><span>Ready to call</span><strong>{summary.ready}</strong></li>
               <li><span>Awaiting Front Desk confirmation</span><strong>{summary.awaitingConfirmation}</strong></li>
-              {summary.notPresent ? <li><span>Set aside (Not Present)</span><strong>{summary.notPresent}</strong></li> : null}
             </ul>
             <p className={`queue-notify-updated${stale ? " is-stale" : ""}`}>
               {stale ? "Connection problem: showing the last known count. Retrying…"

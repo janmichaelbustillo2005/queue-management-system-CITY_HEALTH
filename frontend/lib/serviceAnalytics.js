@@ -6,14 +6,13 @@ import { serviceLabel } from "./analyticsCharts";
 // `totals`, and the wait sample counts in `insights.wait.by_service`; nothing is recounted, so the
 // charts and the table cannot disagree.
 
-// Outcome colours. The hues follow the requested Completed green / Cancelled red / No-show slate
-// blue / In Queue amber; the steps were adjusted with the dataviz palette validator so green and
+// Outcome colours. The hues follow the requested Completed green / Cancelled red / In Queue
+// amber; the steps were adjusted with the dataviz palette validator so green and
 // red stay distinguishable for red-green colour-blind readers (all checks pass in stacking order).
 // `ink` is the readable text colour for values written in that outcome's colour.
 export const SERVICE_OUTCOMES = [
   { key: "completed", label: "Completed", color: "#15803D", ink: "#15803D", onColor: "#ffffff" },
   { key: "cancelled", label: "Cancelled", color: "#F87171", ink: "#B91C1C", onColor: "#1F2937" },
-  { key: "no_show", label: "No-show", color: "#5570B0", ink: "#3F5793", onColor: "#ffffff" },
   { key: "in_queue", label: "In Queue", color: "#E9A20F", ink: "#92400E", onColor: "#1F2937", title: "Still waiting or being served" }
 ];
 // Only shown if a visit holds a status outside the five known ones, so every visit stays counted.
@@ -51,11 +50,10 @@ export function serviceAnalytics(tableData, totals, wait) {
     const outcomes = {
       completed: count(row.completed),
       cancelled: count(row.cancelled),
-      no_show: count(row.no_show),
       in_queue: count(row.waiting) + count(row.serving)
     };
     const total = count(row.total_patients);
-    const known = outcomes.completed + outcomes.cancelled + outcomes.no_show + outcomes.in_queue;
+    const known = outcomes.completed + outcomes.cancelled + outcomes.in_queue;
     return {
       service: row.service_type,
       label: serviceLabel(row.service_type),

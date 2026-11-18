@@ -4,6 +4,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createHarness } = require("./helpers/queueHarness");
+const { makeLegacyCompleted } = require("./helpers/legacyCompleted");
 
 const FRONTDESK = { id_num: "frontdesk", role: "admin", doctor_name: null };
 const SUPERADMIN = { id_num: "superadmin", role: "superadmin", doctor_name: null };
@@ -102,7 +103,8 @@ for (const localFallback of [false, true]) {
     const h = await setup({ localFallback });
     const visit = await register(h, "Requeue");
     await h.request("POST", "/queue/confirm", { patient_id: visit.id }, FRONTDESK);
-    await h.request("POST", "/queue/cancel", { patient_id: visit.id, reason: "Out" }, FRONTDESK);
+    // A cancellation is permanent; Re-queue recovers only a legacy completed-without-start visit.
+    await makeLegacyCompleted(h, visit.id, { reason: "Out" });
     if (!localFallback) h.database.requeueRpcInstalled = true;
     const requeued = await h.request("POST", "/queue/requeue", { patient_id: visit.id }, FRONTDESK);
     assert.equal(requeued.status, 200, requeued.body.message);
@@ -161,34 +163,10 @@ test("fake database: Confirm writes only through confirm_next_patient_visit and 
   assert.equal(queue.body.patients.find((p) => p.id === visit.id).confirmed_by, "frontdesk");
 });
 
-// OC1 Not Present and the strict Undo rule over the fake database and development memory. The
+// OC1's strict Undo rule over the fake database and development memory. The
 // real SQL is covered by oc1-one-confirmation-postgres.test.js and -concurrency.test.js.
 for (const localFallback of [false, true]) {
   const mode = localFallback ? "development memory" : "fake database";
-
-  test(`${mode}: Not Present sets a pending patient aside without changing its place; the next patient can be confirmed`, async () => {
-    const h = await setup({ localFallback });
-    const first = await register(h, "First");
-    const second = await register(h, "Second");
-    const before = await stored(h, first.id);
-    const kept = { queue_number: before.queue_number, priority_score: before.priority_score, created_at: before.created_at };
-    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: second.id }, FRONTDESK)).status, 409, "not next yet");
-    for (const user of [doctor(1), SUPERADMIN]) {
-      assert.equal((await h.request("POST", "/queue/not-present", { patient_id: first.id }, user)).status, 403);
-    }
-    const marked = await h.request("POST", "/queue/not-present", { patient_id: first.id }, FRONTDESK);
-    assert.equal(marked.status, 200, marked.body.message);
-    const after = await stored(h, first.id);
-    assert.notEqual(after.not_present_at, null);
-    assert.deepEqual({ queue_number: after.queue_number, priority_score: after.priority_score, created_at: after.created_at }, kept);
-    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: first.id }, FRONTDESK)).status, 409);
-    assert.equal((await h.request("POST", "/queue/confirm", { patient_id: second.id }, FRONTDESK)).status, 200);
-    const back = await h.request("POST", "/queue/present", { patient_id: first.id }, FRONTDESK);
-    assert.equal(back.status, 200, back.body.message);
-    const overview = await h.service.getQueueOverview();
-    const entry = overview.patients.find((p) => p.id === first.id);
-    assert.equal(entry.confirmation_blocked, "doctor_has_active_patient", "the returning patient waits for the active visit");
-  });
 
   test(`${mode}: Undo is refused with a clear message while the doctor has another confirmed patient`, async () => {
     const h = await setup({ localFallback });
@@ -196,7 +174,8 @@ for (const localFallback of [false, true]) {
     const first = await register(h, "First");
     const second = await register(h, "Second");
     assert.equal((await h.request("POST", "/queue/confirm", { patient_id: first.id }, FRONTDESK)).status, 200);
-    assert.equal((await h.request("POST", "/queue/cancel", { patient_id: first.id, reason: "Mistake" }, FRONTDESK)).status, 200);
+    // A cancellation is permanent; Undo recovers only a legacy completed-without-start visit.
+    await makeLegacyCompleted(h, first.id, { reason: "Mistake" });
     assert.equal((await h.request("POST", "/queue/confirm", { patient_id: second.id }, FRONTDESK)).status, 200);
     if (!localFallback) {
       // The database decides (the trigger); the backend shows its refusal clearly.
@@ -205,7 +184,7 @@ for (const localFallback of [false, true]) {
     }
     const refused = await h.request("POST", "/queue/undo", { patient_id: first.id }, FRONTDESK);
     assert.equal(refused.status, 409, refused.body.message);
-    assert.match(refused.body.message, /^Undo was not applied\. Doctor 1 already has an active patient \(.+\)\. A doctor can have only one confirmed or active patient at a time\. Complete, cancel or mark that visit no-show first/);
-    assert.equal((await stored(h, first.id)).status, "cancelled");
+    assert.match(refused.body.message, /^Undo was not applied\. Doctor 1 already has an active patient \(.+\)\. A doctor can have only one confirmed or active patient at a time\. Complete or cancel that visit first/);
+    assert.equal((await stored(h, first.id)).status, "completed");
   });
 }

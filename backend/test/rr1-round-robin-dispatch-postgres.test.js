@@ -11,6 +11,7 @@ const { describe, test, before, beforeEach, after } = require("node:test");
 const bcrypt = require("bcryptjs");
 const { liveKnownDatabase, readScript } = require("./helpers/liveKnownSchema");
 const { createPgBackendHarness } = require("./helpers/pgBackendHarness");
+const { makeLegacyCompletedPostgres } = require("./helpers/legacyCompleted");
 
 let PGlite;
 let unavailable;
@@ -840,11 +841,8 @@ describe("RR1 round-robin assignment at registration (isolated PGlite, real back
   test("Undo and Re-queue return the visit to its doctor while available; otherwise it is reassigned in rotation", async () => {
     await signInAll();
     const [a, b, c] = [await register("A"), await register("B"), await register("C")];   // Doctor 1, 2, 3
-    const cancel = (id) => h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: id, reason: "Synthetic" } });
-    for (const visit of [b, c]) {
-      const cancelled = await cancel(visit.id);
-      assert.equal(cancelled.status, 200, cancelled.body.message);
-    }
+    // A cancellation is permanent; Undo and Re-queue recover only a legacy completion (no start).
+    for (const visit of [b, c]) await makeLegacyCompletedPostgres(db, visit.id, { reason: "Synthetic" });
     const requeued = await h.request("POST", "/queue/requeue", { token: tokens.frontdesk, body: { patient_id: c.id, reason: "Came back" } });
     assert.equal(requeued.status, 200, requeued.body.message);
     assert.equal(await doctorOf(c.id), "Doctor 3", "Re-queue: back to its available doctor");

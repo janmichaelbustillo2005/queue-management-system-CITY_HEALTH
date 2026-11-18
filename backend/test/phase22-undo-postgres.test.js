@@ -314,7 +314,21 @@ describe("Phase 2.2 PostgreSQL Undo waiting ownership and Phase 2.1 history prot
     }
   });
 
+  test("actual HTTP Undo of a cancelled visit is refused before any database call; the cancellation is permanent", async () => {
+    await db.exec("UPDATE public.counters SET current_patient_id = 1 WHERE id_num = 'Doctor 1'");
+    const before = await snapshot();
+    const h = await serviceHarness();
+    for (const route of ["/queue/undo", "/queue/requeue"]) {
+      const response = await h.request("POST", route, { patient_id: 1 });
+      assert.equal(response.status, 409, response.body.message);
+      assert.match(response.body.message, /Cancellation is permanent/);
+    }
+    assert.equal(h.database.calls.filter(call => call.action === "rpc").length, 0);
+    assert.deepEqual(await snapshot(), before);
+  });
+
   test("actual HTTP Undo forwards trusted complete snapshot to the replacement SQL function", async () => {
+    await db.exec("UPDATE public.patients SET status = 'completed', consultation_started_at = NULL WHERE id = 1");
     await db.exec("UPDATE public.counters SET current_patient_id = 1 WHERE id_num = 'Doctor 1'");
     const before = await snapshot();
     const h = await serviceHarness();
@@ -330,6 +344,7 @@ describe("Phase 2.2 PostgreSQL Undo waiting ownership and Phase 2.1 history prot
     let entered, resume;
     const reached = new Promise(resolve => { entered = resolve; });
     const paused = new Promise(resolve => { resume = resolve; });
+    await db.exec("UPDATE public.patients SET status = 'completed', consultation_started_at = NULL WHERE id = 1");
     const h = await serviceHarness(async () => { entered(); await paused; });
     const pending = h.request("POST", "/queue/undo", { patient_id: 1 });
     await reached;
@@ -345,6 +360,7 @@ describe("Phase 2.2 PostgreSQL Undo waiting ownership and Phase 2.1 history prot
     const gateSignature = signature.replace("recover_patient_visit", "undo_patient_visit_waiting");
     await db.exec(`DROP FUNCTION ${gateSignature}`);
     await db.exec(phase21);
+    await db.exec("UPDATE public.patients SET status = 'completed', consultation_started_at = NULL WHERE id = 1");
     const before = await snapshot();
     try {
       const h = await serviceHarness();
@@ -361,6 +377,7 @@ describe("Phase 2.2 PostgreSQL Undo waiting ownership and Phase 2.1 history prot
     // old incompatible contract explicit in this disposable test fixture.
     const legacyFirstFree = fs.readFileSync(path.join(__dirname, "fixtures/phase21-first-free-recovery.sql"), "utf8");
     await db.exec(legacyFirstFree);
+    await db.exec("UPDATE public.patients SET status = 'completed', consultation_started_at = NULL WHERE id = 1");
     const before = await snapshot();
     try {
       const h = await serviceHarness();

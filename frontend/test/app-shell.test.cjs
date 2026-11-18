@@ -134,8 +134,8 @@ const links = (user) => {
 test("each role sees one organized menu of its own sections", () => {
   assert.deepEqual(plain(menu(accounts.superadmin)), [
     ["Overview", ["Overview"]],
-    ["Queue Operations", ["Queue Management", "Historical Backlog", "Live Queue Display"]],
-    ["Records Management", ["Patient Records", "Staff Records", "User Accounts"]],
+    ["Queue Operations", ["Queue Management", "Live Queue Display"]],
+    ["Records Management", ["Patient Records", "Staff Records"]],
     ["Reports & Analytics", ["Analytics"]],
     ["System Administration", ["Staff Management", "System Settings"]]
   ]);
@@ -196,10 +196,11 @@ test("the highlighted item follows the URL, including Records categories and the
     ["/?section=queue", "Queue Management"], ["/?section=queue#doctor-monitoring", "Queue Management"],
     ["/?section=staff", "Staff Management"], ["/?section=settings", "System Settings"],
     ["/records", "Patient Records"], ["/records?category=patients", "Patient Records"],
-    ["/records?category=staff", "Staff Records"], ["/records?category=accounts", "User Accounts"],
-    ["/records?category=unknown", "Patient Records"], ["/analytics", "Analytics"], ["/queue-backlog", "Historical Backlog"]
+    ["/records?category=staff", "Staff Records"], ["/records?category=accounts", "Staff Records"],
+    ["/records?category=unknown", "Patient Records"], ["/analytics", "Analytics"]
   ];
   for (const [url, label] of cases) assert.deepEqual(plain(active(accounts.superadmin, url)), [label], url);
+  assert.deepEqual(plain(active(accounts.superadmin, "/queue-backlog")), [], "the removed Historical Backlog has no menu entry");
   assert.deepEqual(plain(active(accounts.superadmin, "/admin1")), [], "no false highlight on pages outside the menu");
   assert.deepEqual(plain(active(accounts.frontdesk, "/patient-management")), ["Patient Management"]);
   assert.deepEqual(plain(active(accounts.frontdesk, "/fill-up_form")), ["Patient Registration"]);

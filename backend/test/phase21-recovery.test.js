@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHarness, createDatabase, clone } = require("./helpers/queueHarness");
+const { makeLegacyCompleted } = require("./helpers/legacyCompleted");
 
 const baseTime = Date.parse("2026-10-10T01:00:00.000Z");
 const doctor = (number = 1) => ({ id_num: `admin${number}`, role: "admin", doctor_name: `Doctor ${number}` });
@@ -143,9 +144,9 @@ for (const action of ["requeue", "undo"]) {
     assert.equal((await first.service.getQueueOverview()).patients.find((row) => row.id === patient.id).service_duration_seconds, 0.0008);
   });
 
-  test(`Phase 2.1: stale ${action} rejects a newer cancelled attempt that already started consultation`, { timeout: 10000 }, async () => {
+  test(`Phase 2.1: stale ${action} rejects a newer attempt that was started and then cancelled`, { timeout: 10000 }, async () => {
     const { first, second, database } = setup();
-    const original = await legacyPatient(first, "cancelled");
+    const original = await legacyPatient(first);
     const barrier = pauseRecovery(database, action, original.id);
     const stale = first.request("POST", `/queue/${action}`, { patient_id: original.id });
     let newer;
@@ -159,7 +160,7 @@ for (const action of ["requeue", "undo"]) {
       const cancelled = await second.request("POST", "/queue/cancel", { patient_id: original.id, reason: "New attempt cancelled" });
       assert.equal(cancelled.status, 200, cancelled.body.message);
       newer = clone(await second.service.getPatientById(original.id));
-      assert.equal(newer.status, original.status);
+      assert.equal(newer.status, "cancelled");
       assert.ok(newer.consultation_started_at);
       counters = clone(database.counters);
     } finally {
@@ -245,12 +246,12 @@ for (const actions of [["requeue", "requeue"], ["undo", "undo"], ["requeue", "un
 }
 
 for (const action of ["requeue", "undo"]) {
-  test(`Phase 2.1: revision rejects stale ${action} after same-millisecond Undo and cancellation restore every sampled field`, { timeout: 10000 }, async () => {
+  test(`Phase 2.1: revision rejects stale ${action} after same-millisecond Undo, Call and legacy completion restore every sampled field`, { timeout: 10000 }, async () => {
     const { first, second, database } = setup();
     const patient = await first.service.createQueueEntry(registration("Same millisecond recovery"));
     assert.equal((await first.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
-    const cancellation = { patient_id: patient.id, reason: "Repeated cancellation" };
-    assert.equal((await first.request("POST", "/queue/cancel", cancellation)).status, 200);
+    // A cancellation is permanent, so the recoverable terminal state is a legacy completion.
+    await makeLegacyCompleted(first, patient.id, { reason: "Repeated legacy completion" });
     const original = clone(await first.service.getPatientById(patient.id));
     const barrier = pauseRecovery(database, action, patient.id);
     const stale = first.request("POST", `/queue/${action}`, { patient_id: patient.id });
@@ -260,9 +261,9 @@ for (const action of ["requeue", "undo"]) {
       await barrier.reached;
       assert.equal((await second.request("POST", "/queue/undo", { patient_id: patient.id })).status, 200);
       // Phase 2.2 Undo clears call ownership; a same-millisecond normal Call
-      // restores those sampled fields before the second cancellation.
+      // restores those sampled fields before the second legacy completion.
       assert.equal((await second.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
-      assert.equal((await second.request("POST", "/queue/cancel", cancellation)).status, 200);
+      await makeLegacyCompleted(second, patient.id, { reason: "Repeated legacy completion" });
       current = clone(await second.service.getPatientById(patient.id));
       const { visit_state_revision: originalRevision, ...originalFields } = original;
       const { visit_state_revision: currentRevision, ...currentFields } = current;
@@ -279,9 +280,7 @@ for (const action of ["requeue", "undo"]) {
 
   test(`Phase 2.1: ${action} forwards raw microsecond timestamps and the authenticated actor instead of submitted expectations`, async () => {
     const { first } = setup();
-    const original = await legacyPatient(first, "cancelled");
-    const startedAt = "2026-10-10T08:58:10.000123+08:00";
-    first.database.patients[0].consultation_started_at = startedAt;
+    const original = await legacyPatient(first);
     first.database.rpcReturnsArray = true;
     const response = await first.request("POST", `/queue/${action}`, {
       patient_id: original.id,
@@ -302,7 +301,7 @@ for (const action of ["requeue", "undo"]) {
       p_expected_status: original.status,
       p_expected_created_at: original.created_at,
       p_expected_called_at: original.called_at,
-      p_expected_started_at: startedAt,
+      p_expected_started_at: null,
       p_expected_completed_at: original.completed_at,
       p_expected_counter_id: original.counter_id,
       p_reason: action === "requeue" ? "Approved recovery" : null
@@ -369,10 +368,10 @@ for (const action of ["requeue", "undo"]) {
   });
 
   test(`Phase 2.1: ${action} independently checks every raw timestamp below JavaScript millisecond precision`, { timeout: 10000 }, async () => {
-    for (const field of ["created_at", "called_at", "consultation_started_at", "completed_at"]) {
+    // A legacy completion (the only recoverable visit; cancellation is permanent) has no start.
+    for (const field of ["created_at", "called_at", "completed_at"]) {
       const { first, second, database } = setup();
-      const patient = await legacyPatient(first, "cancelled");
-      database.patients[0].consultation_started_at = "2026-10-10T00:58:10.000400Z";
+      const patient = await legacyPatient(first);
       const barrier = pauseRecovery(database, action, patient.id);
       const stale = first.request("POST", `/queue/${action}`, { patient_id: patient.id });
       let changed;
@@ -405,8 +404,8 @@ for (const action of ["requeue", "undo"]) {
     const patient = await h.service.createQueueEntry(registration("Development recovery"));
     const stored = await h.service.getPatientById(patient.id);
     Object.assign(stored, {
-      status: "cancelled", counter_id: "Doctor 2", created_at: "2026-10-10T00:58:00.000123Z",
-      called_at: "2026-10-10T00:58:10.000234Z", completed_at: "2026-10-10T00:59:00.000345Z", reason: "Development cancellation"
+      status: "completed", consultation_started_at: null, counter_id: "Doctor 2", created_at: "2026-10-10T00:58:00.000123Z",
+      called_at: "2026-10-10T00:58:10.000234Z", completed_at: "2026-10-10T00:59:00.000345Z", reason: "Development legacy completion"
     });
     const before = clone(stored);
     const counters = clone((await h.service.getQueueOverview()).counters);

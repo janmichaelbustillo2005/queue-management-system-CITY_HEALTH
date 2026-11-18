@@ -10,7 +10,6 @@ export const defaultQueueSettings = {
   voiceAnnouncements: true,
   announceDoctorRoom: true,
   announceGapSeconds: 3,
-  noShowWaitMinutes: 10,
   slaTargetWaitMinutes: 30,
   recallAttempts: 2,
   allowQueueReassignment: true,
@@ -74,10 +73,6 @@ function validateSettings(draft) {
   const gap = Number(draft.announceGapSeconds);
   if (!Number.isFinite(gap) || gap < 0 || gap > 30) {
     errors.announceGapSeconds = "Announcement gap must be between 0 and 30 seconds.";
-  }
-  const noShow = Number(draft.noShowWaitMinutes);
-  if (!Number.isFinite(noShow) || noShow < 1 || noShow > 120) {
-    errors.noShowWaitMinutes = "No-show wait time must be between 1 and 120 minutes.";
   }
   const slaTarget = Number(draft.slaTargetWaitMinutes ?? defaultQueueSettings.slaTargetWaitMinutes);
   if (!Number.isInteger(slaTarget) || slaTarget < 1 || slaTarget > 240) {
@@ -384,24 +379,6 @@ export default function SettingsModal({
               <h4 className="font-bold brand-text text-base m-0 pb-2 border-b brand-border">
                 Queue Rules and Patient Management
               </h4>
-              <SettingRow title="No-show Waiting Time" description="Suggested wait before marking a called patient as no-show.">
-                <div className="flex flex-col items-end gap-1">
-                  <div className="flex items-center gap-1">
-                    <input
-                      className={`w-16 px-2 py-1 border rounded text-sm ${errors.noShowWaitMinutes ? "border-red-400" : "brand-input"}`}
-                      type="number"
-                      min="1"
-                      max="120"
-                      value={draft.noShowWaitMinutes}
-                      onChange={(e) => updateDraft({ noShowWaitMinutes: Number(e.target.value) })}
-                    />
-                    <span className="text-xs brand-text-muted">min</span>
-                  </div>
-                  {errors.noShowWaitMinutes ? (
-                    <span className="text-[10px] text-red-600 max-w-[160px] text-right">{errors.noShowWaitMinutes}</span>
-                  ) : null}
-                </div>
-              </SettingRow>
               <SettingRow title="Target Waiting Time (SLA)" description="Patients called within this many minutes of registering count as on time in Analytics.">
                 <div className="flex flex-col items-end gap-1">
                   <div className="flex items-center gap-1">

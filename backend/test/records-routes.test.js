@@ -26,14 +26,23 @@ function harness(rpc=async()=>okResult, doctorDispatchMode) {
  }};
 }
 test('all records categories reject unauthenticated and non-superadmin identities before storage',async()=>{
- for(const category of ['patients','staff','accounts','activity']) {
+ for(const category of ['patients','staff','activity']) {
   const h=harness();
   assert.equal((await h.request(null,{},category)).code,401);
   assert.equal((await h.request('admin',{},category)).code,403);
   assert.equal(h.calls.length,0);
  }
 });
-test('revoked sessions cannot read records',async()=>{const h=harness();assert.equal((await h.request('superadmin',{},'accounts','revoked')).code,401);assert.equal(h.calls.length,0);});
+test('revoked sessions cannot read records',async()=>{const h=harness();assert.equal((await h.request('superadmin',{},'staff','revoked')).code,401);assert.equal(h.calls.length,0);});
+// The former User Accounts view duplicated Staff Records; its category is no longer served.
+test('the removed accounts category answers 404 without reaching storage',async()=>{
+ const h=harness();
+ assert.equal((await h.request(null,{},'accounts')).code,401,'authentication still runs first');
+ assert.equal((await h.request('admin',{},'accounts')).code,403,'authorization still runs first');
+ const res=await h.request('superadmin',{},'accounts');
+ assert.equal(res.code,404);
+ assert.equal(h.calls.length,0);
+});
 test('validated superadmin forwards bounded filters and pagination',async()=>{
  const h=harness();assert.equal((await h.request('superadmin',{page:'2',limit:'10',search:' Ana ',doctor:'Doctor 1',date:'2026-10-14'})).code,200);
  assert.equal(h.calls[0].args.p_filters.search,'Ana');assert.equal(h.calls[0].args.p_page,2);
@@ -44,7 +53,7 @@ test('validated superadmin forwards bounded filters and pagination',async()=>{
 // Phase B.2 compatibility.
 test('impossible calendar dates and unknown filter values are rejected with 400 before storage',async()=>{
  const h=harness();
- for(const query of [{date:'2026-02-31'},{date:'2026-13-01'},{date:'2026-1-01'},{date:'0099-01-01'},{status:'bogus'},{status:'No-show'},
+ for(const query of [{date:'2026-02-31'},{date:'2026-13-01'},{date:'2026-1-01'},{date:'0099-01-01'},{status:'bogus'},{status:'No-show'},{status:'no-show'},
   {position:'Admin'},{position:'frontdesk'},{presence:'maybe'},{role:'root'},{visit:'abc'},{visit:'1'.repeat(19)},{page:'1.5'},{search:'x'.repeat(101)}]) {
   const res=await h.request('superadmin',query);
   assert.equal(res.code,400,JSON.stringify(query));
@@ -52,9 +61,9 @@ test('impossible calendar dates and unknown filter values are rejected with 400 
  }
  assert.equal(h.calls.length,0);
 });
-test('every value the Records toolbar sends is accepted, including no-show before its enum exists',async()=>{
+test('every value the Records toolbar sends is accepted',async()=>{
  const h=harness();
- const accepted=[{status:'no-show'},{status:'cancelled'},{position:'Frontdesk'},{position:'Super Admin'},{position:'Doctor'},{presence:'online'},
+ const accepted=[{status:'completed'},{status:'cancelled'},{position:'Frontdesk'},{position:'Super Admin'},{position:'Doctor'},{presence:'online'},
   {role:'admin'},{date:'2024-02-29'},{visit:'42'},{doctor:'doctor 01'},{service:'family_planning'},{account:'admin1'}];
  for(const query of accepted) assert.equal((await h.request('superadmin',query)).code,200,JSON.stringify(query));
  assert.equal(h.calls.length,accepted.length);
@@ -132,7 +141,7 @@ test('D1 shared dispatch asks D1-R for shared attribution and falls back once wh
  assert.ok(!('dispatch' in staff.calls[0].args.p_filters),'only patient records carry it');
 });
 
-// EP1: Staff Records, User Accounts and Patient Records show the account's current display name,
+// EP1: Staff Records and Patient Records show the account's current display name,
 // looked up by the stable account ID; stored IDs, counters and history values are never changed.
 function namedHarness(rows, users) {
  const auth=load('src/middleware/auth.js',{jsonwebtoken:jwt,'../config/env':{jwtSecret:secret},'../services/presenceService':{validateAuthSession:async()=>({})}});
@@ -157,10 +166,10 @@ const USERS=[
  {id_num:'admin3',role:'admin',doctor_name:'Doctor 3',display_name:'Dr. Archived',archived_at:'2026-11-10T00:00:00Z'},
  {id_num:'superadmin',role:'superadmin',doctor_name:null,display_name:'Clinic Head',archived_at:null}];
 
-test('EP1: staff and account records carry the current display name by account ID; other fields unchanged',async()=>{
+test('EP1: staff records carry the current display name by account ID; other fields unchanged',async()=>{
  const rows=[{id:'admin1',display_name:'Doctor 1',doctor:'Doctor 1',role:'admin'},{id:'admin2',display_name:'Doctor 2',doctor:'Doctor 2',role:'admin'},
   {id:'superadmin',display_name:'superadmin',doctor:null,role:'superadmin'}];
- for(const category of ['staff','accounts']) {
+ for(const category of ['staff']) {
   const res=await namedHarness(rows,USERS)(category);
   assert.equal(res.code,200);
   assert.deepEqual(JSON.parse(JSON.stringify(res.body.rows)),[{...rows[0],display_name:'Dr. Juan Dela Cruz'},rows[1],{...rows[2],display_name:'Clinic Head'}]);

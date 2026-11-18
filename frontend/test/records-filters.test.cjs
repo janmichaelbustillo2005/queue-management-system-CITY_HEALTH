@@ -124,22 +124,21 @@ test("the filter options map to the exact values the Records RPC compares", () =
   const { RECORD_FILTERS } = loadLib();
   const values = (category, key) => [...RECORD_FILTERS[category].primary, ...RECORD_FILTERS[category].advanced]
     .find(field => field.key === key).options.map(option => option.value);
-  deepEqual(values("patients", "status"), ["waiting", "serving", "completed", "cancelled", "no-show"]);
+  deepEqual(values("patients", "status"), ["waiting", "serving", "completed", "cancelled"]);
   // The 13 offered services, then the former ones earlier visits still carry.
   deepEqual(values("patients", "service"), ["medical_consultation", "maternal_healthcare", "family_planning", "child_healthcare", "dental_healthcare", "nutrition",
     "diagnostic_imaging", "womens_health", "mental_healthcare", "medical_documentation", "marriage_preparation", "environmental_health", "food_safety",
     "consultation", "checkup", "prenatal", "maternity"]);
   deepEqual(values("patients", "doctor"), ["Doctor 1", "Doctor 2", "Doctor 3"]);
-  for (const category of ["staff", "accounts"]) {
-    deepEqual(values(category, "position"), ["Super Admin", "Doctor", "Frontdesk"], "server-derived positions only (Phase B.2)");
-    deepEqual(values(category, "role"), ["superadmin", "admin"], "stored roles only");
-    deepEqual(values(category, "presence"), ["online", "offline"]);
-    deepEqual(values(category, "doctor"), ["Doctor 1", "Doctor 2", "Doctor 3"], "no Unassigned: the server resolves counters");
-  }
+  deepEqual(values("staff", "position"), ["Super Admin", "Doctor", "Frontdesk"], "server-derived positions only (Phase B.2)");
+  deepEqual(values("staff", "role"), ["superadmin", "admin"], "stored roles only");
+  deepEqual(values("staff", "presence"), ["online", "offline"]);
+  deepEqual(values("staff", "doctor"), ["Doctor 1", "Doctor 2", "Doctor 3"], "no Unassigned: the server resolves counters");
   const keys = category => [...RECORD_FILTERS[category].primary, ...RECORD_FILTERS[category].advanced].map(field => field.key).sort();
   deepEqual(keys("patients"), ["date", "doctor", "search", "service", "status"]);
   deepEqual(keys("staff"), ["doctor", "position", "presence", "role", "search"]);
-  deepEqual(keys("accounts"), keys("staff"), "no invented account-status filter");
+  // The former User Accounts filters (the same five keys) went with that duplicate category.
+  deepEqual(Object.keys(RECORD_FILTERS).sort(), ["patients", "staff"]);
 });
 
 test("cleaning drops other categories' keys, blanks, bad dates and unknown options", () => {
@@ -166,7 +165,7 @@ test("Patient Records shows all five filters with labels, a search icon, a date 
   deepEqual(optionsOf(fields[2])[1], ["medical_consultation", "Medical consultation"]);
   deepEqual(optionsOf(fields[2]).at(-4), ["consultation", "General Consultation (former)"]);
   deepEqual(optionsOf(fields[3])[0], ["", "All doctors"]);
-  deepEqual(optionsOf(fields[4]).map(([, label]) => label), ["All statuses", "Waiting", "Being served", "Completed", "Cancelled", "No-show"]);
+  deepEqual(optionsOf(fields[4]).map(([, label]) => label), ["All statuses", "Waiting", "Being served", "Completed", "Cancelled"]);
   assert.equal(moreButton(tree), undefined, "every patient filter stays visible");
   assert.equal(advancedRegion(tree), undefined);
 });
@@ -201,14 +200,12 @@ test("Staff Records keeps search, position and presence visible and folds role a
   assert.equal(toolbar.calls.apply + toolbar.calls.reset + toolbar.calls.change.length, 0, "expanding filters nothing");
 });
 
-test("User Accounts shows search, role and position, with presence and doctor link under More filters", () => {
-  const tree = mountToolbar({ category: "accounts" }).tree;
-  const primary = nodes(nodes(tree, hasClass("primary"))[0], node => ["input", "select"].includes(node.type));
-  deepEqual(primary.map(node => labelFor(tree, node.props.id)), ["Search accounts", "Account role", "Position"]);
-  deepEqual(optionsOf(primary[1]), [["", "All roles"], ["superadmin", "Super Admin"], ["admin", "Admin (doctors & front desk)"]]);
-  deepEqual(nodes(advancedRegion(tree), node => node.type === "select").map(node => labelFor(tree, node.props.id)),
-    ["Session presence", "Linked doctor"]);
-  assert.doesNotMatch(text(tree), /account status/i);
+test("Staff Records keeps the account-role filter (formerly on User Accounts) under More filters, with no invented account status", () => {
+  const tree = mountToolbar({ category: "staff" }).tree;
+  const role = nodes(advancedRegion(tree), node => node.type === "select")[0];
+  assert.equal(labelFor(tree, role.props.id), "Stored role");
+  deepEqual(optionsOf(role), [["", "All roles"], ["superadmin", "Super Admin"], ["admin", "Admin (doctors & front desk)"]]);
+  assert.doesNotMatch(text(tree), /account status|User Accounts/i);
 });
 
 test("controls report edits, Enter or Apply submits, and chips remove single filters or clear all", () => {
@@ -261,7 +258,7 @@ async function mountPage({ category = "patients" } = {}) {
   const runtime = hookRuntime();
   const calls = [], intervals = [];
   const auth = { user: { id_num: "superadmin", role: "superadmin" }, loading: false }; // stable, like React state
-  const router = { query: { category }, replace() {}, push() {} };
+  const router = { query: { category }, replaced: [], replace(url) { this.replaced.push(url); }, push() {} };
   function SiteFrame() {}
   function RecordsFilters() {}
   const module = { exports: {} };
@@ -371,11 +368,18 @@ test("switching categories starts clean and never sends another category's filte
   assert.ok(!page.paths().some(p => p.startsWith("/records/staff") && /status|search/.test(p)));
   deepEqual({ ...page.toolbar().draft }, {});
   assert.equal(page.toolbar().category, "staff");
-  await page.respond(rows());
+});
 
-  page.router.query = { category: "accounts" };
-  await page.settle();
-  assert.equal(page.paths().at(-1), "/records/accounts?page=1&limit=20");
+test("an old User Accounts link opens Staff Records and its URL is replaced", async () => {
+  const page = await mountPage({ category: "accounts" });
+  deepEqual(page.paths(), ["/records/staff?page=1&limit=20"], "the removed category is never requested");
+  deepEqual(page.router.replaced, ["/records?category=staff"]);
+  assert.equal(page.toolbar().category, "staff");
+  await page.respond({ rows: [{ id: "admin1", display_name: "Dr. Juan", role: "admin", position: "Doctor" }], total: 1 });
+  const tabs = nodes(page.tree, node => node.type === "nav")[0];
+  deepEqual(nodes(tabs, node => node.type === "button").map(node => [text(node), node.props["aria-current"] === "page"]),
+    [["Patient Records", false], ["Staff Records", true]]);
+  assert.doesNotMatch(text(page.tree), /User Accounts/);
 });
 
 test("an older response never replaces the results of a newer query", async () => {
@@ -425,7 +429,7 @@ test("loading and the two empty states say what they mean", async () => {
   assert.match(text(page.tree), /Loading records/);
   await page.respond(rows());
   assert.match(text(page.tree), /No records are stored in this category yet/);
-  page.toolbar().onChange("status", "no-show");
+  page.toolbar().onChange("status", "cancelled");
   await page.settle();
   page.toolbar().onApply();
   await page.settle();
@@ -434,7 +438,7 @@ test("loading and the two empty states say what they mean", async () => {
 });
 
 test("Phase B.2 values: missing account creation dates read Not recorded and routed doctors are labelled", async () => {
-  const accounts = await mountPage({ category: "accounts" });
+  const accounts = await mountPage({ category: "staff" });
   await accounts.respond({ rows: [{ id: "frontdesk", display_name: "frontdesk", role: "admin", position: "Frontdesk", doctor: null, created_at: null, online: false, authenticated: false }], total: 1 });
   assert.match(text(accounts.tree), /Not recorded/);
   assert.match(text(accounts.tree), /Frontdesk/);
@@ -457,7 +461,7 @@ test("Phase B.2 values: missing account creation dates read Not recorded and rou
 });
 
 test("the footer follows the server total: Previous and Next stop at the ends and pause while a page loads", async () => {
-  const page = await mountPage({ category: "accounts" });
+  const page = await mountPage({ category: "staff" });
   const accounts = (from, count) => Array.from({ length: count }, (_, i) => ({ id: `account-${from + i}` }));
   assert.equal(button(page.tree, "Next").props.disabled, true, "nothing to page through before the server answers");
   await page.respond({ rows: accounts(1, 20), total: 25, page: 1, limit: 20 });
@@ -468,7 +472,7 @@ test("the footer follows the server total: Previous and Next stop at the ends an
 
   button(page.tree, "Next").props.onClick();
   await page.settle();
-  assert.equal(page.paths().at(-1), "/records/accounts?page=2&limit=20");
+  assert.equal(page.paths().at(-1), "/records/staff?page=2&limit=20");
   for (const label of ["Previous", "Next", "Refresh"]) {
     assert.equal(button(page.tree, label).props.disabled, true, `${label} waits for page 2`);
   }
@@ -478,7 +482,7 @@ test("the footer follows the server total: Previous and Next stop at the ends an
   assert.equal(button(page.tree, "Next").props.disabled, true, "the last page has no Next");
   button(page.tree, "Previous").props.onClick();
   await page.settle();
-  assert.equal(page.paths().at(-1), "/records/accounts?page=1&limit=20");
+  assert.equal(page.paths().at(-1), "/records/staff?page=1&limit=20");
 });
 
 const toolbarCss = fs.readFileSync(path.join(__dirname, "../components/RecordsFilters.module.css"), "utf8");

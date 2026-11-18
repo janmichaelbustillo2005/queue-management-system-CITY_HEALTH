@@ -185,7 +185,7 @@ function footerRow(totals) {
   const count = (value) => Number(value) || 0;
   return {
     total: count(totals.total_patients), completed: count(totals.completed), cancelled: count(totals.cancelled),
-    no_show: count(totals.no_show), in_queue: count(totals.waiting) + count(totals.serving),
+    in_queue: count(totals.waiting) + count(totals.serving),
     avgWait: totals.avgWait, avgService: totals.avg_service_time ?? "0.0", completion: totals.completion_rate ?? "0.0"
   };
 }

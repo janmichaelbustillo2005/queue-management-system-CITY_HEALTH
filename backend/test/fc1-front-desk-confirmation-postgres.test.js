@@ -9,6 +9,7 @@ const { describe, test, before, beforeEach, after } = require("node:test");
 const bcrypt = require("bcryptjs");
 const { liveKnownDatabase, readScript } = require("./helpers/liveKnownSchema");
 const { createPgBackendHarness } = require("./helpers/pgBackendHarness");
+const { makeLegacyCompletedPostgres } = require("./helpers/legacyCompleted");
 
 let PGlite;
 let unavailable;
@@ -255,7 +256,8 @@ describe("FC1 Front Desk confirmation, service dispatch with C1 (isolated PGlite
   test("Re-queue starts a new turn that needs a new confirmation; Undo keeps the confirmation", async () => {
     const requeued = await s.register("Requeued Patient");
     assert.equal((await s.confirm(requeued.id)).status, 200);
-    await h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: requeued.id, reason: "Stepped out" } });
+    // A cancellation is permanent; Re-queue and Undo recover only a legacy completion (no start).
+    await makeLegacyCompletedPostgres(db, requeued.id, { reason: "Stepped out" });
     const back = await h.request("POST", "/queue/requeue", { token: tokens.frontdesk, body: { patient_id: requeued.id } });
     assert.equal(back.status, 200, back.body.message);
     const afterRequeue = await s.row(requeued.id);
@@ -266,11 +268,18 @@ describe("FC1 Front Desk confirmation, service dispatch with C1 (isolated PGlite
     // OC1: the re-queued pending visit is Doctor 1's next patient; once it is cancelled it no
     // longer blocks the next registration's confirmation.
     await h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: requeued.id, reason: "Left again" } });
+    const cancelledRow = await s.row(requeued.id);
+    for (const route of ["/queue/requeue", "/queue/undo"]) {
+      const refused = await h.request("POST", route, { token: tokens.frontdesk, body: { patient_id: requeued.id } });
+      assert.equal(refused.status, 409, refused.body.message);
+      assert.match(refused.body.message, /Cancellation is permanent/);
+    }
+    assert.deepEqual(await s.row(requeued.id), cancelledRow, "the cancellation is kept unchanged");
 
     const undone = await s.register("Undone Patient");
     assert.equal((await s.confirm(undone.id)).status, 200);
     const confirmed = await s.row(undone.id);
-    await h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: undone.id, reason: "Mistake" } });
+    await makeLegacyCompletedPostgres(db, undone.id, { reason: "Mistake" });
     const restored = await h.request("POST", "/queue/undo", { token: tokens.frontdesk, body: { patient_id: undone.id } });
     assert.equal(restored.status, 200, restored.body.message);
     const afterUndo = await s.row(undone.id);

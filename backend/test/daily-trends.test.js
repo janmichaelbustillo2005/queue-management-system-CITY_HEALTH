@@ -100,7 +100,7 @@ test("hourly events, actual waiting backlog, real statuses, carry-ins, and futur
     patient(1, { created_at: at("23:50", "2026-10-14") }),
     patient(2, { status: "completed", created_at: at("08:10"), called_at: at("09:05"), consultation_started_at: at("09:10"), completed_at: at("10:00"), counter_id: "Doctor 1" }),
     patient(3, { status: "cancelled", created_at: at("09:20"), completed_at: at("09:40") }),
-    patient(4, { status: "no-show", created_at: at("08:20"), called_at: at("08:25"), completed_at: at("09:00") }),
+    patient(4, { status: "cancelled", created_at: at("08:20"), called_at: at("08:25"), completed_at: at("09:00") }),
     patient(5, { created_at: at("10:40") }),
     patient(6, { status: "completed", created_at: at("18:00", "2026-10-14"), called_at: at("18:05", "2026-10-14"),
       consultation_started_at: at("18:10", "2026-10-14"), completed_at: at("18:20", "2026-10-14") })
@@ -112,18 +112,18 @@ test("hourly events, actual waiting backlog, real statuses, carry-ins, and futur
   assert.equal(hour(result, "08:00–09:00").arrivals, 2);
   assert.equal(hour(result, "08:00–09:00").waiting, 2);
   assert.equal(hour(result, "09:00–10:00").arrivals, 1);
-  assert.equal(hour(result, "09:00–10:00").cancelled_no_show, 2);
+  assert.equal(hour(result, "09:00–10:00").cancelled, 2);
   assert.equal(hour(result, "09:00–10:00").waiting, 1);
   assert.equal(hour(result, "09:00–10:00").avg_wait_minutes, 55);
   assert.equal(hour(result, "10:00–11:00").served, 1);
   assert.equal(hour(result, "10:00–11:00").avg_service_minutes, 50);
   assert.equal(hour(result, "10:00–11:00").waiting, 1);
-  for (const field of ["arrivals", "served", "waiting", "cancelled_no_show", "wait_samples", "service_samples", "avg_wait_minutes", "avg_service_minutes"]) {
+  for (const field of ["arrivals", "served", "waiting", "cancelled", "wait_samples", "service_samples", "avg_wait_minutes", "avg_service_minutes"]) {
     assert.equal(hour(result, "11:00–12:00")[field], null, `${field} must not invent future values`);
   }
   assert.deepEqual(result.statuses.map(({ status, count, percentage }) => ({ status, count, percentage })), [
     { status: "waiting", count: 1, percentage: 25 }, { status: "completed", count: 1, percentage: 25 },
-    { status: "cancelled", count: 1, percentage: 25 }, { status: "no-show", count: 1, percentage: 25 }
+    { status: "cancelled", count: 2, percentage: 50 }
   ]);
   assert.equal(result.counters[0].active_service_minutes, 50);
   assert.equal(result.counters[0].utilization_percent, null);
@@ -251,7 +251,7 @@ test("valid empty periods have real zero counts, unavailable durations, no ranke
   assert.equal(result.has_activity, false);
   assert.deepEqual(result.statuses, []);
   assert.deepEqual(result.peak_hours, []);
-  assert.ok(result.hourly.every(bucket => bucket.arrivals === 0 && bucket.waiting === 0 && bucket.served === 0 && bucket.cancelled_no_show === 0));
+  assert.ok(result.hourly.every(bucket => bucket.arrivals === 0 && bucket.waiting === 0 && bucket.served === 0 && bucket.cancelled === 0));
   assert.ok(result.hourly.every(bucket => bucket.avg_wait_minutes === null && bucket.avg_service_minutes === null));
   assert.ok(result.counters.every(item => item.utilization_percent === null && item.active_service_minutes === null));
   const future = clone(await h.service.getDailyTrends({ date: "2026-10-17" }));
@@ -283,7 +283,7 @@ test("fresh reads reflect queue registration, call, start, completion and cancel
   h.database.patients.push(patient(2, { status: "cancelled", created_at: at("10:05"), completed_at: at("10:20") }));
   const result = await h.service.getDailyTrends({ date });
   assert.equal(hour(result, "10:00–11:00").served, 1);
-  assert.equal(hour(result, "10:00–11:00").cancelled_no_show, 1);
+  assert.equal(hour(result, "10:00–11:00").cancelled, 1);
   assert.equal(hour(result, "10:00–11:00").avg_service_minutes, 10);
 });
 

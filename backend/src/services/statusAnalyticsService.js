@@ -7,9 +7,9 @@ const HOUR_MICROS = 3600000000;
 const MINUTE_MICROS = 60000000;
 const PAGE_SIZE = 500;
 const PATIENT_COLUMNS = "id,status,created_at,called_at,consultation_started_at,completed_at,counter_id";
-const TERMINAL = new Set(["completed", "cancelled", "no-show"]);
-const OUTCOME_ORDER = ["completed", "waiting", "serving", "cancelled", "no-show"];
-const OUTCOME_LABELS = { completed: "Completed", waiting: "Waiting", serving: "Being served", cancelled: "Cancelled", "no-show": "No-show" };
+const TERMINAL = new Set(["completed", "cancelled"]);
+const OUTCOME_ORDER = ["completed", "waiting", "serving", "cancelled"];
+const OUTCOME_LABELS = { completed: "Completed", waiting: "Waiting", serving: "Being served", cancelled: "Cancelled" };
 const min = (a, b) => a < b ? a : b;
 const max = (a, b) => a > b ? a : b;
 const iso = (value) => new Date(value).toISOString();
@@ -55,7 +55,7 @@ function retainedWaitingInterval(row, times, observed) {
     return { start: created, end: observed, uncertain: row.called_at != null || row.consultation_started_at != null || row.completed_at != null };
   }
   if (orderedCall) return { start: created, end: called, uncertain: false };
-  if (["cancelled", "no-show"].includes(row.status) && row.called_at == null && row.consultation_started_at == null && valid(ended)) {
+  if (row.status === "cancelled" && row.called_at == null && row.consultation_started_at == null && valid(ended)) {
     return { start: created, end: ended, uncertain: false };
   }
   const knownUpperBounds = [started, TERMINAL.has(row.status) ? ended : null].filter(valid);
@@ -76,7 +76,7 @@ function historicalState(row, times, sample) {
     if (TERMINAL.has(row.status) && valid(ended)) return { waiting: 0, serving: 1 };
     return { waiting: 0, serving: null };
   }
-  if (["cancelled", "no-show"].includes(row.status) && row.called_at == null && row.consultation_started_at == null && valid(ended)) {
+  if (row.status === "cancelled" && row.called_at == null && row.consultation_started_at == null && valid(ended)) {
     return { waiting: 1, serving: 0 };
   }
   // An actual consultation start establishes serving after that instant even
@@ -303,4 +303,5 @@ async function getStatusAnalytics(options = {}) {
   }
 }
 
-module.exports = { getStatusAnalytics, aggregateStatusAnalytics };
+// visitTimes/historicalState/metric are shared with rangeAnalyticsService (Trends and Status tabs).
+module.exports = { getStatusAnalytics, aggregateStatusAnalytics, visitTimes, historicalState, metric };

@@ -331,8 +331,8 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     }
   });
 
-  test("records, analytics and the historical backlog keep service type and treating doctor apart", async () => {
-    // Earlier-day history written as it would have been under the fixed mapping, plus a backlog row.
+  test("records and analytics keep service type and treating doctor apart", async () => {
+    // Earlier-day history written as it would have been under the fixed mapping, plus an earlier-day waiting row.
     await db.observer.query(`INSERT INTO public.patients (queue_number, id_num, service_type, status, counter_id, created_at, called_at, consultation_started_at, completed_at, priority_score)
       VALUES ('GP-901', 'D1 history consultation', 'consultation', 'completed', 'Doctor 1', now() - interval '3 days', now() - interval '3 days' + interval '5 minutes', now() - interval '3 days' + interval '6 minutes', now() - interval '3 days' + interval '20 minutes', 1),
              ('OB-902', 'D1 history backlog prenatal', 'prenatal', 'waiting', NULL, now() - interval '2 days', NULL, NULL, NULL, 1)`);
@@ -359,15 +359,12 @@ describe("D1 shared queue through the real backend", { skip: f.unavailable }, ()
     assert.deepEqual((await transactions("Doctor 3")).map((row) => Number(row.id)), [served]);
     assert.deepEqual(await transactions("Doctor 2"), [], "prenatal visits are not attributed to Doctor 2 by service");
 
-    const backlog = (await h.request("GET", "/queue/backlog", { token: tokens.superadmin })).body;
-    assert.deepEqual(backlog.rows.map((row) => [row.queue_number, row.service_type, row.doctor, row.doctor_source]),
-      [["OB-902", "prenatal", null, "unassigned"]]);
-    // The shared queue never reaches into the backlog: today's window only.
-    const today = await register(h, db, tokens.frontdesk, { name: "D1 today after backlog", service: "consultation" });
+    // The shared queue never reaches into earlier-day waiting rows: today's window only.
+    const today = await register(h, db, tokens.frontdesk, { name: "D1 today after earlier-day waiting", service: "consultation" });
     expectStatus(await call(h, tokens.superadmin, today, "Doctor 2"), 200);
     assert.deepEqual((await db.observer.query("SELECT * FROM public.patients WHERE queue_number IN ('GP-901', 'OB-902') ORDER BY id")).rows,
       historyBefore, "historical rows are unchanged");
-    evidence.recordsAnalytics = { doctorTable: analytics.doctorTable.map(({ doctor, total_patients, completed }) => ({ doctor, total_patients, completed })), backlog: backlog.rows };
+    evidence.recordsAnalytics = { doctorTable: analytics.doctorTable.map(({ doctor, total_patients, completed }) => ({ doctor, total_patients, completed })) };
   });
 
   test("service mode is unchanged with D1 installed, and shared mode refuses to run without D1", async () => {

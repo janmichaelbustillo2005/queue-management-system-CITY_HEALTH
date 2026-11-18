@@ -9,7 +9,7 @@ const visits = [
   { id_num: "Synthetic A", service_type: "consultation", counter_id: "Doctor 1", status: "completed",
     created_at: "2026-10-09T01:00:00.000Z", called_at: "2026-10-09T01:10:00.000Z",
     consultation_started_at: "2026-10-09T01:10:00.000Z", completed_at: "2026-10-09T01:16:00.000Z" },
-  { id_num: "Synthetic B", service_type: "prenatal", counter_id: "Doctor 2", status: "no-show",
+  { id_num: "Synthetic B", service_type: "prenatal", counter_id: "Doctor 2", status: "cancelled",
     created_at: "2026-10-09T03:30:00.000Z", called_at: "2026-10-09T03:40:00.000Z", completed_at: "2026-10-09T03:55:00.000Z",
     reason: "Did not answer the call" },
   { id_num: "Synthetic C", service_type: "family_planning", counter_id: null, status: "cancelled",
@@ -54,25 +54,25 @@ for (const localFallback of [false, true]) {
     const analytics = await h.service.getAnalytics("2026-10-09", "2026-10-11");
     assert.deepEqual(Object.keys(analytics), ["metrics", "charts", "tableData", "totals", "doctorTable", "insights"]);
     assert.deepEqual(clone(analytics.totals), {
-      total_patients: 4, completed: 1, cancelled: 1, no_show: 1, waiting: 1, serving: 0,
+      total_patients: 4, completed: 1, cancelled: 2, waiting: 1, serving: 0,
       avg_wait_time: "21.7", avg_service_time: "6.0", completion_rate: "25.0"
     });
     const { insights } = analytics;
     assert.deepEqual(clone(insights.journey.stages.map((stage) => [stage.key, stage.count, stage.share])),
       [["registered", 4, 100], ["called", 2, 50], ["started", 1, 25], ["completed", 1, 25]]);
     assert.deepEqual(clone(insights.journey.exits),
-      { cancelled_before_call: 1, cancelled_after_call: 0, no_show: 1, still_waiting: 1, still_serving: 0 });
+      { cancelled_before_call: 1, cancelled_after_call: 1, still_waiting: 1, still_serving: 0 });
     assert.equal(insights.journey.durations.registered_to_called.avg, 10);
     assert.equal(insights.journey.durations.started_to_completed.avg, 6);
     assert.equal(insights.journey.durations.registered_to_completed.avg, 16);
   });
 
-  test(`${mode}: abandonment separates cancellations before and after the call from no-shows`, async () => {
+  test(`${mode}: abandonment separates cancellations before and after the call`, async () => {
     const h = await setup(localFallback);
     const { abandonment } = (await h.service.getAnalytics("2026-10-09", "2026-10-11")).insights;
     assert.deepEqual(clone({ ...abandonment, top_reasons: undefined }), {
-      resolved: 3, completed: 1, cancelled: 1, cancelled_before_call: 1, cancelled_after_call: 0, no_show: 1, abandoned: 2,
-      abandonment_rate: 66.7, cancellation_rate: 33.3, no_show_rate: 33.3, in_progress: 1, waiting_from_earlier_days: 0
+      resolved: 3, completed: 1, cancelled: 2, cancelled_before_call: 1, cancelled_after_call: 1, abandoned: 2,
+      abandonment_rate: 66.7, cancellation_rate: 66.7, in_progress: 1, waiting_from_earlier_days: 0
     });
     assert.deepEqual(clone(abandonment.top_reasons.map((row) => [row.reason, row.total])),
       [["Did not answer the call", 1], ["Patient left", 1]]);

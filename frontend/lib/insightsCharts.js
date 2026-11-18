@@ -9,7 +9,6 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 const number = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
-const minutesText = (value) => (value == null ? "no data" : `${number(value)} min`);
 
 function dateLabel(date) {
   const [year, month, day] = String(date).split("-").map(Number);
@@ -28,142 +27,6 @@ const categoryAxis = (title) => axis(title, { grid: { display: false }, ticks: {
 const valueAxis = (title, extra = {}) => axis(title, { beginAtZero: true, ...extra });
 const base = (extra = {}) => ({ responsive: true, maintainAspectRatio: false, ...extra });
 const hasValue = (values) => values.some((value) => value != null && value > 0);
-
-// Customer experience -------------------------------------------------------------------------
-
-// Average Wait Time Trend: a bold "All services" line over thin per-service lines, drawn with the
-// same per-service look as the Patient Arrival Trend. The page draws the service legend itself (a
-// toggleable grid below the chart), so the canvas legend is off. Hiding lines rescales the linear
-// minutes axis to the lines still shown, so services with short waits can be read on their own;
-// the axis itself is never transformed.
-//
-// A value is the payload's average for that period, or null when no patient was called in it:
-// null stays a gap (never zero), and a lone value between gaps keeps a visible point.
-export const WAIT_ALL = "__all__";
-const WAIT_TOOLTIP_SERVICES = { wide: 6, narrow: 3 };
-const measured = (samples) => (samples || []).some((count) => Number(count) > 0);
-const waitServices = (trends) => (trends?.wait?.by_service || []).filter((row) => measured(row.samples));
-const isolatedPoints = (values, radius) => values.map((value, index) => (value != null && values[index - 1] == null && values[index + 1] == null ? radius : 0));
-const patientsMeasured = (count) => plural(Number(count) || 0, "patient");
-
-// The visible service lines at one point: measured ones by longest wait first, then the rest.
-function waitRanking(chart, dataIndex) {
-  return chart.data.datasets
-    .map((dataset, datasetIndex) => ({ dataset, datasetIndex, value: dataset.data[dataIndex] }))
-    .filter((row) => row.dataset.service && chart.isDatasetVisible(row.datasetIndex))
-    .sort((a, b) => (a.value == null) - (b.value == null) || (b.value ?? 0) - (a.value ?? 0));
-}
-const waitTooltipLimit = (chart) => (chart.width < 480 ? WAIT_TOOLTIP_SERVICES.narrow : WAIT_TOOLTIP_SERVICES.wide);
-
-export function waitTrendChart(trends, brand) {
-  if (!trends?.periods?.length || !measured(trends.wait?.samples)) return null;
-  const services = waitServices(trends);
-  const lines = services.length > 1 ? services : [];
-  const many = trends.periods.length > 45;
-  return {
-    type: "line",
-    data: {
-      labels: trends.periods.map((period) => periodLabel(period, trends.grouping)),
-      datasets: [
-        { label: "All services", key: WAIT_ALL, data: trends.wait.overall, samples: trends.wait.samples, hue: brand.forest,
-          borderColor: brand.forest, backgroundColor: brand.forest, borderWidth: 3,
-          pointRadius: many ? isolatedPoints(trends.wait.overall, 3) : 3, pointHoverRadius: 5, pointBackgroundColor: brand.forest,
-          pointBorderColor: "#ffffff", pointBorderWidth: 1.5, spanGaps: false, cubicInterpolationMode: "monotone", order: 0 },
-        ...lines.map((row) => {
-          const { hue, dash } = arrivalServiceStyle(row.service);
-          return {
-            label: serviceLabel(row.service), key: row.service, service: row.service, data: row.values, samples: row.samples, hue,
-            borderColor: hue, backgroundColor: hue, borderDash: dash, borderWidth: SERVICE_LINE, pointRadius: isolatedPoints(row.values, 2.5),
-            pointHoverRadius: 4, pointHitRadius: 6, spanGaps: false, cubicInterpolationMode: "monotone", order: 1
-          };
-        })
-      ]
-    },
-    options: base({
-      layout: { padding: { top: 8, right: 8 } },
-      interaction: { mode: "index", intersect: false, axis: "x" },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          ...tooltip({
-            title: (items) => (items.length ? arrivalPeriodTitle(trends.periods[items[0].dataIndex], trends.grouping) : ""),
-            label: ({ dataset, raw, dataIndex }) => {
-              const count = dataset.samples?.[dataIndex];
-              if (!dataset.service) return raw == null ? "All services: no patients called" : `All services: ${minutesText(raw)} average (${patientsMeasured(count)})`;
-              return `${dataset.label}: ${minutesText(raw)} (${patientsMeasured(count)})`;
-            },
-            afterLabel: ({ dataset, chart, dataIndex }) => (!dataset.service && waitRanking(chart, dataIndex).some((row) => row.value != null)
-              ? "By service, longest wait first:" : ""),
-            labelColor: ({ dataset }) => ({ borderColor: dataset.hue, backgroundColor: dataset.hue }),
-            footer: (items) => {
-              if (!items.length) return [];
-              const { chart, dataIndex } = items[0];
-              const ranking = waitRanking(chart, dataIndex);
-              const withData = ranking.filter((row) => row.value != null);
-              const rest = withData.length - Math.min(withData.length, waitTooltipLimit(chart));
-              const idle = ranking.length - withData.length;
-              const hidden = chart.data.datasets.filter((dataset, index) => dataset.service && !chart.isDatasetVisible(index)).length;
-              const lines = [];
-              if (rest) lines.push(`+ ${plural(rest, "more service")} with shorter waits`);
-              if (idle) lines.push(`${plural(idle, "service")} with no patients called`);
-              if (hidden) lines.push(`${plural(hidden, "hidden service")} not listed`);
-              if (lines.length) lines.push("Full breakdown in the list below");
-              return lines;
-            }
-          }),
-          // All services always shows; a service shows only with a measured wait, the longest few first.
-          filter: (item) => {
-            if (!item.dataset.service) return true;
-            if (item.raw == null) return false;
-            return waitRanking(item.chart, item.dataIndex).slice(0, waitTooltipLimit(item.chart))
-              .some((row) => row.datasetIndex === item.datasetIndex);
-          },
-          itemSort: (a, b) => (a.dataset.service ? 1 : 0) - (b.dataset.service ? 1 : 0) || (b.raw ?? 0) - (a.raw ?? 0),
-          padding: 12, caretPadding: 8, usePointStyle: true, boxWidth: 8, boxHeight: 8, boxPadding: 4,
-          titleFont: { size: 13, weight: "bold" }, titleMarginBottom: 8, bodyFont: { size: 12 }, bodySpacing: 3,
-          footerFont: { size: 11, weight: "normal" }, footerColor: "#cbd5e1", footerMarginTop: 8
-        }
-      },
-      scales: {
-        x: { ...categoryAxis(GROUPING_TITLES[trends.grouping]), ticks: { font: { size: 11 }, autoSkip: true, autoSkipPadding: 14, maxRotation: 0 } },
-        y: valueAxis("Average wait (minutes)", { grace: "8%", grid: { color: "#e5ece8" }, border: { display: false },
-          ticks: { padding: 6, font: { size: 11 } } })
-      }
-    })
-  };
-}
-
-// The service list below the wait chart: every measured service with its average and patient count,
-// for the whole period or for one period when `index` is set. Values are the payload's, unchanged.
-// For the whole period, a service's average is the backend's exact figure for that service
-// (`insights.wait.by_service`, the Avg Wait card's rule) when it covers the same patients as the
-// trend; otherwise it is left out rather than re-averaged from rounded period values.
-export function waitBreakdown(trends, waitStats, index = null) {
-  const periods = trends?.periods || [];
-  const at = Number.isInteger(index) && index >= 0 && index < periods.length ? index : null;
-  const stats = new Map((waitStats?.by_service || []).map((row) => [row.key, row]));
-  const rows = waitServices(trends).map((row) => {
-    const periodSamples = sumOf(row.samples);
-    const exact = stats.get(row.service);
-    const wholeAverage = exact && exact.samples === periodSamples ? exact.avg : null;
-    return {
-      service: row.service, label: serviceLabel(row.service), ...arrivalServiceStyle(row.service), periodSamples,
-      minutes: at == null ? wholeAverage : row.values[at] ?? null,
-      samples: at == null ? periodSamples : Number(row.samples[at]) || 0
-    };
-  }).sort((a, b) => b.periodSamples - a.periodSamples);
-  const overall = trends?.wait?.overall || [];
-  const samples = trends?.wait?.samples || [];
-  return {
-    period: at,
-    title: at == null ? "Selected period" : arrivalPeriodTitle(periods[at], trends.grouping),
-    minutes: at == null ? null : overall[at] ?? null,
-    samples: at == null ? sumOf(samples) : Number(samples[at]) || 0,
-    rows,
-    withData: rows.filter((row) => row.minutes != null).length,
-    toggleable: rows.length > 1
-  };
-}
 
 function doughnut(rows, colorOf, unit) {
   const shown = rows.filter((row) => row.count > 0);
@@ -191,12 +54,11 @@ function doughnut(rows, colorOf, unit) {
 // and shown beside the chart with its own counts, so every record is still accounted for.
 //
 // Outcome colours, validated with the dataviz palette checker in stacking order: green, light red,
-// violet, amber. The previous cancelled red and no-show rose were too close to tell apart.
+// amber.
 export const UNASSIGNED_DOCTOR = "Unassigned";
 export const DOCTOR_OUTCOMES = [
   { key: "completed", label: "Completed", color: "#15803d" },
   { key: "cancelled", label: "Cancelled", color: "#f87171" },
-  { key: "no_show", label: "No-show", color: "#6d28d9" },
   { key: "in_queue", label: "Still in the queue", color: "#f59e0b" }
 ];
 const DOCTOR_ROW_PX = 40;

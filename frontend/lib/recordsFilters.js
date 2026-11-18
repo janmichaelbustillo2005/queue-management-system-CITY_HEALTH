@@ -11,8 +11,7 @@ const STATUS_OPTIONS = [
   { value: "waiting", label: "Waiting" },
   { value: "serving", label: "Being served" },
   { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
-  { value: "no-show", label: "No-show" }
+  { value: "cancelled", label: "Cancelled" }
 ];
 
 // Counter names. The server resolves aliases ("doctor 1", "1") to the counter; patients
@@ -61,28 +60,6 @@ export const RECORD_FILTERS = {
       field("role", "Stored role", "select", { options: ROLE_OPTIONS, allLabel: "All roles" }),
       field("doctor", "Doctor assignment", "select", { options: DOCTOR_OPTIONS, allLabel: "All doctor assignments" })
     ]
-  },
-  accounts: {
-    primary: [
-      field("search", "Search accounts", "search", { placeholder: "Account ID or name" }),
-      field("role", "Account role", "select", { options: ROLE_OPTIONS, allLabel: "All roles" }),
-      field("position", "Position", "select", { options: POSITION_OPTIONS, allLabel: "All positions" })
-    ],
-    advanced: [
-      field("presence", "Session presence", "select", { options: PRESENCE_OPTIONS, allLabel: "Any presence" }),
-      field("doctor", "Linked doctor", "select", { options: DOCTOR_OPTIONS, allLabel: "All doctor links" })
-    ]
-  },
-  // Historical Waiting Backlog (GET /api/queue/backlog), not get_central_records. Every row is
-  // already waiting, so there is no status filter; search matches the ticket number only.
-  backlog: {
-    primary: [
-      field("search", "Ticket number", "search", { placeholder: "Search ticket number" }),
-      field("date", "Registration date", "date", { hint: "Manila", hintTitle: "Registration date in Manila time (Asia/Manila)" }),
-      field("service", "Service", "select", { options: SERVICE_OPTIONS, allLabel: "All services" }),
-      field("doctor", "Assigned doctor", "select", { options: DOCTOR_OPTIONS, allLabel: "All doctors" })
-    ],
-    advanced: []
   }
 };
 

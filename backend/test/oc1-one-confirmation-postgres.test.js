@@ -8,6 +8,7 @@ const { describe, test, before, beforeEach, after } = require("node:test");
 const bcrypt = require("bcryptjs");
 const { liveKnownDatabase, readScript } = require("./helpers/liveKnownSchema");
 const { createPgBackendHarness } = require("./helpers/pgBackendHarness");
+const { makeLegacyCompletedPostgres } = require("./helpers/legacyCompleted");
 
 let PGlite;
 let unavailable;
@@ -201,9 +202,7 @@ describe("OC1 with round-robin dispatch: one confirmation at a time for each doc
     assert.deepEqual(statuses, [{ status: "completed", n: 9 }]);
   });
 
-  test("cancelled and no-show patients never block the next eligible patient", async () => {
-    // The development project's known schema has no 'no-show' status label; production does.
-    await db.exec("RESET ROLE; ALTER TYPE public.queue_status ADD VALUE IF NOT EXISTS 'no-show'; SET ROLE service_role;");
+  test("cancelled patients never block the next eligible patient", async () => {
     const byDoctor = await nine();
     // Doctor 1: the pending first patient leaves -> the second is next immediately.
     const [d1a, d1b, d1c] = byDoctor["Doctor 1"];
@@ -215,14 +214,13 @@ describe("OC1 with round-robin dispatch: one confirmation at a time for each doc
     assert.equal((await h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: d1b.id, reason: "Left" } })).status, 200);
     assert.equal((await s.confirm(d1c.id)).status, 200);
 
-    // Doctor 2: the called patient is marked no-show -> the next one unlocks.
+    // Doctor 2: the called patient does not come in and its own doctor cancels it -> the next one unlocks.
     const [d2a, d2b] = byDoctor["Doctor 2"];
     assert.equal((await s.confirm(d2a.id)).status, 200);
     assert.equal((await s.call("Doctor 2", d2a.id)).status, 200);
-    // The existing no-show rule waits 10 minutes after the call.
-    await db.query("UPDATE public.patients SET called_at = called_at - interval '15 minutes' WHERE id = $1", [d2a.id]);
-    const noShow = await h.request("POST", "/queue/no-show", { token: tokens.admin2, body: { patient_id: d2a.id, reason: "Did not come in" } });
-    assert.equal(noShow.status, 200, noShow.body.message);
+    const cancelledByDoctor = await h.request("POST", "/queue/cancel", { token: tokens.admin2,
+      body: { patient_id: d2a.id, reason: "Did not come in", counter_id: "Doctor 2" } });
+    assert.equal(cancelledByDoctor.status, 200, cancelledByDoctor.body.message);
     assert.equal((await s.confirm(d2b.id)).status, 200);
 
     // Doctor 3: the serving patient is cancelled -> the next one unlocks.
@@ -473,7 +471,7 @@ describe("OC1 installation lifecycle (isolated PGlite)", { skip: unavailable }, 
   });
 });
 
-describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct writes (round robin, isolated PGlite)", { skip: unavailable }, () => {
+describe("OC1 strict rule: reassignment, Undo, transfer and direct writes (round robin, isolated PGlite)", { skip: unavailable }, () => {
   let db;
   let h;
   const tokens = {};
@@ -481,8 +479,6 @@ describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct 
   const signOut = (doctor) => h.request("POST", "/auth/logout", { token: tokens[DOCTOR_ACCOUNT[doctor]] });
   const signIn = async (doctor) => { tokens[DOCTOR_ACCOUNT[doctor]] = (await h.login(DOCTOR_ACCOUNT[doctor], password(DOCTOR_ACCOUNT[doctor]))).token; };
   const post = (route, body, token = tokens.frontdesk) => h.request("POST", route, { token, body });
-  const notPresent = (id, token) => post("/queue/not-present", { patient_id: id }, token);
-  const present = (id, token) => post("/queue/present", { patient_id: id }, token);
   const doctorOf = async (id) => (await s.row(id)).counter_id;
   // The invariant, read straight from the database: no doctor has two active visits.
   async function assertOneActivePerDoctor() {
@@ -494,7 +490,6 @@ describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct 
 
   before(async () => {
     db = await freshDatabase([...DEVELOPMENT_STATE, RR1, FC1, OC1]);
-    await db.exec("RESET ROLE; ALTER TYPE public.queue_status ADD VALUE IF NOT EXISTS 'no-show'; SET ROLE service_role;");
   });
   after(async () => { if (db) await db.close(); });
   beforeEach(async () => {
@@ -511,82 +506,6 @@ describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct 
     }
     return byDoctor;
   }
-
-  test("Not Present, for each doctor: the next patient becomes confirmable; the absent one keeps ticket, priority, time and doctor", async () => {
-    const byDoctor = await nine();
-    const kept = "SELECT queue_number, priority_score, created_at, counter_id, status FROM public.patients WHERE id = $1";
-    for (const doctor of DOCTORS) {
-      const [absent, second, third] = byDoctor[doctor];
-      const before = (await db.query(kept, [absent.id])).rows[0];
-      const marked = await notPresent(absent.id);
-      assert.equal(marked.status, 200, marked.body.message);
-      assert.equal(marked.body.changed, true);
-      assert.deepEqual((await db.query(kept, [absent.id])).rows[0], before, `${doctor}: nothing but presence changes`);
-      const entry = await s.listed(absent.id);
-      assert.equal(entry.confirmable, false);
-      assert.equal(entry.confirmation_blocked, "patient_not_present");
-      assert.notEqual(entry.not_present_at, null);
-      const refused = await s.confirm(absent.id);
-      assert.equal(refused.status, 409);
-      assert.match(refused.body.message, /marked Not Present/);
-      assert.equal((await s.listed(second.id)).confirmable, true, `${doctor}: the next patient is not blocked`);
-      assert.equal((await s.listed(third.id)).confirmable, false);
-    }
-    // Each doctor confirms and starts serving its second patient; the absent patients return meanwhile.
-    for (const doctor of DOCTORS) {
-      const [absent, second, third] = byDoctor[doctor];
-      assert.equal((await s.confirm(second.id)).status, 200);
-      assert.equal((await s.call(doctor, second.id)).status, 200);
-      const back = await present(absent.id);
-      assert.equal(back.status, 200, back.body.message);
-      const entry = await s.listed(absent.id);
-      assert.equal(entry.confirmable, false, "a returning patient never interrupts the active visit");
-      assert.equal(entry.confirmation_blocked, "doctor_has_active_patient");
-      assert.equal((await s.row(second.id)).status, "serving", "the visit in progress is untouched");
-      await s.finish(doctor, second.id);
-      // Original WPS rank: registered before the third patient, so it is next again.
-      assert.equal((await s.listed(absent.id)).confirmable, true, `${doctor}: the returning patient keeps its place`);
-      assert.equal((await s.listed(third.id)).confirmation_blocked_by, absent.queue_number);
-    }
-    await assertOneActivePerDoctor();
-  });
-
-  test("Not Present keeps WPS-A: the returning patient's aging continued while it was set aside", async () => {
-    // Doctor 1: a regular patient registered 25 minutes ago (aging +2) and a solo parent (1) now.
-    const waited = await s.insert("GP-101", { minutesAgo: 25, doctor: "Doctor 1", service: "medical_consultation" });
-    const soloParent = await s.insert("GP-102", { priority: 1, doctor: "Doctor 1", service: "medical_consultation" });
-    assert.equal((await s.listed(waited.id)).confirmable, true, "aging puts the long wait first");
-    assert.equal((await notPresent(waited.id)).status, 200);
-    assert.equal((await s.listed(soloParent.id)).confirmable, true);
-    assert.equal((await present(waited.id)).status, 200);
-    assert.equal((await s.listed(waited.id)).confirmable, true, "back at its aged rank");
-    assert.equal((await s.listed(soloParent.id)).confirmable, false);
-  });
-
-  test("Not Present is Frontdesk-only, pending-only, idempotent, cleared by Re-queue, and cannot be written directly", async () => {
-    const [a, b] = [await s.register("A"), await s.register("B")];
-    for (const idNum of ["admin1", "superadmin"]) assert.equal((await notPresent(a.id, tokens[idNum])).status, 403, idNum);
-    assert.equal((await notPresent(a.id)).status, 200);
-    const again = await notPresent(a.id, tokens.frontdesk2);
-    assert.equal(again.status, 200);
-    assert.equal(again.body.changed, false, "a second desk changes nothing");
-    assert.equal((await s.confirm(b.id)).status, 200);
-    const confirmedRefused = await notPresent(b.id);
-    assert.equal(confirmedRefused.status, 409);
-    assert.match(confirmedRefused.body.message, /already confirmed/);
-    await assert.rejects(db.query("UPDATE public.patients SET not_present_at = NULL, not_present_by = NULL WHERE id = $1", [a.id]),
-      (error) => error.code === "P0001" && error.hint === "patient_not_present");
-    await assert.rejects(db.query("UPDATE public.patients SET not_present_at = now(), not_present_by = 'frontdesk' WHERE id = $1", [b.id]),
-      (error) => error.code === "P0001");
-    // Cancel keeps the history; Re-queue starts a new, present turn.
-    assert.equal((await post("/queue/cancel", { patient_id: a.id, reason: "Left" })).status, 200);
-    assert.notEqual((await s.row(a.id)).not_present_at, null);
-    const requeued = await post("/queue/requeue", { patient_id: a.id });
-    assert.equal(requeued.status, 200, requeued.body.message);
-    const row = await s.row(a.id);
-    assert.equal(row.not_present_at, null);
-    assert.equal(row.confirmed_at, null);
-  });
 
   test("automatic reassignment clears the confirmation; the new doctor's Front Desk confirms again", async () => {
     const byDoctor = await nine();
@@ -639,6 +558,7 @@ describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct 
     await assertOneActivePerDoctor();
   });
 
+  // A cancellation is permanent, so the visit Undo recovers here is a legacy completion (no start).
   test("Undo is refused while the doctor has another confirmed or active patient, with a clear message; allowed once it is free", async () => {
     for (const doctor of DOCTORS) {
       await resetRoundRobin(db);
@@ -647,7 +567,7 @@ describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct 
       const [first, second] = byDoctor[doctor];
       assert.equal((await s.confirm(first.id)).status, 200);
       assert.equal((await s.call(doctor, first.id)).status, 200);
-      assert.equal((await post("/queue/cancel", { patient_id: first.id, reason: "Mistake", counter_id: doctor })).status, 200);
+      await makeLegacyCompletedPostgres(db, first.id, { reason: "Mistake" });
       assert.equal((await s.confirm(second.id)).status, 200, `${doctor}: the next patient is confirmed`);
       const before = await s.row(first.id);
       const refused = await post("/queue/undo", { patient_id: first.id });
@@ -669,14 +589,24 @@ describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct 
     }
   });
 
-  test("Undo of a visit cancelled before confirmation is never blocked (it returns pending)", async () => {
+  test("Undo of a visit finished before confirmation is never blocked (it returns pending); a cancelled one is never undone", async () => {
     const [a, b] = [await s.register("A"), await s.register("B"), await s.register("C"), await s.register("D")]
       .filter((v) => v.assigned_doctor === "Doctor 1");
-    assert.equal((await post("/queue/cancel", { patient_id: a.id, reason: "Left" })).status, 200);
+    await makeLegacyCompletedPostgres(db, a.id, { reason: "Left" });
     assert.equal((await s.confirm(b.id)).status, 200);
     const undone = await post("/queue/undo", { patient_id: a.id });
     assert.equal(undone.status, 200, undone.body.message);
     assert.equal((await s.row(a.id)).confirmed_at, null);
+    await assertOneActivePerDoctor();
+    // A cancellation is permanent: Undo and Re-queue are refused and the visit is unchanged.
+    assert.equal((await post("/queue/cancel", { patient_id: a.id, reason: "Left for good" })).status, 200);
+    const cancelled = await s.row(a.id);
+    for (const route of ["/queue/undo", "/queue/requeue"]) {
+      const refused = await post(route, { patient_id: a.id });
+      assert.equal(refused.status, 409, refused.body.message);
+      assert.match(refused.body.message, /Cancellation is permanent/);
+    }
+    assert.deepEqual(await s.row(a.id), cancelled);
     await assertOneActivePerDoctor();
   });
 
@@ -732,21 +662,5 @@ describe("OC1 strict rule: Not Present, reassignment, Undo, transfer and direct 
     const stored = async (id) => (await s.row(id)).priority_score;
     assert.deepEqual([await stored(scores.senior), await stored(scores.pwd), await stored(scores.pregnant), await stored(scores.indigenous),
       await stored(scores.solo_parent), await stored(regular.id)], [4, 3, 3, 2, 1, 1]);
-  });
-
-  test("simultaneous Not Present, Present and Confirm requests for the same doctor leave one consistent outcome", async () => {
-    const [a, b, c] = [await s.register("A"), await s.register("x"), await s.register("y"), await s.register("B"), await s.register("x2"),
-      await s.register("y2"), await s.register("C")].filter((v) => v.assigned_doctor === "Doctor 1");
-    const results = await Promise.all([s.confirm(a.id), notPresent(a.id, tokens.frontdesk2), s.confirm(b.id), present(c.id)]);
-    const row = await s.row(a.id);
-    // Either A was confirmed first (Not Present then refused), or set aside first (A cannot be confirmed).
-    if (row.confirmed_at != null) {
-      assert.equal(results[1].status, 409);
-      assert.equal(results[2].status, 409, "B cannot also be confirmed");
-    } else {
-      assert.notEqual(row.not_present_at, null);
-      assert.equal(results[0].status, 409);
-    }
-    await assertOneActivePerDoctor();
   });
 });

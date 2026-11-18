@@ -21,7 +21,6 @@ const DEFAULT_QUEUE_SETTINGS = {
   voiceAnnouncements: true,
   announceDoctorRoom: true,
   announceGapSeconds: 3,
-  noShowWaitMinutes: 10,
   // Analytics SLA: a patient called within this many minutes of registering counts as on time.
   slaTargetWaitMinutes: 30,
   recallAttempts: 2,
@@ -50,8 +49,14 @@ function ensureDataDir() {
   }
 }
 
+// Settings of removed features. A settings file saved before their removal may still hold them;
+// they are dropped whenever settings are read or saved.
+const RETIRED_SETTING_KEYS = ["noShowWaitMinutes"];
+
 function mergeSettings(raw = {}) {
-  return { ...DEFAULT_QUEUE_SETTINGS, ...raw };
+  const merged = { ...DEFAULT_QUEUE_SETTINGS, ...raw };
+  for (const key of RETIRED_SETTING_KEYS) delete merged[key];
+  return merged;
 }
 
 function readSettingsFromDisk() {
@@ -89,7 +94,6 @@ function saveQueueSettings(nextSettings = {}) {
   merged.maxQueues = Number(merged.maxQueues) || 20;
   merged.announceGapSeconds = Number(merged.announceGapSeconds);
   if (!Number.isFinite(merged.announceGapSeconds)) merged.announceGapSeconds = 3;
-  merged.noShowWaitMinutes = Number(merged.noShowWaitMinutes) || 10;
   const slaTarget = Math.round(Number(merged.slaTargetWaitMinutes));
   merged.slaTargetWaitMinutes = slaTarget >= 1 && slaTarget <= 240 ? slaTarget : 30;
   merged.recallAttempts = Number(merged.recallAttempts);

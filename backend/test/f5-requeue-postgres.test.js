@@ -273,29 +273,37 @@ describe("F5 requeue_patient_visit (isolated PGlite)", { skip: unavailable }, ()
     } });
   }
 
-  test("backend + SQL: serving visits are refused before any database write; a cancelled visit with a pointer is repaired", async () => {
+  // Visit 1 is cancelled (permanent: never re-queued); visit 7 is a legacy completion without a
+  // consultation start, the only kind of visit the backend still re-queues.
+  test("backend + SQL: serving, waiting and cancelled visits are refused before any database write; a legacy completion with a pointer is repaired", async () => {
     await db.exec("UPDATE public.counters SET current_patient_id = 1 WHERE id_num = 'Doctor 1'");
     const before = await snapshot();
     const h = await service();
-    for (const id of [2, 3, 5]) {
+    for (const id of [1, 2, 3, 5]) {
       const response = await h.request("POST", "/queue/requeue", { patient_id: id, reason: "Synthetic" });
       assert.equal(response.status, 409, response.body.message);
+      if (id === 1) assert.match(response.body.message, /Cancellation is permanent/);
     }
     assert.equal(h.database.calls.filter((call) => call.action === "rpc").length, 0);
     assert.deepEqual(await snapshot(), before);
-    const repaired = await h.request("POST", "/queue/requeue", { patient_id: 1, reason: "Synthetic" });
+    await db.exec("UPDATE public.counters SET current_patient_id = 7 WHERE id_num = 'Doctor 1'");
+    const repaired = await (await service()).request("POST", "/queue/requeue", { patient_id: 7, reason: "Synthetic" });
     assert.equal(repaired.status, 200, repaired.body.message);
+    assert.equal((await patient(7)).status, "waiting");
     assert.deepEqual((await rows("counters")).map((c) => c.current_patient_id), [null, 2, 3]);
   });
 
   test("backend + SQL without the F5 function: pointer-free visits fall back to the existing RPC; a pointer is refused unchanged", async () => {
-    const h = await service({ withoutF5: true });
-    assert.equal((await h.request("POST", "/queue/requeue", { patient_id: 4, reason: "Synthetic" })).status, 200);
-    assert.equal((await patient(4)).status, "waiting");
-    await db.exec("UPDATE public.counters SET current_patient_id = 1 WHERE id_num = 'Doctor 1'");
+    await db.exec("UPDATE public.counters SET current_patient_id = 7 WHERE id_num = 'Doctor 1'");
     const before = await snapshot();
-    const refused = await (await service({ withoutF5: true })).request("POST", "/queue/requeue", { patient_id: 1, reason: "Synthetic" });
+    const refused = await (await service({ withoutF5: true })).request("POST", "/queue/requeue", { patient_id: 7, reason: "Synthetic" });
     assert.equal(refused.status, 503);
     assert.deepEqual(await snapshot(), before);
+    await db.exec("UPDATE public.counters SET current_patient_id = NULL WHERE id_num = 'Doctor 1'");
+    const h = await service({ withoutF5: true });
+    const recovered = await h.request("POST", "/queue/requeue", { patient_id: 7, reason: "Synthetic" });
+    assert.equal(recovered.status, 200, recovered.body.message);
+    assert.equal((await patient(7)).status, "waiting");
+    assert.deepEqual(h.database.calls.filter((call) => call.action === "rpc").map((call) => call.function), ["requeue_patient_visit", "recover_patient_visit"]);
   });
 });

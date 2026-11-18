@@ -219,7 +219,7 @@ test("role and doctor assignment are enforced from the persisted account, not fr
 
   // R2: doctors act only on their own service; Frontdesk keeps cross-doctor actions.
   assert.equal((await h.request("POST", "/queue/cancel", { token: tokens.admin2, body: { patient_id: 1, reason: "test" } })).status, 403);
-  assert.equal((await h.request("POST", "/queue/no-show", { token: tokens.admin3, body: { patient_id: 2 } })).status, 403);
+  assert.equal((await h.request("POST", "/queue/recall", { token: tokens.admin3, body: { patient_id: 2 } })).status, 403);
   assert.equal(h.database.patients.every((row) => row.status === "waiting"), true);
   assert.equal((await h.request("POST", "/queue/cancel", { token: tokens.admin3, body: { patient_id: 3, reason: "Synthetic own patient" } })).status, 200);
   assert.equal((await h.request("POST", "/queue/cancel", { token: tokens.frontdesk, body: { patient_id: 2, reason: "Synthetic" } })).status, 200);

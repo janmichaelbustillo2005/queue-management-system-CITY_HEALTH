@@ -7,7 +7,7 @@ const MANILA_OFFSET = 8 * HOUR;
 const PAGE_SIZE = 500;
 const PATIENT_COLUMNS = "id,status,created_at,called_at,consultation_started_at,completed_at,counter_id";
 const STATUS_LABELS = {
-  waiting: "Waiting", serving: "Serving", completed: "Completed", cancelled: "Cancelled", "no-show": "No-show"
+  waiting: "Waiting", serving: "Serving", completed: "Completed", cancelled: "Cancelled"
 };
 
 function fail(message, statusCode = 400) {
@@ -69,7 +69,7 @@ function makeBuckets(range, observedAt) {
     buckets.push({
       start_at: iso(cursor), end_at: iso(bucketEnd), label: `${localTime(cursor)}–${endLabel}${nextDay}`,
       arrivals: future ? null : 0, served: future ? null : 0, waiting: future ? null : 0,
-      cancelled_no_show: future ? null : 0, avg_wait_minutes: null, wait_samples: future ? null : 0,
+      cancelled: future ? null : 0, avg_wait_minutes: null, wait_samples: future ? null : 0,
       avg_service_minutes: null, service_samples: future ? null : 0
     });
     cursor = bucketEnd;
@@ -90,7 +90,7 @@ function waitingInterval(row, created, called, started, ended, observed) {
   if (valid(called) && (!valid(started) || started >= called) && (!valid(ended) || ended >= called)) {
     return { start: created, end: called, uncertain: false };
   }
-  if (["cancelled", "no-show"].includes(row.status) && row.called_at == null && row.consultation_started_at == null && valid(ended)) {
+  if (row.status === "cancelled" && row.called_at == null && row.consultation_started_at == null && valid(ended)) {
     return { start: created, end: ended, uncertain: false };
   }
   // A known consultation/terminal time bounds uncertainty without inventing a call.
@@ -138,7 +138,7 @@ function aggregateDailyTrends(patients, counters, range, observedAt = new Date()
       continue;
     }
     const wait = waitingInterval(row, created, called, started, ended, observed);
-    const validEndedService = ["completed", "cancelled", "no-show"].includes(row.status) && started != null && ended != null &&
+    const validEndedService = ["completed", "cancelled"].includes(row.status) && started != null && ended != null &&
       started >= created && ended > started && ended <= observed && (called == null || started >= called);
     const validCompletedService = row.status === "completed" && validEndedService;
     const validActiveService = row.status === "serving" && started != null && started >= created && started <= observed &&
@@ -158,7 +158,7 @@ function aggregateDailyTrends(patients, counters, range, observedAt = new Date()
     const terminalIndex = eventBucket(ended);
     if (terminalIndex >= 0 && ended >= created) {
       if (row.status === "completed") hourly[terminalIndex].served += 1;
-      if (["cancelled", "no-show"].includes(row.status)) hourly[terminalIndex].cancelled_no_show += 1;
+      if (row.status === "cancelled") hourly[terminalIndex].cancelled += 1;
     }
     const callIndex = eventBucket(called);
     if (callIndex >= 0 && ["serving", "completed"].includes(row.status) && called >= created &&
@@ -207,7 +207,7 @@ function aggregateDailyTrends(patients, counters, range, observedAt = new Date()
   }));
   const counterRows = [...new Map((counters || []).filter((counter) => counter?.id != null).map((counter) => [String(counter.id), counter])).values()];
   const notes = [
-    "All times use Asia/Manila. Counts use unique queue records; arrivals use the retained registration time, served and cancelled/no-show events use their terminal time.",
+    "All times use Asia/Manila. Counts use unique queue records; arrivals use the retained registration time, served and cancelled events use their terminal time.",
     "Waiting is a queue snapshot immediately before each completed interval ends, or at the current observation time for an ongoing interval. It is not the number of arrivals.",
     "The system retains the latest visit timestamps, not a full transition history. Recall can replace a call time; Requeue replaces registration time; Undo can erase a terminal event. Earlier events cannot be reconstructed.",
     "Waiting-time samples use the retained call time minus registration for serving/completed visits. Service-time samples use completed consultations with valid actual start/end timestamps, grouped by completion hour.",

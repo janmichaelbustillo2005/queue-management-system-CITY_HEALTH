@@ -63,34 +63,35 @@ function betweenCallStatements(h, during) {
 }
 
 for (const recovery of ["requeue", "undo"]) {
-  // The exact F5-audit defect, through the real backend Call (migration not installed).
-  test(`fallback: Cancel then ${recovery} committed between Call's two statements refuses the Call and leaves no pair half-made`, async () => {
+  // The F5-audit race (Cancel then recovery between Call's two statements) can no longer happen:
+  // a cancellation is permanent, so the recovery is refused and the visit stays cancelled.
+  test(`fallback: a ${recovery} after a Cancel committed between Call's two statements is refused; the Call fails and the visit stays cancelled`, async () => {
     const { first, second } = shared();
     const patient = await register(first, 3);
-    const original = clone(row(first, patient.id));
     const fired = betweenCallStatements(first, async () => {
       assert.equal(pointer(first, 3), patient.id, "Call statement 1 claimed Doctor 3");
       assert.equal((await second.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Synthetic" }, FRONTDESK)).status, 200);
       second.advance();
+      const cancelled = clone(row(first, patient.id));
       const recovered = await second.request("POST", `/queue/${recovery}`, { patient_id: patient.id, reason: "Synthetic" }, FRONTDESK);
-      assert.equal(recovered.status, 200, recovered.body.message);
+      assert.equal(recovered.status, 409, recovered.body.message);
+      assert.match(recovered.body.message, /Cancellation is permanent/);
+      assert.deepEqual(row(first, patient.id), cancelled, "the refused recovery wrote nothing");
     });
     const response = await first.request("POST", "/queue/call", { patient_id: patient.id, counterId: "Doctor 3" });
     assert.ok(fired());
     assert.equal(response.status, 400, response.body.message);
-    assert.match(response.body.message, /no longer eligible/);
     const after = row(first, patient.id);
-    assert.equal(after.status, "waiting");
+    assert.equal(after.status, "cancelled");
     assert.equal(after.called_at, null);
-    assert.equal(after.counter_id, null);
-    assert.notEqual(after.visit_state_revision, original.visit_state_revision);
     assert.equal(pointer(first, 3), null, "no counter left on any visit");
     assertNoCallSideEffects(first, patient.id, recovery);
     assert.equal(smsCount(first, second), 0);
-    // A fresh Call of the recovered visit forms one correct pair.
+    // A cancelled visit can never be called again.
     first.database.beforeQuery = null;
-    assert.equal((await first.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
-    assertPair(first, patient.id, 3);
+    assert.notEqual((await first.request("POST", "/queue/call", { patient_id: patient.id })).status, 200);
+    assert.equal(row(first, patient.id).status, "cancelled");
+    assert.equal(pointer(first, 3), null);
   });
 }
 
@@ -127,7 +128,7 @@ test("atomic RPC: a successful Call commits one pair through call_patient_visit 
   assert.equal(smsCount(first), 1);
 });
 
-test("atomic RPC: Cancel + Requeue committed after Node's checks makes the RPC refuse the old revision (409), nothing changes", async () => {
+test("atomic RPC: a Cancel committed after Node's checks makes the RPC refuse the Call; Re-queue cannot revive it", async () => {
   const { first, second } = shared({ installed: true });
   const patient = await register(first, 3);
   first.database.beforeRpc = async (name) => {
@@ -135,14 +136,12 @@ test("atomic RPC: Cancel + Requeue committed after Node's checks makes the RPC r
     first.database.beforeRpc = null;
     assert.equal((await second.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Synthetic" }, FRONTDESK)).status, 200);
     second.advance();
-    assert.equal((await second.request("POST", "/queue/requeue", { patient_id: patient.id, reason: "Synthetic" }, FRONTDESK)).status, 200);
+    assert.equal((await second.request("POST", "/queue/requeue", { patient_id: patient.id, reason: "Synthetic" }, FRONTDESK)).status, 409);
   };
-  const recovered = () => clone(row(first, patient.id));
   const response = await first.request("POST", "/queue/call", { patient_id: patient.id });
-  assert.equal(response.status, 409, response.body.message);
-  assert.match(response.body.message, /visit changed/);
-  const after = recovered();
-  assert.deepEqual([after.status, after.counter_id, after.called_at], ["waiting", null, null]);
+  assert.ok([400, 409].includes(response.status), response.body.message);
+  const after = clone(row(first, patient.id));
+  assert.deepEqual([after.status, after.called_at], ["cancelled", null]);
   assert.equal(pointer(first, 3), null);
   assertNoCallSideEffects(first, patient.id, "stale rpc");
   assert.equal(smsCount(first, second), 0);

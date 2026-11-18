@@ -1,10 +1,12 @@
-// F5: Requeue recovers only a finished visit (cancelled, no-show, or a legacy completed visit
-// without a consultation start). It never erases an active call, consultation start or counter.
+// F5: Requeue recovers only a finished visit (a legacy completed visit without a consultation
+// start). A cancellation is permanent and is never re-queued. Requeue never erases an active call,
+// consultation start or counter.
 // Synthetic data only: the mock Supabase harness models the recovery RPCs; SQL behavior of the
 // versioned requeue_patient_visit function is covered by f5-requeue-postgres.test.js.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHarness, createDatabase, clone } = require("./helpers/queueHarness");
+const { makeLegacyCompleted } = require("./helpers/legacyCompleted");
 
 const BASE_TIME = Date.parse("2026-10-22T02:00:00.000Z"); // 10:00 Manila
 const SERVICE = { 1: "consultation", 2: "prenatal", 3: "family_planning" };
@@ -62,6 +64,13 @@ async function cancelled(h, number = 1) {
   await ok(h, "/queue/cancel", { patient_id: patient.id, reason: "Synthetic cancellation" }, doctor(number));
   return patient;
 }
+// The recoverable finished visit: a legacy completion without a consultation start.
+async function finished(h, number = 1) {
+  const patient = await accepted(h, number);
+  await makeLegacyCompleted(h, patient.id, { reason: "Synthetic legacy completion" });
+  h.advance();
+  return patient;
+}
 
 const requeue = (h, patient, user = FRONTDESK, extra = {}) =>
   h.request("POST", "/queue/requeue", { patient_id: patient.id, reason: "Synthetic requeue", ...extra }, user);
@@ -115,10 +124,10 @@ for (const localFallback of [false, true]) {
   });
 
   for (const number of [1, 2, 3]) {
-    test(`${mode}: Doctor ${number}, Frontdesk and Superadmin re-queue a cancelled Doctor ${number} visit; other doctors cannot`, async () => {
+    test(`${mode}: Doctor ${number}, Frontdesk and Superadmin re-queue a legacy completed Doctor ${number} visit; other doctors cannot`, async () => {
       for (const user of [doctor(number), FRONTDESK, SUPERADMIN]) {
         const h = await setup(localFallback);
-        const patient = await cancelled(h, number);
+        const patient = await finished(h, number);
         for (const other of [1, 2, 3].filter((n) => n !== number)) {
           const denied = await requeue(h, patient, doctor(other), { counter_id: `Doctor ${number}`, counterId: `Doctor ${number}`,
             role: "superadmin", doctor_name: `Doctor ${number}`, id_num: "superadmin" });
@@ -143,17 +152,6 @@ for (const localFallback of [false, true]) {
     });
   }
 
-  test(`${mode}: a no-show visit is re-queued after the configured wait`, async () => {
-    const h = await setup(localFallback);
-    const patient = await called(h, 3);
-    h.advance(11 * 60000);
-    await ok(h, "/queue/no-show", { patient_id: patient.id, reason: "Synthetic no-show" }, doctor(3));
-    assert.equal((await row(h, patient)).status, "no-show");
-    assert.equal((await requeue(h, patient, doctor(3))).status, 200);
-    assert.equal((await row(h, patient)).status, "waiting");
-    assert.equal(await pointer(h, 3), null);
-  });
-
   test(`${mode}: a completed consultation keeps its history against Requeue from every role`, async () => {
     const h = await setup(localFallback);
     const patient = await started(h, 1);
@@ -168,9 +166,23 @@ for (const localFallback of [false, true]) {
     assert.deepEqual(await state(h), before);
   });
 
-  test(`${mode}: a duplicate Requeue is refused once the visit is waiting`, async () => {
+  test(`${mode}: a cancelled visit is permanent: no role can re-queue it and nothing changes`, async () => {
     const h = await setup(localFallback);
     const patient = await cancelled(h, 2);
+    const before = await state(h);
+    for (const user of [doctor(2), FRONTDESK, SUPERADMIN]) {
+      const response = await requeue(h, patient, user);
+      assert.equal(response.status, 409, `${user.id_num}: ${response.body.message}`);
+      assert.match(response.body.message, /Cancellation is permanent/);
+    }
+    assert.deepEqual(await state(h), before);
+    assert.equal((await row(h, patient)).status, "cancelled");
+    if (!localFallback) assert.deepEqual(recoveryCalls(h), [], "no recovery RPC was attempted");
+  });
+
+  test(`${mode}: a duplicate Requeue is refused once the visit is waiting`, async () => {
+    const h = await setup(localFallback);
+    const patient = await finished(h, 2);
     assert.equal((await requeue(h, patient)).status, 200);
     const after = await state(h);
     const repeat = await requeue(h, patient);
@@ -190,11 +202,11 @@ test("mock Supabase: legacy completed visit without a consultation start keeps i
   assert.equal((await row(h, patient)).status, "waiting");
 });
 
-test("mock Supabase: a stale counter pointer to a cancelled visit is never left behind by Requeue", async () => {
+test("mock Supabase: a stale counter pointer to a legacy completed visit is never left behind by Requeue", async () => {
   // Not installed (the current project): refuse instead of re-queueing over the pointer.
   const h = await setup(false);
   const other = await accepted(h, 2);
-  const patient = await cancelled(h, 1);
+  const patient = await finished(h, 1);
   h.database.counters[0].current_patient_id = patient.id; // W1 leftover
   const before = await state(h);
   const refused = await requeue(h, patient);
@@ -211,7 +223,7 @@ test("mock Supabase: a stale counter pointer to a cancelled visit is never left 
   const installed = await setup(false);
   installed.database.requeueRpcInstalled = true;
   const active = await accepted(installed, 2);
-  const visit = await cancelled(installed, 1);
+  const visit = await finished(installed, 1);
   installed.database.counters[0].current_patient_id = visit.id;
   const response = await requeue(installed, visit);
   assert.equal(response.status, 200, response.body.message);
@@ -223,10 +235,10 @@ test("mock Supabase: a stale counter pointer to a cancelled visit is never left 
 
 test("mock Supabase: without the versioned function, a visit with no pointer uses the existing recovery RPC", async () => {
   const h = await setup(false);
-  const patient = await cancelled(h, 3);
+  const patient = await finished(h, 3);
   assert.equal((await requeue(h, patient)).status, 200);
   assert.deepEqual(recoveryCalls(h).map((call) => call.function), ["requeue_patient_visit", "recover_patient_visit"]);
-  assert.equal(recoveryCalls(h)[1].args.p_expected_status, "cancelled", "only a terminal snapshot reaches the database");
+  assert.equal(recoveryCalls(h)[1].args.p_expected_status, "completed", "only a terminal snapshot reaches the database");
 });
 
 for (const installed of [false, true]) {
@@ -235,7 +247,7 @@ for (const installed of [false, true]) {
   test(`mock Supabase (${variant}): Undo committed while Requeue is in flight makes the stale Requeue fail`, { timeout: 10000 }, async () => {
     const { database, first, second } = shared();
     database.requeueRpcInstalled = installed;
-    const patient = await cancelled(first, 1);
+    const patient = await finished(first, 1);
     const reached = deferred();
     const resume = deferred();
     database.beforeRpc = async (name, args) => {
@@ -260,7 +272,7 @@ for (const installed of [false, true]) {
   test(`mock Supabase (${variant}): Requeue committed while Undo is in flight makes the stale Undo fail`, { timeout: 10000 }, async () => {
     const { database, first, second } = shared();
     database.requeueRpcInstalled = installed;
-    const patient = await cancelled(first, 2);
+    const patient = await finished(first, 2);
     const reached = deferred();
     const resume = deferred();
     database.beforeRpc = async (name) => {
@@ -283,7 +295,7 @@ for (const installed of [false, true]) {
   test(`mock Supabase (${variant}): a stale Requeue cannot erase a consultation completed after Undo, Call, Accept and Start`, { timeout: 10000 }, async () => {
     const { database, first, second } = shared();
     database.requeueRpcInstalled = installed;
-    const patient = await cancelled(first, 3);
+    const patient = await finished(first, 3);
     const reached = deferred();
     const resume = deferred();
     database.beforeRpc = async (name, args) => {
@@ -316,7 +328,7 @@ for (const installed of [false, true]) {
   test(`mock Supabase (${variant}): concurrent duplicate Requeue requests recover the visit once`, { timeout: 10000 }, async () => {
     const { database, first, second } = shared();
     database.requeueRpcInstalled = installed;
-    const patient = await cancelled(first, 1);
+    const patient = await finished(first, 1);
     const both = deferred();
     const resume = deferred();
     let entered = 0;
@@ -355,11 +367,13 @@ test("mock Supabase: WPS order after recovery puts the visit at the end of its o
   const regularSecond = await register(h, 1, "Regular second");
   await ok(h, "/queue/call", { patient_id: senior.id });
   await ok(h, "/queue/accept", { patient_id: senior.id }, doctor(1));
-  await ok(h, "/queue/cancel", { patient_id: senior.id, reason: "Stepped out" }, doctor(1));
+  await makeLegacyCompleted(h, senior.id, { reason: "Stepped out" });
+  h.advance();
   const recoveredRegular = await register(h, 1, "Regular recovered");
   await ok(h, "/queue/call", { patient_id: (await h.service.getDisplayData()).next_in_line.id });
-  // Regular first is now serving; cancel it and requeue: it moves behind Regular second.
-  await ok(h, "/queue/cancel", { patient_id: regularFirst.id, reason: "Stepped out" });
+  // Regular first is now serving; finish it (legacy) and requeue: it moves behind Regular second.
+  await makeLegacyCompleted(h, regularFirst.id, { reason: "Stepped out" });
+  h.advance();
   await ok(h, "/queue/requeue", { patient_id: senior.id, reason: "Returned" });
   await ok(h, "/queue/requeue", { patient_id: regularFirst.id, reason: "Returned" });
   const order = clone((await h.service.getDisplayData()).waiting_queue.map((entry) => entry.id));
@@ -371,7 +385,7 @@ test("mock Supabase: WPS order after recovery puts the visit at the end of its o
 
 test("mock Supabase: Requeue stays disabled when queue reassignment is turned off", async () => {
   const h = await setup(false);
-  const patient = await cancelled(h, 1);
+  const patient = await finished(h, 1);
   h.settings.saveQueueSettings({ ...h.settings.getQueueSettings(), allowQueueReassignment: false });
   const before = await state(h);
   assert.equal((await requeue(h, patient)).status, 400);

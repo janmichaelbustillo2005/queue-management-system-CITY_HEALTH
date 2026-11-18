@@ -54,7 +54,8 @@ test("search matches patient name or queue number, case-insensitively; status an
 test("badges, priorities and time use one set of styles and the stored timestamp", () => {
   for (const { status, className } of q.QUEUE_STATUS_COUNTERS) assert.equal(q.queueStatusClass(status), className);
   assert.deepEqual(plain(q.QUEUE_STATUS_COUNTERS.map(({ label }) => label)), ["Waiting", "Serving", "Completed", "Cancelled"]);
-  assert.match(q.queueStatusClass("no-show"), /red/);
+  assert.match(q.queueStatusClass("cancelled"), /gray/);
+  assert.deepEqual(plain(q.QUEUE_STATUS_FILTERS.map(({ value }) => value)), ["all", "waiting", "serving", "completed", "cancelled"]);
   assert.equal(q.queuePriorityClass(0), null);
   assert.match(q.queuePriorityClass(1), /blue/);
   assert.match(q.queuePriorityClass(3), /yellow/);

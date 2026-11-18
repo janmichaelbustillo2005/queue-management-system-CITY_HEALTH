@@ -1,4 +1,4 @@
-// R2.1: doctor-ownership and caller verification for No-show, Recall, Re-Call, Requeue and Undo.
+// R2.1: doctor-ownership and caller verification for Recall, Re-Call, Requeue and Undo.
 // Synthetic fixtures only. "mock Supabase" runs the real service against an isolated fake
 // PostgREST client; "development memory" runs the local fallback. Neither is an
 // independent-connection PostgreSQL concurrency test.
@@ -6,6 +6,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { createHarness, clone } = require("./helpers/queueHarness");
+const { makeLegacyCompleted } = require("./helpers/legacyCompleted");
 
 const doctor = (number) => ({ id_num: `admin${number}`, role: "admin", doctor_name: `Doctor ${number}` });
 const FRONTDESK = { id_num: "frontdesk", role: "admin", doctor_name: null };
@@ -13,7 +14,6 @@ const LEGACY_FRONTDESK_LABEL = { id_num: "frontdesk", role: "admin", doctor_name
 const SUPERADMIN = { id_num: "superadmin", role: "superadmin", doctor_name: null };
 const SERVICE = { 1: "consultation", 2: "prenatal", 3: "family_planning" };
 const BASE_TIME = Date.parse("2026-10-14T01:00:00.000Z");
-const NO_SHOW_WAIT = 11 * 60 * 1000;
 
 const registration = (name, service, flags = []) => ({
   idNum: name, serviceType: service, vulnerabilityFlags: flags, mobileNumber: "09170001234",
@@ -51,6 +51,14 @@ async function cancelledPatient(h, number, name) {
   h.advance();
   return patient;
 }
+// A cancellation is permanent; the visit Undo and Requeue still recover is a legacy completion
+// without a consultation start.
+async function finishedPatient(h, number, name) {
+  const patient = await acceptedPatient(h, number, name);
+  await makeLegacyCompleted(h, patient.id, { reason: "Synthetic legacy completion" });
+  h.advance();
+  return patient;
+}
 async function waitingPatient(h, number, name = `Waiting D${number}`) {
   const patient = await h.service.createQueueEntry(registration(name, SERVICE[number]));
   h.advance();
@@ -79,10 +87,6 @@ const voiceKeys = async (h) => (await h.request("GET", "/display", {}, null)).bo
 
 // Each action with the patient state it applies to and its request.
 const ACTIONS = {
-  "no-show": {
-    prepare: async (h, number) => { const patient = await calledPatient(h, number); h.advance(NO_SHOW_WAIT); return patient; },
-    send: (h, patient, user, extra = {}) => h.request("POST", "/queue/no-show", { patient_id: patient.id, reason: "Synthetic no-show", ...extra }, user)
-  },
   recall: {
     prepare: (h, number) => calledPatient(h, number),
     send: (h, patient, user, extra = {}) => h.request("POST", "/queue/recall", { patient_id: patient.id, ...extra }, user)
@@ -92,11 +96,11 @@ const ACTIONS = {
     send: (h, patient, user, extra = {}) => h.request("POST", "/queue/re-call", { patient_id: patient.id, ...extra }, user)
   },
   requeue: {
-    prepare: (h, number) => cancelledPatient(h, number),
+    prepare: (h, number) => finishedPatient(h, number),
     send: (h, patient, user, extra = {}) => h.request("POST", "/queue/requeue", { patient_id: patient.id, reason: "Synthetic requeue", ...extra }, user)
   },
   undo: {
-    prepare: (h, number) => cancelledPatient(h, number),
+    prepare: (h, number) => finishedPatient(h, number),
     send: (h, patient, user, extra = {}) => h.request("POST", "/queue/undo", { patient_id: patient.id, ...extra }, user)
   }
 };
@@ -197,51 +201,6 @@ for (const localFallback of [false, true]) {
     });
   }
 
-  // ---- No-show -----------------------------------------------------------
-  test(`${mode}: no-show - own doctor releases only its counter; a repeat is idempotent and never rewrites history`, async () => {
-    const h = await setup(localFallback);
-    const mine = await calledPatient(h, 1);
-    const other = await startedPatient(h, 2);
-    h.advance(NO_SHOW_WAIT);
-    assert.equal((await ACTIONS["no-show"].send(h, mine, doctor(1), { reason: "Did not arrive" })).status, 200);
-    const stored = await row(h, mine);
-    assert.equal(stored.status, "no-show");
-    assert.equal(stored.reason, "Did not arrive");
-    assert.equal(stored.counter_id, "Doctor 1");
-    assert.equal(await pointer(h, 1), null);
-    assert.equal(await pointer(h, 2), other.id, "Doctor 2 keeps its patient");
-    const after = await snapshot(h, [mine, other]);
-    h.advance(60000);
-    for (const user of [doctor(1), FRONTDESK, SUPERADMIN]) {
-      const repeat = await ACTIONS["no-show"].send(h, mine, user, { reason: "Another reason" });
-      assert.equal(repeat.status, 200);
-      assert.equal(repeat.body.already_no_show, true);
-    }
-    assert.equal((await ACTIONS["no-show"].send(h, mine, doctor(2), { reason: "Overwrite" })).status, 403);
-    assert.deepEqual(await snapshot(h, [mine, other]), after);
-  });
-
-  test(`${mode}: no-show - a completed consultation is protected and a cancelled visit must be undone first`, async () => {
-    const h = await setup(localFallback);
-    const done = await completedPatient(h, 3);
-    const cancelled = await cancelledPatient(h, 1);
-    h.advance(NO_SHOW_WAIT);
-    const before = await snapshot(h, [done, cancelled]);
-    for (const user of [doctor(3), FRONTDESK, SUPERADMIN]) assert.equal((await ACTIONS["no-show"].send(h, done, user)).status, 400);
-    for (const user of [doctor(1), FRONTDESK]) assert.equal((await ACTIONS["no-show"].send(h, cancelled, user)).status, 409);
-    assert.deepEqual(await snapshot(h, [done, cancelled]), before);
-  });
-
-  test(`${mode}: no-show - the minimum wait after a call is still enforced`, async () => {
-    const h = await setup(localFallback);
-    const patient = await calledPatient(h, 1);
-    const before = await snapshot(h, [patient]);
-    const response = await ACTIONS["no-show"].send(h, patient, doctor(1));
-    assert.equal(response.status, 400);
-    assert.match(response.body.message, /wait time not reached/i);
-    assert.deepEqual(await snapshot(h, [patient]), before);
-  });
-
   // ---- Recall (legacy repeat call before acceptance) -----------------------
   test(`${mode}: recall - the stored doctor is kept; a contradicting counter is rejected and never written`, async () => {
     const h = await setup(localFallback);
@@ -319,9 +278,25 @@ for (const localFallback of [false, true]) {
   });
 
   // ---- Requeue / Undo ------------------------------------------------------
-  test(`${mode}: undo - own doctor returns a cancelled patient to clean waiting and it can be called again`, async () => {
+  test(`${mode}: undo and requeue - a cancelled patient is permanent for every role, including its own doctor`, async () => {
     const h = await setup(localFallback);
     const patient = await cancelledPatient(h, 2);
+    const before = await snapshot(h, [patient]);
+    for (const user of [doctor(2), FRONTDESK, LEGACY_FRONTDESK_LABEL, SUPERADMIN]) {
+      for (const name of ["undo", "requeue"]) {
+        const response = await ACTIONS[name].send(h, patient, user);
+        assert.equal(response.status, 409, `${name} by ${user.id_num}: ${response.body?.message}`);
+        assert.match(response.body.message, /Cancellation is permanent/);
+      }
+    }
+    // Another doctor is still refused for ownership first.
+    for (const name of ["undo", "requeue"]) assert.equal((await ACTIONS[name].send(h, patient, doctor(1))).status, 403);
+    assert.deepEqual(await snapshot(h, [patient]), before);
+  });
+
+  test(`${mode}: undo - own doctor returns a legacy completed patient to clean waiting and it can be called again`, async () => {
+    const h = await setup(localFallback);
+    const patient = await finishedPatient(h, 2);
     const other = await startedPatient(h, 1);
     const otherBefore = await snapshot(h, [other], [1, 3]);
     const cancelled = await row(h, patient);
@@ -336,9 +311,9 @@ for (const localFallback of [false, true]) {
     assert.equal((await h.request("POST", "/queue/call", { patient_id: patient.id }, SUPERADMIN)).status, 200);
   });
 
-  test(`${mode}: requeue - own doctor moves a cancelled patient to the end of its tier without touching other doctors`, async () => {
+  test(`${mode}: requeue - own doctor moves a legacy completed patient to the end of its tier without touching other doctors`, async () => {
     const h = await setup(localFallback);
-    const patient = await cancelledPatient(h, 3);
+    const patient = await finishedPatient(h, 3);
     const other = await startedPatient(h, 1);
     const otherBefore = await snapshot(h, [other], [1, 2]);
     h.advance();
@@ -352,7 +327,7 @@ for (const localFallback of [false, true]) {
 
   test(`${mode}: undo and requeue - a denied cross-doctor attempt does not consume the revision or alter the visit`, async () => {
     const h = await setup(localFallback);
-    const patient = await cancelledPatient(h, 1);
+    const patient = await finishedPatient(h, 1);
     const before = await row(h, patient);
     for (const attacker of [2, 3]) {
       assert.equal((await ACTIONS.undo.send(h, patient, doctor(attacker))).status, 403);
@@ -399,7 +374,7 @@ for (const localFallback of [false, true]) {
     const patient = await h.service.createQueueEntry(registration("Midnight Serving", "prenatal"));
     await h.service.callPatient(patient.id, "Doctor 2");
     assert.equal((await h.request("POST", "/queue/accept", { patient_id: patient.id }, doctor(2))).status, 200);
-    h.advance(60000 + NO_SHOW_WAIT);
+    h.advance(60000);
     const before = await snapshot(h, [patient]);
     for (const intruder of [doctor(1), doctor(3)]) {
       for (const [name, action] of Object.entries(ACTIONS)) {
@@ -439,24 +414,6 @@ for (const localFallback of [false, true]) {
 // service's conditional-write and revision logic, not PostgreSQL row locking between
 // independent connections.
 // ---------------------------------------------------------------------------
-test("mock Supabase: a Cancel committed between No-show's validation and write makes the No-show fail and keeps the cancellation", async () => {
-  const h = await setup(false);
-  const patient = await calledPatient(h, 1);
-  h.advance(NO_SHOW_WAIT);
-  h.database.beforeQuery = async (query) => {
-    if (query.table !== "patients" || query.action !== "update" || query.payload.status !== "no-show") return undefined;
-    h.database.beforeQuery = null;
-    assert.equal((await h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Cancelled first" }, doctor(1))).status, 200);
-    return undefined;
-  };
-  const response = await ACTIONS["no-show"].send(h, patient, doctor(1));
-  assert.equal(response.status, 400, response.body.message);
-  const stored = await row(h, patient);
-  assert.equal(stored.status, "cancelled");
-  assert.equal(stored.reason, "Cancelled first");
-  assert.equal(await pointer(h, 1), null);
-});
-
 test("mock Supabase: a Cancel committed between Recall's validation and write cannot be turned back into serving", async () => {
   const h = await setup(false);
   const patient = await calledPatient(h, 2);
@@ -474,7 +431,7 @@ test("mock Supabase: a Cancel committed between Recall's validation and write ca
 
 test("mock Supabase: a stale Undo by the owner cannot overwrite a newer cancellation cycle", async () => {
   const h = await setup(false);
-  const patient = await cancelledPatient(h, 1);
+  const patient = await finishedPatient(h, 1);
   let latest;
   h.database.beforeRpc = async (name) => {
     if (name !== "undo_patient_visit_waiting") return;
@@ -492,7 +449,7 @@ test("mock Supabase: a stale Undo by the owner cannot overwrite a newer cancella
 
 test("mock Supabase: a stale Requeue cannot overwrite a consultation completed after its snapshot", async () => {
   const h = await setup(false);
-  const patient = await cancelledPatient(h, 2);
+  const patient = await finishedPatient(h, 2);
   // Another instance restores the visit and a doctor finishes a new consultation before Requeue commits.
   let completed;
   h.database.beforeRpc = async (name) => {
@@ -518,9 +475,7 @@ test("mock Supabase: a stale Requeue cannot overwrite a consultation completed a
 });
 
 // ---------------------------------------------------------------------------
-// No-show's patient update and counter release are still two separate statements (N1, not
-// changed by W1). This test pins its partial-failure window and shows that a retry repairs the
-// counter without rewriting the patient. Cancel is atomic since W1 (next test).
+// Cancel is atomic since W1: a failure inside its transaction commits nothing.
 // ---------------------------------------------------------------------------
 test("mock Supabase (W1): a failure inside the cancel transaction commits nothing; a legacy stuck pointer is repaired only by the owner's retry", async () => {
   const h = await setup(false);
@@ -551,36 +506,3 @@ test("mock Supabase (W1): a failure inside the cancel transaction commits nothin
   assert.deepEqual(await row(h, patient), legacy, "reason, completion time, assignment and revision are unchanged");
 });
 
-for (const name of ["no-show"]) {
-  test(`mock Supabase: ${name} committed the patient but failed to release the counter - the window is observable and a retry repairs only the pointer`, async () => {
-    const h = await setup(false);
-    const patient = name === "cancel" ? await startedPatient(h, 1) : await calledPatient(h, 1);
-    const bystander = await startedPatient(h, 2, "Bystander");
-    if (name === "no-show") h.advance(NO_SHOW_WAIT);
-    const send = (user, extra = {}) => name === "cancel"
-      ? h.request("POST", "/queue/cancel", { patient_id: patient.id, reason: "Synthetic", ...extra }, user)
-      : ACTIONS["no-show"].send(h, patient, user, extra);
-    h.database.beforeQuery = (query) => {
-      if (query.table === "counters" && query.action === "update") return { data: null, error: { message: "fetch failed (isolated counter outage)" } };
-      return undefined;
-    };
-    const failed = await send(doctor(1));
-    assert.equal(failed.status, 503, failed.body?.message);
-    // The failure window: the visit is already terminal while the doctor's counter still points at it.
-    const stuck = await row(h, patient);
-    assert.equal(stuck.status, name === "cancel" ? "cancelled" : "no-show");
-    assert.equal(await pointer(h, 1), patient.id);
-    assert.equal(await pointer(h, 2), bystander.id);
-    h.database.beforeQuery = null;
-    h.advance(60000);
-    // Another doctor cannot use the retry to touch it.
-    assert.equal((await send(doctor(2))).status, 403);
-    assert.equal(await pointer(h, 1), patient.id);
-    // The owner's retry is idempotent for the patient and repairs only the stale pointer.
-    const retry = await send(doctor(1), { reason: "A different reason" });
-    assert.equal(retry.status, 200, retry.body?.message);
-    assert.equal(await pointer(h, 1), null);
-    assert.equal(await pointer(h, 2), bystander.id, "other doctors' counters are untouched");
-    assert.deepEqual(await row(h, patient), stuck, "reason, completion time, assignment and revision are unchanged");
-  });
-}

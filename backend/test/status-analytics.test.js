@@ -39,7 +39,7 @@ function harness(patients = [], options = {}) {
       lte(column, value) { this.filters.push(row => Date.parse(row[column]) <= Date.parse(value)); return this; },
       or(expression) {
         this.expression = expression;
-        assert.ok(!expression.includes("no-show"), "Never query an unsupported no-show enum value");
+        assert.ok(!expression.includes("no-show"), "Never query the removed no-show status");
         const clauses = expression.split(/,(?![^()]*\))/).map(clause => {
           const [, column, operator, value] = clause.match(/^(\w+)\.(gte|in|is)\.(.+)$/) || [];
           assert.ok(column, `Unexpected overlap filter: ${clause}`);
@@ -436,7 +436,7 @@ test("period outcomes describe exactly the Total Patients group by current statu
     patient(2, { status: "waiting", created_at: at("09:00") }),
     patient(3, { status: "serving", created_at: at("09:30"), called_at: at("09:40"), counter_id: "Doctor 2" }),
     patient(4, { status: "cancelled", created_at: at("08:30"), completed_at: at("08:45") }),
-    patient(5, { status: "no-show", created_at: at("09:10"), completed_at: at("10:00") }),
+    patient(5, { status: "cancelled", created_at: at("09:10"), completed_at: at("10:00") }),
     patient(6, { status: "waiting", created_at: at("16:00", yesterday) }),
     patient(7, { status: "completed", created_at: at("15:00", yesterday), called_at: at("15:20", yesterday),
       consultation_started_at: at("15:30", yesterday), completed_at: at("08:20"), counter_id: "Doctor 1" }),
@@ -448,7 +448,7 @@ test("period outcomes describe exactly the Total Patients group by current statu
   assert.equal(result.outcomes.total, result.metrics.total_patients.value, "the status breakdown must add up to Total Patients");
   assert.deepEqual(result.outcomes.statuses.map(row => [row.status, row.label, row.count, row.percentage]), [
     ["completed", "Completed", 1, 20], ["waiting", "Waiting", 1, 20], ["serving", "Being served", 1, 20],
-    ["cancelled", "Cancelled", 1, 20], ["no-show", "No-show", 1, 20]
+    ["cancelled", "Cancelled", 2, 40]
   ]);
   assert.equal(result.outcomes.statuses.reduce((sum, row) => sum + row.count, 0), result.outcomes.total);
   assert.equal(result.outcomes.live, true);

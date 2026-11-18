@@ -422,20 +422,15 @@ test("Cancel remains available in accepted and started phases, requires reason a
   }
 });
 
-test("existing cancelled patient Undo remains available and shares duplicate-action protection", async () => {
-  let finish;
-  const h = await harness([serving(1, { status: "cancelled", counter_id: null })], {
-    request: () => new Promise((resolve) => { finish = resolve; })
-  });
-  const undo = button(h.render(), "Undo");
-  assert.ok(undo);
-  const pending = undo.props.onClick();
-  await undo.props.onClick();
-  assert.deepEqual(h.actions, [{ route: "/queue/undo", method: "POST", body: { patient_id: 1 } }]);
-  assert.equal(button(h.render(), "Undo").props.disabled, true);
-  assert.equal(button(h.render(), "Re-queue").props.disabled, true);
-  finish({ success: true });
-  await pending;
+test("a cancelled patient leaves the doctor's queue at once and is never offered Undo or Re-queue", async () => {
+  for (const counter of [null, "Doctor 1"]) {
+    const h = await harness([serving(1, { status: "cancelled", counter_id: counter, completed_at: "2026-10-10T01:05:00Z" })]);
+    const tree = h.render();
+    for (const label of ["Undo", "Re-queue", "Call", "Cancel", "Start Consultation", "Complete Consultation"]) {
+      assert.equal(button(tree, label), undefined, `${label} (${counter})`);
+    }
+    assert.deepEqual(h.actions, []);
+  }
 });
 
 test("Doctor 2 and Doctor 3 can start only their mapped active patient with the same endpoint contract", async () => {

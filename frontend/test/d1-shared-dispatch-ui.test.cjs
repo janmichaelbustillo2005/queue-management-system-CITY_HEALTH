@@ -124,18 +124,16 @@ test("cancelling the shared head names no doctor; a served visit is cancelled ag
   assert.ok(bodies.some((body) => body.patient_id === 2 && body.counter_id === "Doctor 3"));
 });
 
-test("an uncalled cancellation stays in view without queue actions until the next call", () => {
+test("an uncalled cancellation leaves the active shared queue at once and offers no queue actions", () => {
   const rows = [
     patient(1, "consultation", { status: "cancelled", completed_at: "2026-10-29T01:10:00Z" }),
     patient(2, "prenatal", { status: "serving", counter_id: "Doctor 1", called_at: "2026-10-29T01:05:00Z" })
   ];
-  let tree = table(rows).render();
-  assert.match(text(tree), /Q-1/);
+  const tree = table(rows).render();
+  assert.doesNotMatch(text(tree), /Q-1/, "a cancellation is permanent and is not part of the active queue");
+  assert.match(text(tree), /Q-2/);
   assert.equal(buttons(tree, "Undo").length, 0);
   assert.equal(buttons(tree, "Re-queue").length, 0);
-  rows[1].called_at = "2026-10-29T01:20:00Z";
-  tree = table(rows).render();
-  assert.doesNotMatch(text(tree), /Q-1/, "hidden once a later patient is called");
 });
 
 function ticketHelpers() {

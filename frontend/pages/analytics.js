@@ -3,10 +3,11 @@ import { useRouter } from "next/router";
 import { useAuth } from "../context/AuthContext";
 import Script from "next/script";
 import SiteFrame from "../components/SiteFrame";
-import DailyTrends from "../components/DailyTrends";
+import TrendsAnalytics from "../components/TrendsAnalytics";
 import StatusAnalytics from "../components/StatusAnalytics";
 import { DetailedInsights } from "../components/AnalyticsInsights";
 import ServiceAnalytics from "../components/ServiceAnalytics";
+import { PageHeader, styles } from "../components/AnalyticsDashboard";
 import SettingsModal, { defaultQueueSettings } from "../components/SettingsModal";
 import { request } from "../lib/api";
 import { SERVICE_FILTER_OPTIONS } from "../lib/services";
@@ -34,8 +35,7 @@ const emptyAnalyticsData = {
   totals: null,
   doctorTable: []
 };
-// The top filter bar drives these tabs; Status (and the single-day section of
-// Trends) use their own date selectors.
+// The page filters drive these tabs; Trends and Status keep their own date-range state.
 const FILTERED_TABS = ["all", "distribution"];
 
 export default function AnalyticsPage() {
@@ -54,6 +54,8 @@ export default function AnalyticsPage() {
 
   const [settings, setSettings] = useState(defaultSettings);
   const [filters, setFilters] = useState({ status: "", service: "", doctor: "", dateFilter: "range", date: "", startDate: "", endDate: "" });
+  // The filters the shown figures were loaded with (the form above may hold unapplied edits).
+  const [appliedFilters, setAppliedFilters] = useState(filters);
   const [defaultsReady, setDefaultsReady] = useState(false);
   const [data, setData] = useState(emptyAnalyticsData);
   // "loading" | "ready" | "error", for the By Service cards' loading and error states.
@@ -120,6 +122,7 @@ export default function AnalyticsPage() {
 
   async function loadAnalytics(nextFilters = filters) {
     const sequence = ++loadSequence.current;
+    setAppliedFilters(nextFilters);
     setData(emptyAnalyticsData);
     setLoadState("loading");
     setApiError(null);
@@ -177,41 +180,8 @@ export default function AnalyticsPage() {
           onClearAll={clearAllQueues}
           onExport={exportQueueFromSettings}
         />
-        <div className="container mx-auto max-w-6xl px-3 md:px-4">
+        <div className="container mx-auto max-w-screen-2xl px-3 md:px-4">
           {apiError && <div role="alert" className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mb-4">{apiError}</div>}
-          <div className="bg-white rounded-lg shadow-md p-3 md:p-4 mb-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-base md:text-lg font-bold brand-text"><i className="fas fa-filter mr-2 text-sm" />Filter Options</h2>
-              <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                <select aria-label="Date filter" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.dateFilter} onChange={(e) => setFilters({ ...filters, dateFilter: e.target.value, date: "", startDate: "", endDate: "" })}>
-                  <option value="">All Time</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="date">Specific Date</option><option value="range">Date Range</option>
-                </select>
-                {filters.dateFilter === "date" && <input aria-label="Specific date" type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} />}
-                {filters.dateFilter === "range" && <>
-                  <input aria-label="Start date" type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />
-                  <input aria-label="End date" type="date" className="px-2 py-1.5 text-sm border brand-input rounded-md w-full sm:w-auto" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />
-                </>}
-                <select aria-label="Service" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.service} onChange={(e) => setFilters({ ...filters, service: e.target.value })}>
-                  <option value="">All Services</option>{SERVICE_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-                <select aria-label="Doctor" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.doctor} onChange={(e) => setFilters({ ...filters, doctor: e.target.value })}>
-                  <option value="">All Doctors</option>{[1, 2, 3].map((number) => <option key={number} value={`Doctor ${number}`}>Doctor {number}</option>)}
-                </select>
-                <select aria-label="Status" className="px-2 py-1.5 text-sm border brand-input rounded-md" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
-                  <option value="">All Status</option><option value="waiting">Waiting</option><option value="serving">Serving</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="no-show">No-show</option>
-                </select>
-                <button type="button" onClick={() => loadAnalytics(filters)} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-search mr-1" />Apply</button>
-                <button type="button" onClick={exportData} className="brand-button text-sm px-3 py-1.5 rounded-md transition w-full sm:w-auto"><i className="fas fa-download mr-1" />Export</button>
-              </div>
-            </div>
-            {activeTab === "status" && (
-              <p className="text-xs brand-text-muted mt-3 mb-0">
-                <i className="fas fa-info-circle mr-1" />
-                Status Analytics uses its own date selector below. These filters apply to Detailed Data and Distribution.
-              </p>
-            )}
-          </div>
-
           <div className="mb-4 overflow-x-auto">
             <div className="flex border-b brand-border">
               <TabButton id="all" active={activeTab} onClick={setActiveTab} label="Detailed Data" icon="fas fa-table" />
@@ -221,6 +191,21 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
+          {FILTERED_TABS.includes(activeTab) && (
+            <>
+              {analyticsFilters({
+                panel: activeTab === "distribution", filters, setFilters,
+                onApply: () => loadAnalytics(filters), onExport: exportData,
+                onReset: () => { const defaults = getDefaultHistoryFilters(); setFilters(defaults); loadAnalytics(defaults); },
+                busy: loadState === "loading", error: activeTab === "distribution" ? apiError : ""
+              })}
+              <p className={styles.filterSummary} role="status">
+                {loadState === "loading" ? "Loading…" : <>Showing: <strong className="brand-text">{describeFilters(appliedFilters)}</strong>.</>}
+              </p>
+            </>
+          )}
+        </div>
+        <div className={`container mx-auto ${FILTERED_TABS.includes(activeTab) ? "max-w-6xl" : "max-w-screen-2xl"} px-3 md:px-4`}>
           {FILTERED_TABS.includes(activeTab) && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3 mb-4">
               <MetricCard color="blue" icon="fas fa-users" value={data?.metrics?.totalPatients ?? 0} label="Total Patients" />
@@ -237,8 +222,8 @@ export default function AnalyticsPage() {
                 <ChartCard title="Sex Distribution" icon="fas fa-venus-mars" canvasId="sexDistributionChart" empty={!hasChartData(charts.sexDistribution)} />
                 <ChartCard title="Registered Patients per Categories" icon="fas fa-star" canvasId="priorityChart" empty={!hasChartData(charts.priorityCategories)}
                   note="A visit can belong to more than one priority category, so the bars can add up to more than the total." />
-                <ChartCard title="Age Groups" icon="fas fa-birthday-cake" canvasId="ageGroupChart" empty={!hasChartData(charts.ageGroups)}
-                  note="Age on the day of the visit, from the recorded birthdate." />
+                <ChartCard title="Patient Age Groups" icon="fas fa-birthday-cake" canvasId="ageGroupChart" empty={!hasChartData(charts.ageGroups)}
+                  note="Patient age groups calculated from birthdate as of the visit date. Visits without a valid birthdate are shown as Not recorded." />
                 <div className="lg:col-span-2">
                   <ChartCard title="Patient Residency Distribution" icon="fas fa-map-marker-alt" canvasId="residencyChart" empty={!hasChartData(charts.residency)}
                     note="The eight most common recorded locations; the rest are grouped as Other locations." />
@@ -255,10 +240,7 @@ export default function AnalyticsPage() {
             )}
 
             {activeTab === "trends" && (
-              <>
-                <SectionHeading title="Single-Day Detail" description="Hour-by-hour activity for one day. Choose the day with the date selector in this section." />
-                <DailyTrends enabled={!loading && user?.role === "superadmin"} />
-              </>
+              <TrendsAnalytics enabled={!loading && user?.role === "superadmin"} />
             )}
 
             {activeTab === "status" && (
@@ -285,6 +267,83 @@ export default function AnalyticsPage() {
   );
 }
 
+const DATE_FILTER_OPTIONS = [
+  { value: "", label: "All Time" }, { value: "today", label: "Today" }, { value: "week", label: "This Week" },
+  { value: "month", label: "This Month" }, { value: "date", label: "Specific Date" }, { value: "range", label: "Date Range" }
+];
+const STATUS_FILTER_OPTIONS = [
+  { value: "waiting", label: "Waiting" }, { value: "serving", label: "Serving" },
+  { value: "completed", label: "Completed" }, { value: "cancelled", label: "Cancelled" }
+];
+const DOCTOR_FILTER_OPTIONS = ["Doctor 1", "Doctor 2", "Doctor 3"];
+
+function formatFilterDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return "";
+  return new Date(`${value}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" });
+}
+
+// One line naming the period and filters the figures were loaded with.
+function describeFilters(filters = {}) {
+  let period = DATE_FILTER_OPTIONS.find((option) => option.value === (filters.dateFilter || ""))?.label || "All Time";
+  if (filters.dateFilter === "date") period = formatFilterDate(filters.date) || "Specific Date";
+  if (filters.dateFilter === "range") {
+    const start = formatFilterDate(filters.startDate);
+    const end = formatFilterDate(filters.endDate);
+    period = start && end ? (start === end ? start : `${start} – ${end}`) : start ? `From ${start}` : end ? `Until ${end}` : "All Time";
+  }
+  const service = SERVICE_FILTER_OPTIONS.find((option) => option.value === filters.service)?.label;
+  const status = STATUS_FILTER_OPTIONS.find((option) => option.value === filters.status)?.label;
+  return [period, service || "All Services", filters.doctor || "All Doctors", status || "All Status"].join(" · ");
+}
+
+// Both tabs share the header layout and the page's existing filter state and actions.
+// A plain render function (no hooks), so its controls stay in the page's element tree.
+function analyticsFilters({ filters, setFilters, onApply, onExport, onReset, panel = false, busy = false, error = "" }) {
+  const field = (label, input, width = "") => <label className={`${styles.field} ${width}`}>{label}{input}</label>;
+  const id = panel ? "distribution-filters-heading" : "detailed-filters-heading";
+  const fields = (
+    <>
+      {field("Date", <select aria-label="Date filter" value={filters.dateFilter} onChange={(e) => setFilters({ ...filters, dateFilter: e.target.value, date: "", startDate: "", endDate: "" })}>
+        {DATE_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>, styles.presetField)}
+      {filters.dateFilter === "date" && field("Specific date", <input aria-label="Specific date" type="date" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} />, styles.dateField)}
+      {filters.dateFilter === "range" && <>
+        {field("Start date", <input aria-label="Start date" type="date" value={filters.startDate} onChange={(e) => setFilters({ ...filters, startDate: e.target.value })} />, styles.dateField)}
+        {field("End date", <input aria-label="End date" type="date" value={filters.endDate} onChange={(e) => setFilters({ ...filters, endDate: e.target.value })} />, styles.dateField)}
+      </>}
+      {field("Service", <select aria-label="Service" value={filters.service} onChange={(e) => setFilters({ ...filters, service: e.target.value })}>
+        <option value="">All Services</option>{SERVICE_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>, styles.serviceField)}
+    </>
+  );
+  const remainingFields = (
+    <>
+      {field("Doctor", <select aria-label="Doctor" value={filters.doctor} onChange={(e) => setFilters({ ...filters, doctor: e.target.value })}>
+        <option value="">All Doctors</option>{DOCTOR_FILTER_OPTIONS.map((doctor) => <option key={doctor} value={doctor}>{doctor}</option>)}
+      </select>, styles.doctorField)}
+      {field("Status", <select aria-label="Status" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+        <option value="">All Status</option>{STATUS_FILTER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>)}
+    </>
+  );
+
+  const actions = (
+    <div className={styles.filterButtons}>
+      <button type={panel ? "submit" : "button"} onClick={panel ? undefined : onApply} disabled={panel && busy} className={styles.primaryButton}><i className="fas fa-search" aria-hidden="true" />Apply</button>
+      {panel ? <button type="button" disabled={busy} onClick={onReset} className={styles.secondaryButton}><i className="fas fa-undo" aria-hidden="true" />Reset</button> : null}
+      <button type="button" onClick={onExport} className={styles.primaryButton}><i className="fas fa-download" aria-hidden="true" />Export</button>
+    </div>
+  );
+  return (
+    <PageHeader id={id} formLabelledBy={id} title={panel ? "Distribution Analytics" : "Detailed Data"} onSubmit={onApply} error={error}
+      description={panel ? "View patient distributions by service, sex, priority category, age, residency, and arrival period." : "Review patient visits and service performance by service and doctor for the selected period."}>
+      {fields}
+      {remainingFields}
+      {actions}
+    </PageHeader>
+  );
+}
+
 function MetricCard({ color, icon, value, label }) {
   const palette = {
     blue: "brand-bg-subtle brand-text-primary",
@@ -304,15 +363,6 @@ function MetricCard({ color, icon, value, label }) {
           <p className="text-[11px] md:text-xs brand-text-muted leading-snug">{label}</p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function SectionHeading({ title, description }) {
-  return (
-    <div className="mt-1">
-      <h3 className="text-sm md:text-base font-bold brand-text mb-0.5">{title}</h3>
-      <p className="text-xs brand-text-muted mb-0">{description}</p>
     </div>
   );
 }
@@ -343,7 +393,6 @@ const SUMMARY_COLUMNS = [
   { key: "total_patients", label: "Total" },
   { key: "completed", label: "Completed", className: "text-green-700 font-bold" },
   { key: "cancelled", label: "Cancelled", className: "text-red-600 font-bold" },
-  { key: "no_show", label: "No-show", className: "text-rose-700 font-bold" },
   { key: "in_queue", label: "In Queue", title: "Still waiting or being served" },
   { key: "avg_wait_time", label: "Avg Wait", suffix: "m", className: "brand-text-muted" },
   { key: "avg_service_time", label: "Avg Service", suffix: "m", className: "brand-text-muted" },

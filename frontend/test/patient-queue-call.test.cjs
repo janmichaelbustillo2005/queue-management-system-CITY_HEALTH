@@ -100,7 +100,10 @@ test("Patient Management offers Cancel as its only queue action: no Call, Re-Cal
   }
   assert.equal(nodes(tree, node => node.type === "select").length, 0, "no doctor selection for a call");
   assert.equal(buttons(tree, "Cancel").length, 2, "the Doctor 1 head and the serving patient");
-  assert.deepEqual(rows.filter(row => text(tree).includes(row.id_num)).length, 5, "every registered patient stays visible");
+  // A cancellation is permanent, so the cancelled visit is not part of the active queue.
+  assert.deepEqual(rows.filter(row => ["waiting", "serving"].includes(row.status)).filter(row => text(tree).includes(row.id_num)).length, 3,
+    "every active patient stays visible");
+  assert.ok(!text(tree).includes(rows[3].id_num), "the cancelled visit has left the active queue");
   assert.deepEqual(h.calls, []);
 });
 

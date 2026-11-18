@@ -11,14 +11,15 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const filterKeys = ["status", "service", "doctor", "dateFilter", "date", "startDate", "endDate"];
 const allTimeFilters = { status: "", service: "", doctor: "", dateFilter: "", date: "", startDate: "", endDate: "" };
-const jsx = (type, props) => ({ type, props: props || {} });
+const jsx = (type, props) => typeof type === "function" && type.name === "PageHeader"
+  ? type(props || {}) : { type, props: props || {} };
 
 before(async () => {
   await swc.loadBindings();
   await Promise.all([
     "pages/records.js", "pages/analytics.js", "lib/api.js", "lib/queueSettings.js",
     "lib/historyFilters.js", "components/SettingsModal.js", "lib/dailyTrendsCharts.js", "lib/analyticsCharts.js",
-    "lib/recordsFilters.js", "components/RecordsTable.js"
+    "lib/recordsFilters.js", "components/RecordsTable.js", "components/AnalyticsDashboard.js", "lib/rangeAnalytics.js"
   ].map(async relative => {
     const filename = path.join(__dirname, "..", relative);
     compiled[relative] = (await swc.transform(fs.readFileSync(filename, "utf8"), {
@@ -153,11 +154,12 @@ function harness(component, options = {}) {
     react, "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "next/link": "Link", "next/script": "Script", "next/router": { useRouter: () => router },
     "../context/AuthContext": { useAuth: () => ({ user, loading: false }) },
-    "../components/SiteFrame": "SiteFrame", "../components/DailyTrends": "DailyTrends", "../components/StatusAnalytics": "StatusAnalytics",
+    "../components/SiteFrame": "SiteFrame", "../components/TrendsAnalytics": "TrendsAnalytics", "../components/StatusAnalytics": "StatusAnalytics",
     "../components/RecordsFilters": "RecordsFilters",
     "../components/AnalyticsInsights": { __esModule: true, DetailedInsights: "DetailedInsights" },
     "../components/ServiceAnalytics": "ServiceAnalytics",
-    "./RecordsTable.module.css": new Proxy({}, { get: (_target, key) => key === "__esModule" || typeof key === "symbol" ? undefined : key })
+    "./RecordsTable.module.css": new Proxy({}, { get: (_target, key) => key === "__esModule" || typeof key === "symbol" ? undefined : key }),
+    "./AnalyticsDashboard.module.css": new Proxy({}, { get: (_target, key) => key === "__esModule" || typeof key === "symbol" ? undefined : key })
   };
   function load(relative) {
     const module = { exports: {} };
@@ -186,6 +188,8 @@ function harness(component, options = {}) {
   dependencies["../lib/analyticsCharts"] = load("lib/analyticsCharts.js");
   dependencies["../lib/recordsFilters"] = load("lib/recordsFilters.js");
   dependencies["../components/RecordsTable"] = load("components/RecordsTable.js");
+  dependencies["../lib/rangeAnalytics"] = load("lib/rangeAnalytics.js");
+  dependencies["../components/AnalyticsDashboard"] = load("components/AnalyticsDashboard.js");
   const page = component === "modal" ? modal.default : component ? load(`pages/${component}.js`).default : null;
   const props = component === "modal" ? {
     isOpen: true, settings: { ...modal.defaultQueueSettings, autoBackupReminder: false },
@@ -235,8 +239,8 @@ test("history defaults use Manila dates at UTC midnight crossover and calendar y
 
 // Shared main replaced the legacy transaction page with category-based records.
 // Verify that contract while preserving the history fixes on Analytics below.
-test("Records keeps the authenticated patient/staff/account category API", async () => {
-  for (const category of ["patients", "staff", "accounts"]) {
+test("Records keeps the authenticated patient/staff category API", async () => {
+  for (const category of ["patients", "staff"]) {
     const h = harness("records", { category }); await h.flush();
     const call = h.lastCall(`/records/${category}`);
     assert.ok(call);
@@ -247,17 +251,17 @@ test("Records keeps the authenticated patient/staff/account category API", async
   }
 });
 
-test("Records patient date, doctor, service and no-show filters use the category API", async () => {
+test("Records patient date, doctor, service and status filters use the category API", async () => {
   const h = harness("records"); await h.flush();
   h.filterRecords("date", "2026-10-09");
   h.filterRecords("doctor", "Doctor 2");
   h.filterRecords("service", "prenatal");
-  h.filterRecords("status", "no-show");
+  h.filterRecords("status", "cancelled");
   h.applyRecords(); await h.flush();
   const call = h.lastCall("/records/patients");
-  for (const [key, value] of Object.entries({ date: "2026-10-09", doctor: "Doctor 2", service: "prenatal", status: "no-show" })) assert.equal(call.params[key], value);
+  for (const [key, value] of Object.entries({ date: "2026-10-09", doctor: "Doctor 2", service: "prenatal", status: "cancelled" })) assert.equal(call.params[key], value);
   const statusField = h.recordsFilters.RECORD_FILTERS.patients.primary.find(field => field.key === "status");
-  assert.ok(statusField.options.some(option => option.value === "no-show"));
+  assert.ok(!statusField.options.some(option => option.value === "no-show"), "No-show was removed");
 });
 
 test("Records applied filters survive pagination and refresh, then Reset clears them", async () => {
@@ -408,14 +412,14 @@ test("SettingsModal forwards an explicitly selected All Time export without repl
 });
 
 const component = name => node => typeof node.type === "function" && node.type.name === name;
-const summaryRow = (extra = {}) => ({ total_patients: 2, completed: 1, cancelled: 0, no_show: 1, waiting: 0, serving: 0,
+const summaryRow = (extra = {}) => ({ total_patients: 2, completed: 1, cancelled: 1, waiting: 0, serving: 0,
   avg_wait_time: "4.0", avg_service_time: "6.0", completion_rate: "50.0", ...extra });
 const dashboardPayload = {
   metrics: { totalPatients: 2, avgWaitTime: 4, avgServiceTime: 6, completionRate: 50 },
   charts: {
     serviceTypes: { labels: ["family_planning"], data: [2] }, sexDistribution: { labels: ["Female"], data: [2] },
     dailyTrends: { labels: ["Oct 9, 2026", "Oct 10, 2026"], data: [2, 0] }, hourly: { labels: ["09:00"], data: [2] },
-    status: { labels: ["completed", "no-show"], data: [1, 1] }, priorityCategories: { labels: ["regular"], data: [2] },
+    status: { labels: ["completed", "cancelled"], data: [1, 1] }, priorityCategories: { labels: ["regular"], data: [2] },
     ageGroups: { labels: [], data: [] }, residency: { labels: ["Sumile"], data: [2] }
   },
   tableData: [{ service_type: "family_planning", ...summaryRow() }],
@@ -442,10 +446,14 @@ test("Analytics keeps its four original tabs (no duplicate Hourly tab, no Perfor
   await openTab(h, "Distribution");
   assert.equal(metricCards(), 4);
   await openTab(h, "Trends");
-  assert.equal(metricCards(), 0, "Trends has its own single-day section; the period cards would contradict it");
+  assert.equal(metricCards(), 0, "Trends has its own date-range cards; the period cards would contradict it");
+  const filterBar = () => nodes(h.render(), (node) => node.props?.["aria-label"] === "Date filter").length;
+  assert.equal(filterBar(), 0, "Trends and Status carry their own filters, so the Detailed Data bar is hidden");
   await openTab(h, "Status");
   assert.equal(metricCards(), 0);
-  assert.match(text(h.render()), /Status Analytics uses its own date selector below/);
+  assert.equal(filterBar(), 0);
+  await openTab(h, "Detailed Data");
+  assert.equal(filterBar(), 1);
 });
 
 test("Detailed Data shows the By Service cards, then the By Doctor table, then the additional sections", async () => {
@@ -470,10 +478,10 @@ test("By Service receives the analytics response's own table, totals and wait sa
   const tables = nodes(h.render(), component("SummaryTable"));
   assert.deepEqual(tables.map(table => table.props.title), ["By Doctor"]);
   const doctorTable = text(tables[0].type(tables[0].props));
-  assert.match(doctorTable, /DoctorTotalCompletedCancelledNo-showIn QueueAvg WaitAvg ServiceCompletion/);
-  // Total, Completed, Cancelled, No-show, In Queue, Avg Wait, Avg Service, Completion.
-  assert.match(doctorTable, /Doctor 3210104\.0m6\.0m50\.0%/);
-  assert.match(doctorTable, /All210104\.0m6\.0m50\.0%$/);
+  assert.match(doctorTable, /DoctorTotalCompletedCancelledIn QueueAvg WaitAvg ServiceCompletion/);
+  // Total, Completed, Cancelled, In Queue, Avg Wait, Avg Service, Completion.
+  assert.match(doctorTable, /Doctor 321104\.0m6\.0m50\.0%/);
+  assert.match(doctorTable, /All21104\.0m6\.0m50\.0%$/);
 });
 
 test("Distribution holds the renamed charts plus Patients per Day and Patient Arrival by Hour; Trends keeps only the single-day detail", async () => {
@@ -484,11 +492,46 @@ test("Distribution holds the renamed charts plus Patients per Day and Patient Ar
   assert.deepEqual(chartCards(), [["serviceTypesChart", false], ["sexDistributionChart", false], ["priorityChart", false],
     ["ageGroupChart", true], ["residencyChart", false], ["patientsPerDayChart", false], ["arrivalsByHourChart", false]]);
   assert.deepEqual(nodes(h.render(), component("ChartCard")).map(card => card.props.title), ["Percentage of Patients per Service", "Sex Distribution",
-    "Registered Patients per Categories", "Age Groups", "Patient Residency Distribution", "Patients per Day", "Patient Arrival by Hour"]);
+    "Registered Patients per Categories", "Patient Age Groups", "Patient Residency Distribution", "Patients per Day", "Patient Arrival by Hour"]);
+  const ageCard = nodes(h.render(), component("ChartCard")).find(card => card.props.canvasId === "ageGroupChart");
+  assert.match(ageCard.props.note, /calculated from birthdate as of the visit date/);
   assert.doesNotMatch(text(h.render()), /Patient Status/);
   await openTab(h, "Trends");
   assert.deepEqual(chartCards(), [], "the moved charts are not duplicated in Trends");
-  assert.equal(nodes(h.render(), node => node.type === "DailyTrends").length, 1);
+  assert.equal(nodes(h.render(), node => node.type === "TrendsAnalytics").length, 1);
+});
+
+test("Detailed Data and Distribution show a labelled filter header before their metrics and charts", async () => {
+  const h = dashboardHarness(); await h.flush();
+  const order = () => nodes(h.render(), node => component("ChartCard")(node) || component("MetricCard")(node)
+    || ["distribution-filters-heading", "detailed-filters-heading"].includes(node.props?.id) || node.props?.["aria-label"] === "Date filter")
+    .map(node => node.props?.["aria-label"] === "Date filter" ? "filters" : node.props?.id ? "heading"
+      : component("MetricCard")(node) ? "card" : "chart");
+  assert.deepEqual(order().filter((kind, i, all) => kind !== all[i - 1]), ["heading", "filters", "card"], "Detailed Data: heading and filters above the cards");
+  await openTab(h, "Distribution");
+  assert.deepEqual(order().filter((kind, i, all) => kind !== all[i - 1]), ["heading", "filters", "card", "chart"]);
+  assert.equal(nodes(h.render(), node => node.props?.["aria-label"] === "Date filter").length, 1, "one filter set, not two");
+  for (const label of ["Date filter", "Start date", "End date", "Service", "Doctor", "Status"]) assert.ok(h.field(label), label);
+  for (const label of ["Apply", "Reset", "Export"]) assert.ok(button(h.render(), label));
+  assert.match(text(h.render()), /Showing: Oct 4, 2026 – Oct 10, 2026 · All Services · All Doctors · All Status/);
+
+  // Apply sends the edited filters and the summary follows; Reset restores and reloads the defaults.
+  h.change("Service", "prenatal"); h.change("Doctor", "Doctor 2");
+  assert.equal(button(h.render(), "Apply").props.type, "submit");
+  const form = nodes(h.render(), node => node.type === "form" && node.props["aria-labelledby"] === "distribution-filters-heading")[0];
+  form.props.onSubmit({ preventDefault() {} }); await h.flush();
+  assert.deepEqual(selectedFilters(h.lastCall("/analytics")),
+    { ...allTimeFilters, dateFilter: "range", startDate: "2026-10-04", endDate: "2026-10-10", service: "prenatal", doctor: "Doctor 2" });
+  assert.match(text(h.render()), /· Doctor 2 ·/);
+  assert.equal(h.field("Service").props.value, "prenatal", "selected values stay visible");
+  const before = h.callsTo("/analytics").length;
+  await button(h.render(), "Reset").props.onClick(); await h.flush();
+  assert.equal(h.callsTo("/analytics").length, before + 1);
+  assert.deepEqual(selectedFilters(h.lastCall("/analytics")),
+    { ...allTimeFilters, dateFilter: "range", startDate: "2026-10-04", endDate: "2026-10-10" });
+  assert.equal(h.field("Service").props.value, "");
+  await openTab(h, "Detailed Data");
+  assert.throws(() => button(h.render(), "Reset"), /Missing button: Reset/, "Reset remains available only in Distribution");
 });
 
 test("Chart.js is loaded from an exact pinned version", async () => {

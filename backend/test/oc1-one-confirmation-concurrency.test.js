@@ -6,6 +6,7 @@
 const assert = require("node:assert/strict");
 const { describe, test, before, after, beforeEach } = require("node:test");
 const f = require("./helpers/c1f5w1Fixture");
+const { makeLegacyCompletedPostgres } = require("./helpers/legacyCompleted");
 
 const FC1 = "20261111-fc1-front-desk-confirmation.sql";
 const OC1 = "20261113-oc1-one-confirmation-per-doctor.sql";
@@ -48,8 +49,6 @@ describe("OC1 one confirmation per doctor on real PostgreSQL 17 (independent con
     assert.deepEqual(rows, [], "a doctor has more than one confirmed or active visit");
     await f.assertConsistent(db);
   }
-  const notPresent = (harness, id) => f.post(harness, tokens.frontdesk, "/queue/not-present", { patient_id: id });
-  const present = (harness, id) => f.post(harness, tokens.frontdesk, "/queue/present", { patient_id: id });
   async function race(requests, waiters) {
     const blocker = await f.holdCounters(db);
     const racing = requests();
@@ -130,47 +129,13 @@ describe("OC1 one confirmation per doctor on real PostgreSQL 17 (independent con
     await assertOnePerDoctor();
   });
 
-  test("Not Present and Confirm of the same patient at once: exactly one applies", async () => {
-    const head = await visit("GP-001", { minutesAgo: 2 });
-    const next = await visit("GP-002", { minutesAgo: 1 });
-    const [confirmedResult, markedResult] = await race(() => [confirm(h, head), notPresent(other, head)], 2);
-    const row = await f.patient(db, head);
-    if (row.confirmed_at != null) {
-      f.expectStatus(confirmedResult, 200);
-      f.expectStatus(markedResult, 409, /already confirmed/);
-      assert.equal(row.not_present_at, null);
-    } else {
-      f.expectStatus(markedResult, 200);
-      f.expectStatus(confirmedResult, 409, /Not Present/);
-      f.expectStatus(await confirm(h, next), 200);
-    }
-    await assertOnePerDoctor();
-  });
-
-  test("Present of an earlier patient racing Confirm of the next one: never two confirmations, WPS order kept", async () => {
-    const earlier = await visit("GP-001", { minutesAgo: 3 });
-    const later = await visit("GP-002", { minutesAgo: 1 });
-    f.expectStatus(await notPresent(h, earlier), 200);
-    const [back, confirmedLater] = await race(() => [present(other, earlier), confirm(h, later)], 2);
-    f.expectStatus(back, 200);
-    if (confirmedLater.status === 200) {
-      // The confirmation ran first: the returning patient waits for that visit to finish.
-      assert.equal((await f.patient(db, earlier)).confirmed_at, null);
-      f.expectStatus(await confirm(h, earlier), 409, /already has an active patient/);
-    } else {
-      // Present ran first: the earlier patient is the doctor's next patient again.
-      f.expectStatus(confirmedLater, 409, /Only the next patient/);
-      f.expectStatus(await confirm(h, earlier), 200);
-    }
-    await assertOnePerDoctor();
-  });
-
   test("Undo racing a confirmation for the same doctor: exactly one applies; the loser is told why", async () => {
     const first = await visit("GP-001", { minutesAgo: 3 });
     const second = await visit("GP-002", { minutesAgo: 1 });
     f.expectStatus(await confirm(h, first), 200);
     f.expectStatus(await f.post(h, tokens.admin1, "/queue/call", { patient_id: first }), 200);
-    f.expectStatus(await f.post(h, tokens.frontdesk, "/queue/cancel", { patient_id: first, reason: "Mistake", counter_id: "Doctor 1" }), 200);
+    // A cancellation is permanent; the visit Undo recovers is a legacy completion (no start).
+    await makeLegacyCompletedPostgres(db.observer, first, { reason: "Mistake" });
     const [undone, confirmedSecond] = await race(() => [f.post(other, tokens.frontdesk, "/queue/undo", { patient_id: first }), confirm(h, second)], 2);
     const statuses = [undone.status, confirmedSecond.status].sort();
     assert.deepEqual(statuses, [200, 409], `${undone.body.message} / ${confirmedSecond.body.message}`);
@@ -179,7 +144,7 @@ describe("OC1 one confirmation per doctor on real PostgreSQL 17 (independent con
     await assertOnePerDoctor();
   });
 
-  test("three doctors, each with Confirm, Not Present and Undo traffic at once: one active patient per doctor", async () => {
+  test("three doctors, each with simultaneous and repeated Confirm traffic: one active patient per doctor", async () => {
     const services = ["consultation", "prenatal", "family_planning"];
     const lists = [];
     for (const [i, service] of services.entries()) {
@@ -187,7 +152,7 @@ describe("OC1 one confirmation per doctor on real PostgreSQL 17 (independent con
       lists.push([await visit(`${prefix}-001`, { service, minutesAgo: 4 }), await visit(`${prefix}-002`, { service, minutesAgo: 3 }),
         await visit(`${prefix}-003`, { service, minutesAgo: 2 })]);
     }
-    const results = await race(() => lists.flatMap(([a, b, c]) => [confirm(h, a), confirm(other, b), notPresent(other, a), confirm(h, c)]), 12);
+    const results = await race(() => lists.flatMap(([a, b, c]) => [confirm(h, a), confirm(other, b), confirm(other, a), confirm(h, c)]), 12);
     assert.ok(results.every((r) => [200, 409].includes(r.status)), results.map((r) => r.body.message).join(" | "));
     const perDoctor = await db.observer.query(`SELECT service_type, count(*)::int AS n FROM public.patients
       WHERE status = 'waiting' AND confirmed_at IS NOT NULL GROUP BY 1 ORDER BY 1`);

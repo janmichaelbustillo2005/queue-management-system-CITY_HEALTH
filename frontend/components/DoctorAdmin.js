@@ -108,14 +108,6 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
   });
   const [pendingCancelRequest, setPendingCancelRequest] = useState(null);
 
-  async function handleUndo(patientId) {
-    try {
-      await performPatientAction(patientId, "undo", "/queue/undo", { patient_id: patientId }, "Patient returned to the queue");
-    } catch (err) {
-      showActionError(err, "Failed to undo cancellation");
-    }
-  }
-
   // Helper to show confirmation modal (reason via ref so Confirm never reads a stale empty value)
   const showConfirmModal = ({ title, message, showReason = false, requireReason = false, onConfirm }) => {
     modalReasonRef.current = "";
@@ -308,42 +300,28 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
       }
       if (!row.called_at) return false;
 
-      // Show if the patient is already being served by THIS doctor
-      if (isAssignedToDoctor(row, doctorName, counters)) return true;
+      // A cancellation is permanent: it leaves the queue at once and is kept in Patient History.
+      if (row.status === "cancelled") return false;
 
-      // Show recent cancellations for this doctor's services (Undo window). In shared dispatch
-      // only this doctor's own patients, already matched above, belong to it.
-      if (row.status === "cancelled" && !sharedDispatch && matchesDoctor(row.service_type, doctorName)) return true;
-      
-      return false;
+      // Show if the patient is already being served by THIS doctor
+      return isAssignedToDoctor(row, doctorName, counters);
     });
   }, [queueRows, doctorName, counters, sharedDispatch, roundRobin]);
 
   const filteredRows = useMemo(() => {
     const queue = doctorQueue ?? [];
-    // After the doctor Calls the next patient, hide prior cancellations from the active list.
-    // Status/reason stay in the DB for Super Admin records.
-    const hasActiveServing = queue.some(
-      (row) => row.status === "serving" && isAssignedToDoctor(row, doctorName, counters)
-    );
-
-    const rows = queue.filter((row) => {
-      if (row.status === "completed") return false;
-      if (row.status === "cancelled") {
-        return !hasActiveServing;
-      }
-      return true;
-    });
+    // Cancelled visits never reach this list (doctorQueue); their status, reason and doctor stay
+    // in the database for Patient History, Super Admin records and analytics.
+    const rows = queue.filter((row) => row.status !== "completed" && row.status !== "cancelled");
 
     return rows
       .slice()
       .sort((a, b) => {
-        // Keep cancelled (Undo) below the active waiting/serving patients
+        // Serving first, then waiting
         const rank = (status) => {
           if (status === "serving") return 0;
           if (status === "waiting") return 1;
-          if (status === "cancelled") return 2;
-          return 3;
+          return 2;
         };
         const rankDiff = rank(a.status) - rank(b.status);
         if (rankDiff !== 0) return rankDiff;
@@ -355,7 +333,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
           new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
       })
       .slice(0, 20);
-  }, [doctorQueue, doctorName, counters]);
+  }, [doctorQueue]);
 
   // Only the head of the unfinished queue (serving first, else first waiting) may be acted on
   const activePatientId = useMemo(() => {
@@ -626,7 +604,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
     }
     showConfirmModal({
       title: "Cancel Patient",
-      message: "Cancel this patient from the queue? Please enter a reason for canceling.",
+      message: "Cancel this patient? The visit will be permanently marked as Cancelled, removed from your queue and kept in patient history. It cannot be undone or re-queued. Please enter a reason for canceling.",
       showReason: true,
       requireReason: true,
       onConfirm: async (reason) => {
@@ -634,24 +612,6 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
         await performPatientAction(patientId, "cancel", "/queue/cancel", {
           patient_id: patientId, reason, counter_id: doctorName
         }, "Patient cancelled successfully");
-      }
-    });
-  }
-
-  async function handleRequeue(patientId) {
-    if (pendingActionsRef.current.has(String(patientId))) return;
-    if (queueSettings.allowQueueReassignment === false) {
-      setError("Queue reassignment is disabled in System Settings.");
-      window.setTimeout(() => setError(""), 4000);
-      return;
-    }
-    showConfirmModal({
-      title: "Re-queue Patient",
-      message: "Re-queue this patient at the bottom of the list?",
-      showReason: true,
-      requireReason: false,
-      onConfirm: async (reason) => {
-        await performPatientAction(patientId, "requeue", "/queue/requeue", { patient_id: patientId, reason }, "Patient re-queued");
       }
     });
   }
@@ -861,8 +821,7 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                               <i className="fas fa-birthday-cake me-1" />
                               {new Date(row.birthdate).toLocaleDateString()}
                             </span>
-                          )}
-                          <div className="text-[10px] brand-text-muted">
+                          )}                          <div className="text-[10px] brand-text-muted">
                             <i className="fas fa-phone-alt me-1" /> {row.mobile_number}
                           </div>
                         </div>
@@ -894,7 +853,6 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                         <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                           row.status === "serving" ? "bg-emerald-100 text-emerald-700" :
                           row.status === "waiting" ? "bg-amber-100 text-amber-700" :
-                          row.status === "no-show" ? "bg-red-100 text-red-700" :
                           row.status === "cancelled" ? "bg-gray-200 text-gray-700" :
                           "bg-gray-100 text-gray-600"
                         }`}>
@@ -1014,32 +972,6 @@ export default function DoctorAdminPage({ doctorId, doctorName }) {
                               >
                                 <i className="fas fa-times" />
                               </button>
-                            </>
-                          )}
-                          {(row.status === "no-show" || row.status === "cancelled") && (
-                            <>
-                              <button 
-                                type="button"
-                                onClick={() => handleUndo(row.id)}
-                                title="Undo"
-                                aria-label="Undo"
-                                disabled={isActionPending(row.id)}
-                                className={`${iconButtonClass} bg-gray-600 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
-                              >
-                                <i className="fas fa-undo" />
-                              </button>
-                              {queueSettings.allowQueueReassignment !== false ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRequeue(row.id)}
-                                  title="Re-queue"
-                                  aria-label="Re-queue"
-                                  disabled={isActionPending(row.id)}
-                                  className={`${iconButtonClass} bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed`}
-                                >
-                                  <i className="fas fa-redo" />
-                                </button>
-                              ) : null}
                             </>
                           )}
                         </div>

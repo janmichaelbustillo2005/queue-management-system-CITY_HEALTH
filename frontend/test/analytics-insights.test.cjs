@@ -110,7 +110,8 @@ test("Detailed Data no longer shows the removed sections anywhere", () => {
   for (const title of ["Wait Time by Service and Time of Day", "Average Service Time by Doctor and Service", "Patient Journey",
     "Abandonment Rate", "Average Wait Time Breakdown", "SLA Compliance", "Doctor Utilization", "Transaction Volume by Doctor",
     "Peak Hours and Days", "Predictive Insights", "Wait-Time Forecast", "Staffing Recommendations", "Patient Satisfaction",
-    "Patient Arrival Forecast", "View Details"]) {
+    "Patient Arrival Forecast", "View Details", "Customer Experience", "How long patients wait to be called", "Average Wait Time Trend",
+    "Hide all services", "Average wait by service", "axis rescales to the lines shown"]) {
     assert.doesNotMatch(content, new RegExp(title), title);
   }
   // Service Demand remains only once: the donut inside Traffic & Flow.
@@ -131,29 +132,29 @@ const brand = { primary: "#167d3f", forest: "#0b3d2e" };
 const same = (actual, expected, message) => assert.deepEqual(JSON.parse(JSON.stringify(actual)), JSON.parse(JSON.stringify(expected)), message);
 const datasetValues = (config, label) => config.data.datasets.find((dataset) => dataset.label === label).data;
 
-test("Detailed Data keeps the wait trend, doctor performance, Traffic & Flow and arrival trend charts", () => {
+test("Detailed Data keeps the doctor performance, Traffic & Flow and arrival trend charts, and no wait trend", () => {
   const tree = render("DetailedInsights", build());
   const canvases = nodes(tree, (node) => node.type === "canvas").map((node) => node.props["aria-label"]);
-  same(canvases, ["Average Wait Time Trend", "Doctor Performance Comparison", "Service demand distribution", "Patient Arrival Trend"]);
+  same(canvases, ["Doctor Performance Comparison", "Service demand distribution", "Patient Arrival Trend"]);
+  // The removed Customer Experience section leaves no heading, card or chart helper behind.
+  for (const name of ["waitTrendChart", "waitBreakdown", "WAIT_ALL"]) assert.equal(charts[name], undefined, name);
   const content = text(tree);
-  for (const title of ["Customer Experience", "Staff and Operational Efficiency", "Traffic & Flow", "Weekly Queue Heatmap"]) {
+  for (const title of ["Staff and Operational Efficiency", "Traffic & Flow", "Weekly Queue Heatmap", "Patient Arrival Trend"]) {
     assert.match(content, new RegExp(title));
   }
 });
 
 test("chart values are the payload's values, so charts match the tables and cards", () => {
   const payload = build();
-  const trend = charts.waitTrendChart(payload.trends, brand);
-  same(datasetValues(trend, "All services"), payload.trends.wait.overall);
-  assert.equal(trend.data.labels.length, 7);
-  assert.equal(trend.options.scales.x.title.text, "Day");
+  const arrivals = charts.arrivalTrendChart(payload.trends, brand);
+  assert.equal(arrivals.data.labels.length, 7);
+  assert.equal(arrivals.options.scales.x.title.text, "Day");
   // 21 completed consultations at 09:00, 1 cancelled prenatal at 10:00, 2 live consultations.
-  same(charts.arrivalTrendChart(payload.trends, brand).data.datasets[0].data.reduce((sum, value) => sum + value, 0), 24);
+  same(arrivals.data.datasets[0].data.reduce((sum, value) => sum + value, 0), 24);
   const performance = charts.doctorPerformanceChart(payload.volumes);
   same(datasetValues(performance, "Completed"), payload.volumes.map((row) => row.completed));
   same(charts.demandChart(payload.demand).data.datasets[0].data, [23, 1], "services nobody requested are left out of the donut");
   // Each tooltip shows exact figures.
-  assert.match(trend.options.plugins.tooltip.callbacks.label({ dataset: trend.data.datasets[0], raw: 5, dataIndex: 0 }), /5 min average \(3 patients\)/);
   const shown = { data: performance.data, isDatasetVisible: () => true };
   same(performance.options.plugins.tooltip.callbacks.footer([{ chart: shown, dataIndex: 0 }]),
     [`Total: ${payload.volumes[0].total} patient${payload.volumes[0].total === 1 ? "" : "s"}`]);
@@ -161,7 +162,7 @@ test("chart values are the payload's values, so charts match the tables and card
 
 test("charts with nothing to show return no configuration instead of an empty chart", () => {
   const empty = build({ rows: [], visits: [], sessions: [], live: { patients: [], counters } });
-  for (const [name, input] of [["waitTrendChart", empty.trends], ["arrivalTrendChart", empty.trends],
+  for (const [name, input] of [["arrivalTrendChart", empty.trends],
     ["doctorPerformanceChart", empty.volumes], ["demandChart", empty.demand]]) {
     assert.equal(charts[name](input, brand), null, name);
   }
@@ -344,115 +345,6 @@ test("the arrival trend panel shows the chart and a toggleable service grid inst
   assert.doesNotMatch(content, /undefined|NaN|\[object/);
 });
 
-// Average Wait Time Trend with several services over four days: gaps, a lone value, a 0-minute wait.
-function manyServiceWaitTrends() {
-  const waits = {
-    medical_consultation: { values: [12.5, null, 20, 18], samples: [4, 0, 5, 3] },
-    maternal_healthcare: { values: [95, null, 110, null], samples: [2, 0, 1, 0] },
-    family_planning: { values: [null, null, 6, null], samples: [0, 0, 2, 0] },
-    child_healthcare: { values: [3, null, 4.5, 2], samples: [1, 0, 2, 1] },
-    dental_healthcare: { values: [0, null, null, null], samples: [1, 0, 0, 0] },
-    nutrition: { values: [8, null, 9, 7], samples: [1, 0, 1, 1] },
-    diagnostic_imaging: { values: [30, null, 25, 40], samples: [1, 0, 2, 1] },
-    mental_healthcare: { values: [null, null, 15, null], samples: [0, 0, 1, 0] },
-    womens_health: { values: [null, null, null, null], samples: [0, 0, 0, 0] }
-  };
-  const byService = Object.entries(waits).map(([service, row]) => ({ service, ...row }));
-  return { grouping: "day", periods: ["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12"],
-    arrivals: { total: [11, 0, 14, 6], by_service: [] },
-    wait: { overall: [24.1, null, 26.2, 15.3], samples: [10, 0, 14, 6], by_service: byService } };
-}
-
-test("wait trend: All services stands out, each service keeps its arrival-trend look, and the canvas legend is off", () => {
-  const trends = manyServiceWaitTrends();
-  const config = charts.waitTrendChart(trends, brand);
-  const [all, ...services] = config.data.datasets;
-  assert.equal(all.label, "All services");
-  assert.equal(all.borderColor, brand.forest);
-  assert.ok(services.every((dataset) => dataset.borderWidth < all.borderWidth && dataset.order > all.order));
-  assert.equal(config.options.plugins.legend.display, false);
-  assert.equal(config.options.scales.x.ticks.maxRotation, 0);
-  // Every service has its own look (previously most services shared one fallback grey).
-  assert.equal(new Set(services.map((dataset) => `${dataset.hue}${JSON.stringify(dataset.borderDash)}`)).size, services.length);
-  for (const dataset of services) {
-    const look = charts.arrivalServiceStyle(dataset.service);
-    same([dataset.hue, dataset.borderDash], [look.hue, look.dash]);
-  }
-  // A service measured at 0 minutes is real data and keeps its line; one never measured gets none.
-  assert.ok(services.some((dataset) => dataset.service === "dental_healthcare"));
-  assert.ok(!services.some((dataset) => dataset.service === "womens_health"));
-  // Values are the payload's, gaps stay null (never zero), and the axis stays linear from zero.
-  same(all.data, trends.wait.overall);
-  same(services.find((dataset) => dataset.service === "maternal_healthcare").data, [95, null, 110, null]);
-  assert.ok(config.data.datasets.every((dataset) => dataset.spanGaps === false));
-  assert.equal(config.options.scales.y.type, undefined, "default linear scale, no log transform");
-  assert.equal(config.options.scales.y.beginAtZero, true);
-  // A lone value between gaps keeps a visible point; joined values draw as a line only.
-  same(services.find((dataset) => dataset.service === "family_planning").pointRadius, [0, 0, 2.5, 0]);
-  same(services.find((dataset) => dataset.service === "medical_consultation").pointRadius, [2.5, 0, 0, 0]);
-});
-
-test("wait trend tooltip: date, All services first, the longest service waits next, and a summary of the rest", () => {
-  const config = charts.waitTrendChart(manyServiceWaitTrends(), brand);
-  const day = tooltipAt(config, 2);
-  assert.equal(day.title, "Wed, Nov 11, 2026");
-  same(day.lines, ["All services: 26.2 min average (14 patients)", "By service, longest wait first:",
-    "Maternal healthcare: 110 min (1 patient)", "Diagnostic imaging: 25 min (2 patients)", "Medical consultation: 20 min (5 patients)",
-    "Mental healthcare: 15 min (1 patient)", "Nutrition: 9 min (1 patient)", "Family planning: 6 min (2 patients)"]);
-  same(day.footer, ["+ 1 more service with shorter waits", "1 service with no patients called", "Full breakdown in the list below"]);
-  assert.equal(tooltipAt(config, 2, { width: 360 }).lines.length, 2 + 3, "a narrow chart lists fewer services");
-  // A period with no patient called says so instead of showing 0.
-  same(tooltipAt(config, 1).lines, ["All services: no patients called"]);
-  // A 0-minute average is shown as 0 min, not as missing.
-  assert.match(tooltipAt(config, 0).lines.join("\n"), /Dental healthcare: 0 min \(1 patient\)/);
-  // Hidden lines are left out and said so.
-  const maternal = config.data.datasets.findIndex((dataset) => dataset.service === "maternal_healthcare");
-  const hidden = tooltipAt(config, 2, { hidden: [maternal] });
-  assert.doesNotMatch(hidden.lines.join("\n"), /Maternal/);
-  assert.match(hidden.footer.join("\n"), /1 hidden service not listed/);
-});
-
-test("wait breakdown: exact backend averages for the period, the payload's values for one point", () => {
-  const trends = manyServiceWaitTrends();
-  const stats = { by_service: [{ key: "medical_consultation", samples: 12, avg: 17.1 }, { key: "nutrition", samples: 99, avg: 8 }] };
-  const whole = charts.waitBreakdown(trends, stats);
-  assert.equal(whole.title, "Selected period");
-  assert.equal(whole.samples, 30);
-  assert.equal(whole.minutes, null, "no re-averaging of rounded period values");
-  assert.equal(whole.rows.length, 8);
-  assert.equal(whole.rows[0].service, "medical_consultation", "most patients measured first");
-  assert.equal(whole.rows[0].minutes, 17.1);
-  assert.equal(whole.rows.find((row) => row.service === "nutrition").minutes, null, "sample counts differ, so the figure is left out");
-  const point = charts.waitBreakdown(trends, stats, 2);
-  assert.equal(point.title, "Wed, Nov 11, 2026");
-  same([point.minutes, point.samples], [26.2, 14]);
-  same(point.rows.map((row) => row.service), whole.rows.map((row) => row.service), "the order does not jump while hovering");
-  const maternal = point.rows.find((row) => row.service === "maternal_healthcare");
-  same([maternal.minutes, maternal.samples], [110, 1]);
-  assert.equal(point.rows.find((row) => row.service === "dental_healthcare").minutes, null);
-  // With the real builder the per-service figures for the whole period come straight from insights.wait.
-  const payload = build();
-  const real = charts.waitBreakdown(payload.trends, payload.wait);
-  const consultation = payload.wait.by_service.find((row) => row.key === "consultation");
-  assert.equal(real.rows.find((row) => row.service === "consultation").minutes, consultation.avg);
-});
-
-test("the wait trend panel lists every measured service as a toggle, with All services toggleable too", () => {
-  const payload = build();
-  payload.trends = manyServiceWaitTrends();
-  const panel = nodes(render("DetailedInsights", payload), (node) => node.props?.["aria-label"] === "Average wait by service")[0];
-  const content = text(panel);
-  assert.match(content, /All services/);
-  assert.match(content, /30\s+patients\s+called/);
-  const toggles = nodes(panel, (node) => node.type === "button" && "aria-pressed" in node.props);
-  assert.equal(toggles.length, 1 + 8);
-  assert.ok(toggles.every((button) => button.props["aria-pressed"] === true));
-  assert.match(content, /Show all/);
-  assert.match(content, /Hide all services/);
-  assert.match(content, /axis rescales to the lines shown/);
-  assert.doesNotMatch(content, /undefined|NaN|\[object/);
-});
-
 // Shared dispatch: a visit no doctor was recorded on is "Unassigned", as getVisitDoctor does.
 const sharedCtx = () => ctx({ doctorOf: (row) => row.counter_id || "Unassigned" });
 
@@ -468,7 +360,7 @@ test("doctor performance: Unassigned is kept out of the bars and every record is
   for (const outcome of summary.outcomeTotals) {
     assert.equal(outcome.count, summary.doctors.reduce((sum, row) => sum + row[outcome.key], 0));
   }
-  for (const row of payload.volumes) assert.equal(row.completed + row.cancelled + row.no_show + row.in_queue, row.total, row.doctor);
+  for (const row of payload.volumes) assert.equal(row.completed + row.cancelled + row.in_queue, row.total, row.doctor);
   const config = charts.doctorPerformanceChart(payload.volumes);
   same(config.data.labels, summary.doctors.map((row) => row.doctor), "doctor order is the payload's");
   same(datasetValues(config, "Still in the queue"), summary.doctors.map((row) => row.in_queue));
@@ -481,19 +373,20 @@ test("doctor performance: Unassigned is kept out of the bars and every record is
 });
 
 test("doctor performance tooltip: doctor name, every outcome count including zeros, and the total", () => {
-  const volumes = [{ doctor: "Doctor 1", total: 16, completed: 8, cancelled: 6, no_show: 0, in_queue: 2 },
-    { doctor: "Unassigned", total: 40, completed: 0, cancelled: 30, no_show: 4, in_queue: 6 }];
+  const volumes = [{ doctor: "Doctor 1", total: 16, completed: 8, cancelled: 6, in_queue: 2 },
+    { doctor: "Unassigned", total: 40, completed: 0, cancelled: 34, in_queue: 6 }];
   const config = charts.doctorPerformanceChart(volumes);
   const tip = config.options.plugins.tooltip;
   const chart = { data: config.data, isDatasetVisible: () => true };
   const items = config.data.datasets.map((dataset, datasetIndex) => ({ chart, dataset, datasetIndex, dataIndex: 0, raw: dataset.data[0] }));
   assert.equal(tip.callbacks.title(items), "Doctor 1");
-  same(items.map(tip.callbacks.label), ["Completed: 8", "Cancelled: 6", "No-show: 0", "Still in the queue: 2"]);
+  same(items.map(tip.callbacks.label), ["Completed: 8", "Cancelled: 6", "Still in the queue: 2"]);
   same(tip.callbacks.footer(items), ["Total: 16 patients"]);
   const partly = { data: config.data, isDatasetVisible: (index) => index !== 1 };
   same(tip.callbacks.footer([{ chart: partly, dataIndex: 0 }]), ["Total: 16 patients", "1 hidden outcome not listed"]);
   // Outcome colours are all distinct, and the stacked segments are separated by a white gap.
-  assert.equal(new Set(charts.DOCTOR_OUTCOMES.map((outcome) => outcome.color)).size, 4);
+  assert.equal(new Set(charts.DOCTOR_OUTCOMES.map((outcome) => outcome.color)).size, 3);
+  assert.ok(!charts.DOCTOR_OUTCOMES.some((outcome) => outcome.key === "no_show"), "No-show was removed");
   assert.ok(config.data.datasets.every((dataset) => dataset.borderColor === "#ffffff"));
 });
 
@@ -506,7 +399,7 @@ test("the doctor performance panel shows outcome toggles, the Unassigned section
   assert.ok(section);
   assert.match(text(section), /not attributed to an individual doctor/);
   const outcomes = nodes(tree, (node) => node.props?.["aria-label"] === "Outcomes across the doctors")[0];
-  assert.equal(nodes(outcomes, (node) => node.type === "button" && "aria-pressed" in node.props).length, 4);
+  assert.equal(nodes(outcomes, (node) => node.type === "button" && "aria-pressed" in node.props).length, 3);
   assert.match(content, new RegExp(`All records:\\s+24\\s+=\\s+${24 - unassigned.total}\\s+attributed to doctors \\+\\s+${unassigned.total}\\s+unassigned`));
   assert.doesNotMatch(content, /undefined|NaN|\[object/);
   // Without unassigned visits there is no Unassigned section.

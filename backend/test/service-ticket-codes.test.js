@@ -115,7 +115,7 @@ test("the registration response, the stored visit, the queue lists and a reprint
   assert.equal(h.notifications.find((n) => n.type === "created").args[1], "MP-001", "the SMS carries the saved ticket");
 });
 
-test("the ticket survives Call, No-show, Re-queue, Start and Complete unchanged", async () => {
+test("the ticket survives Call, Recall, Accept, Start and Complete unchanged", async () => {
   const h = createHarness();
   const doctor = { id_num: "admin1", role: "admin", doctor_name: "Doctor 1" };
   const superadmin = { id_num: "superadmin", role: "superadmin", doctor_name: null };
@@ -128,10 +128,8 @@ test("the ticket survives Call, No-show, Re-queue, Start and Complete unchanged"
     assert.equal(await ticketOf(), "MT-001", route);
   };
   await step("/queue/call", { counterId: "Doctor 1" }, superadmin);
-  h.advance(11 * 60 * 1000);   // past the no-show wait
-  await step("/queue/no-show", { counter_id: "Doctor 1" }, doctor);
-  await step("/queue/requeue", {}, superadmin);
-  await step("/queue/call", { counterId: "Doctor 1" }, superadmin);
+  h.advance();
+  await step("/queue/recall", { counterId: "Doctor 1" }, superadmin);
   await step("/queue/accept", {}, doctor);
   await step("/queue/start", {}, doctor);
   h.advance();

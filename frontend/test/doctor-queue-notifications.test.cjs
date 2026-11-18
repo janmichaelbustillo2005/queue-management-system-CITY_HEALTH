@@ -34,9 +34,9 @@ before(async () => {
 });
 
 const DAY = "2026-11-14";
-function summary(ids, { doctor = "Doctor 2", ready = 0, notPresent = 0, date = DAY } = {}) {
-  return { doctor, business_date: date, waiting: ids.length, ready, awaiting_confirmation: ids.length - ready - notPresent,
-    not_present: notPresent, visit_ids: ids, observed_at: "2026-11-14T01:00:00.000Z" };
+function summary(ids, { doctor = "Doctor 2", ready = 0, date = DAY } = {}) {
+  return { doctor, business_date: date, waiting: ids.length, ready, awaiting_confirmation: ids.length - ready,
+    visit_ids: ids, observed_at: "2026-11-14T01:00:00.000Z" };
 }
 const read = (raw) => lib.readDoctorQueueSummary(raw);
 function memoryStorage(initial = {}) {

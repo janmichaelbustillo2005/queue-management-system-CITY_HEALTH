@@ -184,7 +184,7 @@ test("Patient Records keeps every column and shows queue status as a labelled in
     { id: 1, patient_name: "Synthetic Patient", queue_number: "FP-001", service_type: "family_planning", doctor: "Doctor 3", doctor_source: "assigned",
       priority_score: 4, status: "serving", created_at: at, called_at: at, consultation_started_at: null, completed_at: null },
     { id: 2, patient_name: "Second Synthetic", queue_number: "GP-002", service_type: "consultation", doctor: "Doctor 1", doctor_source: "service",
-      priority_score: 1, status: "no-show", created_at: at, called_at: null, consultation_started_at: null, completed_at: at }
+      priority_score: 1, status: "cancelled", created_at: at, called_at: null, consultation_started_at: null, completed_at: at }
   ]);
   assert.deepEqual(plain(view.headers.map(text)), [...patientColumns.map(([, label]) => label), "Details"]);
   assert.ok(view.headers.every(header => header.props.scope === "col"));
@@ -194,7 +194,7 @@ test("Patient Records keeps every column and shows queue status as a labelled in
   assert.deepEqual(plain(view.cellsOf(first).slice(0, 6)), ["Synthetic Patient", "FP-001", "Family planning", "Doctor 3", "4", "Being served"]);
   assert.equal(view.cellsOf(second)[3], "Doctor 1 (by service)");
   assert.equal(view.cellsOf(second)[7], "Unavailable", "a missing timestamp says so");
-  assert.deepEqual(indicators(view.tree), [["blue", "Being served"], ["gray", "No-show"]]);
+  assert.deepEqual(indicators(view.tree), [["blue", "Being served"], ["red", "Cancelled"]]);
   const time = nodes(first, node => node.type === "time")[0];
   assert.equal(time.props.dateTime, at);
   const priority = nodes(first, node => node.type === "td")[3];
@@ -202,23 +202,23 @@ test("Patient Records keeps every column and shows queue status as a labelled in
 });
 
 test("each queue status has its own indicator with an icon and words", () => {
-  const statuses = ["waiting", "serving", "completed", "cancelled", "no-show"];
+  const statuses = ["waiting", "serving", "completed", "cancelled"];
   const view = render("Patient Records", [["queue_number", "Ticket"], ["status", "Status"]],
     statuses.map((status, id) => ({ id, queue_number: `Q-${id}`, status })), { action: false });
-  assert.deepEqual(indicators(view.tree), [["amber", "Waiting"], ["blue", "Being served"], ["green", "Completed"], ["red", "Cancelled"], ["gray", "No-show"]]);
+  assert.deepEqual(indicators(view.tree), [["amber", "Waiting"], ["blue", "Being served"], ["green", "Completed"], ["red", "Cancelled"]]);
   assert.ok(nodes(view.tree, hasClass("indicator")).every(node => nodes(node, child => child.type === "i").length === 1));
   const unknown = render("Patient Records", [["queue_number", "Ticket"], ["status", "Status"]], [{ id: 1, queue_number: "Q", status: "archived" }], { action: false });
   assert.equal(unknown.cellsOf(unknown.rows[0])[1], "archived", "an unexpected value is shown as stored");
 });
 
-test("User Accounts and Staff Records keep account status, presence and authentication separate", () => {
+test("Staff Records keeps account status, presence and authentication separate", () => {
   const rows = [
     { id: "superadmin", display_name: "superadmin", role: "superadmin", position: "Super Admin", doctor: null, account_status: "Enabled (existing account)",
       online: true, authenticated: true, last_login: at, last_seen: at, created_at: null, password: "hash", token: "jwt" },
     { id: "frontdesk", display_name: "frontdesk", role: "admin", position: "Frontdesk", doctor: null, account_status: "Enabled (existing account)",
       online: false, authenticated: false, last_login: null, last_seen: null, created_at: null }
   ];
-  for (const label of ["User Accounts", "Staff Records"]) {
+  for (const label of ["Staff Records"]) {
     const view = render(label, identityColumns, rows);
     assert.deepEqual(plain(view.headers.map(text)), [...identityColumns.map(([, heading]) => heading), "Details"]);
     assert.deepEqual(indicators(view.tree), [
@@ -237,7 +237,7 @@ test("User Accounts and Staff Records keep account status, presence and authenti
 });
 
 test("empty tables keep their headers and span the message across every column", () => {
-  const view = render("User Accounts", identityColumns, [], { emptyMessage: "No records match the applied filters." });
+  const view = render("Staff Records", identityColumns, [], { emptyMessage: "No records match the applied filters." });
   assert.equal(view.rows.length, 1);
   const cell = nodes(view.rows[0], node => node.type === "td")[0];
   assert.equal(cell.props.colSpan, identityColumns.length + 1);
@@ -253,11 +253,11 @@ function mountScroll(size) {
   const { TableScroll } = loadTable(runtime.react, { window: { addEventListener() {}, removeEventListener() {} } });
   const render = () => {
     runtime.reset();
-    const tree = TableScroll({ label: "User Accounts", children: "table" });
+    const tree = TableScroll({ label: "Staff Records", children: "table" });
     nodes(tree, node => node.props.ref)[0].props.ref.current = element;
     runtime.flush();
     runtime.reset();
-    return TableScroll({ label: "User Accounts", children: "table" });
+    return TableScroll({ label: "Staff Records", children: "table" });
   };
   return { element, listeners, render };
 }
@@ -267,7 +267,7 @@ test("the sideways-scroll hint and edge fade appear only when columns are actual
   let tree = fits.render(); tree = fits.render();
   assert.equal(nodes(tree, hasClass("scrollHint")).length, 0);
   const region = nodes(tree, node => node.props.role === "region")[0];
-  assert.equal(region.props["aria-label"], "User Accounts");
+  assert.equal(region.props["aria-label"], "Staff Records");
   assert.equal(region.props.tabIndex, undefined, "nothing to scroll, nothing to focus");
 
   const wide = mountScroll({ scrollWidth: 1600, clientWidth: 900, scrollLeft: 0 });

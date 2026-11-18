@@ -2,7 +2,7 @@ import { statusColor } from "./dailyTrendsCharts";
 import { SERVICE_LABELS } from "./services";
 
 // Readable labels and fixed colours for the Analytics page. The backend sends
-// stable keys (e.g. "family_planning", "no-show"); each key always keeps the
+// stable keys (e.g. "family_planning", "cancelled"); each key always keeps the
 // same colour, whatever order or subset of categories a period contains.
 
 export { SERVICE_LABELS };
@@ -11,8 +11,7 @@ export const STATUS_LABELS = {
   waiting: "Waiting",
   serving: "Serving",
   completed: "Completed",
-  cancelled: "Cancelled",
-  "no-show": "No-show"
+  cancelled: "Cancelled"
 };
 
 export const PRIORITY_LABELS = {
@@ -117,6 +116,34 @@ function barChart(chart, labelOf, colorOf, { horizontal = false } = {}) {
   };
 }
 
+// Patient Age Groups: one green shade per age band, youngest lightest; "Not recorded" stays gray.
+// Each bar counts visits (a returning patient counts once per visit), so the axis and the
+// tooltip say visits, and the percentage is of all visits in the chart.
+export const AGE_GROUP_COLORS = { "0–5": "#7cc493", "6–17": "#3f9f5f", "18–35": "#167d3f", "36–59": "#10602f", "60+": "#0b3d2e" };
+
+export function ageGroupColor(key, index = 0) {
+  return colorFor(key, AGE_GROUP_COLORS, index);
+}
+
+function ageGroupTooltip({ raw, dataset }) {
+  const total = dataset.data.reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const share = total ? ((raw * 100) / total).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "0";
+  return `${raw} ${raw === 1 ? "visit" : "visits"} (${share}% of total)`;
+}
+
+function ageGroupChart(chart) {
+  const config = barChart(chart, (value) => value, ageGroupColor);
+  config.options.plugins.tooltip = { callbacks: { label: ageGroupTooltip } };
+  config.options.scales.x.title = { display: true, text: "Age group", font: { size: 10 } };
+  // Every age group keeps its label; on narrow screens the labels tilt rather than being skipped.
+  config.options.scales.x.ticks.autoSkip = false;
+  config.options.scales.x.ticks.maxRotation = 45;
+  config.options.scales.y.title.text = "Visits";
+  config.options.scales.y.grid = { color: "#e5e7eb" };
+  config.data.datasets[0].label = "Visits";
+  return config;
+}
+
 export function buildAnalyticsCharts(charts = {}, brand = {}) {
   const primary = brand.primary || "#167d3f";
   const forest = brand.forest || "#0b3d2e";
@@ -125,7 +152,7 @@ export function buildAnalyticsCharts(charts = {}, brand = {}) {
     serviceTypesChart: shareChart("doughnut", charts.serviceTypes, serviceLabel, serviceColor),
     sexDistributionChart: shareChart("pie", charts.sexDistribution, (value) => value, sexColor),
     priorityChart: barChart(charts.priorityCategories, priorityLabel, priorityColor, { horizontal: true }),
-    ageGroupChart: barChart(charts.ageGroups, (value) => value, (key) => (key === NOT_RECORDED ? NEUTRAL : primary)),
+    ageGroupChart: ageGroupChart(charts.ageGroups),
     residencyChart: barChart(charts.residency, (value) => value, (key) => (key === NOT_RECORDED ? NEUTRAL : forest), { horizontal: true }),
     patientsPerDayChart: {
       type: "line",

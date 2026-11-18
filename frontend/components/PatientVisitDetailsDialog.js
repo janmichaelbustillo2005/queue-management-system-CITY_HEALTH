@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import styles from "./BacklogVisitDialog.module.css";
+import styles from "./VisitDialog.module.css";
 import timelineStyles from "./PatientVisitDetailsDialog.module.css";
 import { request } from "../lib/api";
 import { serviceName } from "../lib/services";
@@ -72,11 +72,6 @@ export default function PatientVisitDetailsDialog({ visitId, onClose }) {
       ["Cancelled At", <Recorded key="ca" value={visit.outcome_at} />],
       ["Cancelled By", visit.outcome_by ? `${visit.outcome_by.doctor_label} · account ${visit.outcome_by.account}` : NOT_RECORDED],
       ["Cancellation Reason", visit.reason || NOT_RECORDED]
-    ] : []),
-    ...(visit.status === "no-show" ? [
-      ["Marked No-show At", <Recorded key="na" value={visit.outcome_at} />],
-      ["Marked No-show By", visit.outcome_by ? `${visit.outcome_by.doctor_label} · account ${visit.outcome_by.account}` : NOT_RECORDED],
-      ["No-show Note", visit.reason || NOT_RECORDED]
     ] : [])
   ] : [];
 

@@ -400,7 +400,8 @@ describe("Phase B.2 Records compatibility (PostgreSQL)", { skip: unavailable }, 
       const filtered = await backend.get(superadmin.token, "patients", { doctor: "doctor 2", status: "serving" });
       assert.deepEqual(filtered.body.rows.map((row) => row.queue_number), ["OB-001"]);
       const noShow = await backend.get(superadmin.token, "patients", { status: "no-show" });
-      assert.deepEqual([noShow.code, noShow.body.total], [200, 0]);
+      assert.equal(noShow.code, 400, "No-show was removed; it is no longer a status filter");
+      assert.match(noShow.body.message, /^Invalid/);
       await backend.presence.revokeAuthSession(superadmin.claims);
       assert.equal((await backend.get(superadmin.token, "patients")).code, 401, "a logged-out Superadmin token is refused");
     });

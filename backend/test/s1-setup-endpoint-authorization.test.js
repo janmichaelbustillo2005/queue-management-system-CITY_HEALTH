@@ -180,8 +180,11 @@ test("R1, R2 and R2.1 protections still hold through the real authentication pat
   const doctor2 = h.signIn("admin2").token;
   const crossCancel = await h.request("POST", "/queue/cancel", { token: doctor2, body: { patient_id: 1, reason: "test" } });
   assert.equal(crossCancel.status, 403, "R2: a doctor cannot cancel another doctor's patient");
-  const crossNoShow = await h.request("POST", "/queue/no-show", { token: doctor2, body: { patient_id: 1 } });
-  assert.equal(crossNoShow.status, 403, "R2.1: a doctor cannot mark another doctor's patient");
+  const crossRecall = await h.request("POST", "/queue/recall", { token: doctor2, body: { patient_id: 1 } });
+  assert.equal(crossRecall.status, 403, "R2.1: a doctor cannot act on another doctor's patient");
+  for (const removed of ["/queue/no-show", "/queue/not-present", "/queue/present"]) {
+    await assert.rejects(h.request("POST", removed, { token: doctor2, body: { patient_id: 1 } }), /Missing route/, `${removed} was removed`);
+  }
   const forgedBody = await h.request("POST", "/queue/cancel", {
     token: doctor2, body: { patient_id: 1, reason: "test", role: "superadmin", id_num: "superadmin", doctor_name: "Doctor 1" }
   });

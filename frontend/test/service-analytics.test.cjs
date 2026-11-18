@@ -69,7 +69,7 @@ const visits = [
   visit("B", "consultation", "cancelled", "2026-10-11T01:05:00.000Z", { completed_at: "2026-10-11T01:30:00.000Z" }),
   visit("C", "consultation", "serving", "2026-10-11T02:00:00.000Z", { counter_id: "Doctor 1", called_at: "2026-10-11T02:41:00.000Z" }),
   visit("D", "consultation", "waiting", "2026-10-11T03:00:00.000Z"),
-  visit("E", "prenatal", "no-show", "2026-10-11T03:30:00.000Z", { counter_id: "Doctor 2", called_at: "2026-10-11T03:50:00.000Z",
+  visit("E", "prenatal", "cancelled", "2026-10-11T03:30:00.000Z", { counter_id: "Doctor 2", called_at: "2026-10-11T03:50:00.000Z",
     completed_at: "2026-10-11T03:55:00.000Z" }),
   visit("F", "prenatal", "completed", "2026-10-11T04:00:00.000Z", { counter_id: "Doctor 2", called_at: "2026-10-11T04:05:00.000Z",
     consultation_started_at: "2026-10-11T04:05:00.000Z", completed_at: "2026-10-11T04:20:00.000Z" }),
@@ -98,15 +98,15 @@ test("one model: every service adds up, the outcomes add up to the backend's tot
   assert.deepEqual(plain(model.rows.map((row) => row.service)), analytics.tableData.map((row) => row.service_type), "backend order (most patients first)");
   for (const row of model.rows) {
     const source = analytics.tableData.find((item) => item.service_type === row.service);
-    assert.equal(row.total, row.completed + row.cancelled + row.no_show + row.in_queue, row.label);
+    assert.equal(row.total, row.completed + row.cancelled + row.in_queue, row.label);
     assert.equal(row.in_queue, source.waiting + source.serving, "In Queue = waiting + serving");
     assert.equal(row.other, 0);
   }
   const outcomes = Object.fromEntries(model.outcomes.map((outcome) => [outcome.key, outcome.count]));
-  assert.deepEqual(plain(outcomes), { completed: 2, cancelled: 1, no_show: 1, in_queue: 4 });
+  assert.deepEqual(plain(outcomes), { completed: 2, cancelled: 2, in_queue: 4 });
   assert.equal(outcomes.completed, analytics.totals.completed);
   assert.equal(outcomes.in_queue, analytics.totals.waiting + analytics.totals.serving);
-  assert.deepEqual(plain(model.outcomes.map((outcome) => outcome.percent)), [25, 12.5, 12.5, 50]);
+  assert.deepEqual(plain(model.outcomes.map((outcome) => outcome.percent)), [25, 25, 50]);
 });
 
 test("average wait reuses the backend's Avg Wait; a service nobody was called in is a gap, not zero", async () => {
@@ -142,7 +142,7 @@ test("stacked bars: one dataset per outcome in the fixed colours, values from th
   const model = modelOf(await analyticsFor());
   const config = lib.outcomeBarChart(model);
   assert.deepEqual(plain(config.data.datasets.map((dataset) => [dataset.label, dataset.backgroundColor])),
-    [["Completed", "#15803D"], ["Cancelled", "#F87171"], ["No-show", "#5570B0"], ["In Queue", "#E9A20F"]]);
+    [["Completed", "#15803D"], ["Cancelled", "#F87171"], ["In Queue", "#E9A20F"]]);
   config.data.datasets.forEach((dataset) => assert.deepEqual(plain(dataset.data), model.rows.map((row) => row[dataset.outcome])));
   assert.equal(config.options.scales.y.beginAtZero, true);
   assert.equal(config.options.scales.y.ticks.precision, 0, "integer patient counts");
@@ -157,17 +157,17 @@ test("stacked bars: one dataset per outcome in the fixed colours, values from th
 });
 
 test("donut: zero outcomes are left out of the ring but kept in the legend; percentages use the real total", async () => {
-  const analytics = await analyticsFor(visits.filter((row) => row.status !== "no-show"));
+  const analytics = await analyticsFor(visits.filter((row) => row.status !== "cancelled"));
   const model = modelOf(analytics);
   const config = lib.outcomeDonutChart(model);
-  assert.deepEqual(plain(config.data.labels), ["Completed", "Cancelled", "In Queue"]);
-  assert.deepEqual(plain(config.data.datasets[0].data), [2, 1, 4]);
-  assert.equal(config.options.plugins.tooltip.callbacks.label({ dataIndex: 2 }), "In Queue: 4 patients (57.1%)");
+  assert.deepEqual(plain(config.data.labels), ["Completed", "In Queue"]);
+  assert.deepEqual(plain(config.data.datasets[0].data), [2, 4]);
+  assert.equal(config.options.plugins.tooltip.callbacks.label({ dataIndex: 1 }), "In Queue: 4 patients (66.7%)");
   const tree = render({ tableData: analytics.tableData, totals: analytics.totals, wait: analytics.insights.wait });
   const legend = nodes(tree, (node) => node.type === "table" && node.props.className === "svc-legend-table")[0];
   const rows = nodes(legend, (node) => node.type === "tr").map(cells);
-  assert.deepEqual(rows, [["Outcome", "Patients", "Percentage"], ["Completed", "2", "28.6%"], ["Cancelled", "1", "14.3%"],
-    ["No-show", "0", "0.0%"], ["In Queue", "4", "57.1%"], ["Total", "7", "100.0%"]]);
+  assert.deepEqual(rows, [["Outcome", "Patients", "Percentage"], ["Completed", "2", "33.3%"], ["Cancelled", "0", "0.0%"],
+    ["In Queue", "4", "66.7%"], ["Total", "6", "100.0%"]]);
 });
 
 test("the four cards render in order, and the summary table matches the charts and the backend totals", async () => {
@@ -177,19 +177,19 @@ test("the four cards render in order, and the summary table matches the charts a
     ["Patients by Service and Outcome", "Overall Outcome Distribution", "Average Wait Time by Service", "By Service (Summary)"]);
   const table = nodes(tree, (node) => node.type === "table" && node.props.className === "svc-table")[0];
   const rows = nodes(table, (node) => node.type === "tr").map(cells);
-  assert.deepEqual(rows[0], ["Service", "Total", "Completed", "Cancelled", "No-show", "In Queue", "Avg Wait", "Avg Service", "Completion"]);
+  assert.deepEqual(rows[0], ["Service", "Total", "Completed", "Cancelled", "In Queue", "Avg Wait", "Avg Service", "Completion"]);
   const source = analytics.tableData;
   source.forEach((item, index) => {
     const row = rows[index + 1];
     assert.equal(row[1], String(item.total_patients));
-    assert.equal(row[5], String(item.waiting + item.serving));
-    assert.equal(row[7], `${item.avg_service_time}m`);
-    assert.equal(row[8], `${item.completion_rate}%`);
+    assert.equal(row[4], String(item.waiting + item.serving));
+    assert.equal(row[6], `${item.avg_service_time}m`);
+    assert.equal(row[7], `${item.completion_rate}%`);
   });
   const family = rows.find((row) => row[0] === "Family planning");
-  assert.equal(family[6], "—", "no measured wait is not shown as 0.0m");
+  assert.equal(family[5], "—", "no measured wait is not shown as 0.0m");
   const footer = rows[rows.length - 1];
-  assert.deepEqual(footer, ["All", "8", "2", "1", "1", "4", `${analytics.totals.avg_wait_time}m`, `${analytics.totals.avg_service_time}m`, `${analytics.totals.completion_rate}%`]);
+  assert.deepEqual(footer, ["All", "8", "2", "2", "4", `${analytics.totals.avg_wait_time}m`, `${analytics.totals.avg_service_time}m`, `${analytics.totals.completion_rate}%`]);
 });
 
 test("empty, loading and error states never draw a chart or invent numbers", async () => {
@@ -199,7 +199,7 @@ test("empty, loading and error states never draw a chart or invent numbers", asy
   assert.equal(lib.waitLineChart(lib.serviceAnalytics([], null)), null);
   assert.equal(nodes(empty, (node) => node.type === "canvas").length, 0);
   assert.match(text(empty), /No visits match the selected filters\./);
-  assert.deepEqual(plain(lib.serviceAnalytics([], null).outcomes.map((outcome) => outcome.percent)), [null, null, null, null], "no 0% of nothing");
+  assert.deepEqual(plain(lib.serviceAnalytics([], null).outcomes.map((outcome) => outcome.percent)), [null, null, null], "no 0% of nothing");
 
   const loading = render({ tableData: [], status: "loading" });
   assert.equal(nodes(loading, (node) => node.type === "table").length, 0);
@@ -225,12 +225,12 @@ test("filters reach every card together: a service filter narrows the bars, donu
 });
 
 test("a visit with an unknown status still counts: it shows as Other status instead of breaking the totals", () => {
-  const row = { service_type: "consultation", total_patients: 3, completed: 1, cancelled: 0, no_show: 0, waiting: 1, serving: 0,
+  const row = { service_type: "consultation", total_patients: 3, completed: 1, cancelled: 0, waiting: 1, serving: 0,
     avg_wait_time: "5.0", avg_service_time: "4.0", completion_rate: "33.3" };
   const model = lib.serviceAnalytics([row], row);
   assert.equal(model.rows[0].other, 1);
   assert.deepEqual(plain(model.outcomes.map((outcome) => [outcome.key, outcome.count])),
-    [["completed", 1], ["cancelled", 0], ["no_show", 0], ["in_queue", 1], ["other", 1]]);
-  assert.equal(lib.outcomeBarChart(model).data.datasets.length, 5);
+    [["completed", 1], ["cancelled", 0], ["in_queue", 1], ["other", 1]]);
+  assert.equal(lib.outcomeBarChart(model).data.datasets.length, 4);
   assert.match(text(render({ tableData: [row], totals: row })), /1 visit has a status outside these columns; it is counted in Total\./);
 });

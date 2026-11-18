@@ -177,7 +177,7 @@ const row = (id, overrides = {}) => ({
 });
 const response = (overrides = {}) => ({
   success: true, doctor: "Doctor 1", doctor_display_name: null, attribution_available: true,
-  summary: { total_handled: 18, completed: 15, cancelled: 2, no_show: 1 },
+  summary: { total_handled: 18, completed: 16, cancelled: 2 },
   total: 18, page: 1, page_count: 2, limit: 10, rows: Array.from({ length: 10 }, (_, i) => row(i + 1)), ...overrides
 });
 // The stub answers from the requested path, like the server: its page and filters.
@@ -227,7 +227,7 @@ test("pagination shows at most three numbered pages and the filtered range", () 
 
 test("labels: statuses, priority categories, date range and missing times", () => {
   const lib = createRenderer().load("lib");
-  assert.deepEqual(plain(lib.HISTORY_STATUS_OPTIONS.map((option) => option.label)), ["All Statuses", "Completed", "Cancelled by Doctor", "No-show"]);
+  assert.deepEqual(plain(lib.HISTORY_STATUS_OPTIONS.map((option) => option.label)), ["All Statuses", "Completed", "Cancelled by Doctor"]);
   assert.equal(lib.priorityLabel([]), "Regular");
   assert.equal(lib.priorityLabel(["senior", "pwd"]), "Senior Citizen, PWD");
   assert.equal(lib.dateRangeError({ from: "2026-11-14", to: "2026-11-01" }), "From Date must not be later than To Date.");
@@ -247,7 +247,7 @@ test("a doctor sees the header, four summary cards and its own history table", a
   assert.doesNotMatch(content, /View your completed consultations/, "no in-page heading or subtitle");
   assert.equal(nodes(tree, (node) => node.type === "h2").length, 0);
   assert.deepEqual(plain(byData(tree, "data-history-card").map((card) => flat(card))),
-    ["18Total Handled", "15Completed", "2Cancelled", "1No-show"]);
+    ["18Total Handled", "16Completed", "2Cancelled"]);
   const headers = nodes(tree, (node) => node.type === "th" && node.props.scope === "col").map(text);
   assert.deepEqual(plain(headers), ["Queue Number", "Patient Name", "Service", "Priority", "Date", "Called At", "Completed At", "Status", "Actions"]);
   const rows = byData(tree, "data-history-row");
@@ -309,10 +309,10 @@ test("no matches, no history, and an invalid date range each say so", async () =
   const tree = await search.runTimers();
   assert.match(flat(byData(tree, "data-history-empty")[0]), /No matching patient history found\./);
 
-  const empty = await mountPage({ respond: () => response({ summary: { total_handled: 0, completed: 0, cancelled: 0, no_show: 0 }, total: 0, page_count: 1, rows: [] }) });
+  const empty = await mountPage({ respond: () => response({ summary: { total_handled: 0, completed: 0, cancelled: 0 }, total: 0, page_count: 1, rows: [] }) });
   assert.match(flat(byData(empty.tree, "data-history-empty")[0]), /No patient history available yet\./);
   assert.deepEqual(plain(byData(empty.tree, "data-history-card").map((card) => flat(card))),
-    ["0Total Handled", "0Completed", "0Cancelled", "0No-show"]);
+    ["0Total Handled", "0Completed", "0Cancelled"]);
 
   const range = await mountPage();
   selectAfterLabel(range.tree, "From Date").props.onChange({ target: { value: "2026-11-14" } });

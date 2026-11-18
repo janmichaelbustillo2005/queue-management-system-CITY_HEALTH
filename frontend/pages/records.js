@@ -19,10 +19,16 @@ function describeRecordsError(message) {
 const patientColumns = [['patient_name','Patient'],['queue_number','Ticket'],['service_type','Service'],['doctor','Assigned doctor'],['priority_score','Priority score'],['status','Status'],['created_at','Registered'],['called_at','Called'],['consultation_started_at','Consultation started'],['completed_at','Completed / cancelled']];
 const identityColumns = [['id','Account / staff ID'],['display_name','Display name'],['role','Stored role'],['position','Position'],['doctor','Assigned doctor / counter'],['account_status','Account status'],['online','Presence'],['authenticated','Authentication'],['last_login','Last login'],['last_seen','Last seen'],['created_at','Account created']];
 const activityColumns = [['account','Account'],['event','Activity'],['occurred_at','Time']];
+const CATEGORIES = [['patients','Patient Records'],['staff','Staff Records']];
+// The former User Accounts category duplicated Staff Records (same rows, filters and Activity
+// action); an old /records?category=accounts link opens Staff Records instead.
+const LEGACY_CATEGORIES = { accounts:'staff' };
 export default function RecordsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const category = ['patients','staff','accounts'].includes(router.query.category) ? router.query.category : 'patients';
+  const requested = router.query.category;
+  const legacyTarget = typeof requested==='string' ? LEGACY_CATEGORIES[requested] : undefined;
+  const category = CATEGORIES.some(([key])=>key===requested) ? requested : legacyTarget || 'patients';
   // Draft (controls), applied filters and page all belong to one category, so a
   // category switch starts clean without sending the previous category's filters.
   const [draftState,setDraftState] = useState({ category:null, values:{} });
@@ -37,6 +43,7 @@ export default function RecordsPage() {
   const [detail,setDetail] = useState(null);
   const [refresh,setRefresh] = useState(0);
   useEffect(() => { if (!loading && user?.role!=='superadmin') router.replace('/login'); },[loading,user,router]);
+  useEffect(() => { if (!loading && user?.role==='superadmin' && legacyTarget) router.replace(`/records?category=${legacyTarget}`); },[loading,user,router,legacyTarget]);
   useEffect(() => { setDetail(null); },[category]);
   useEffect(() => {
     if (user?.role!=='superadmin') return;
@@ -77,7 +84,7 @@ export default function RecordsPage() {
   const goToPage = page => setView({ ...current, page });
   const filtered = Object.keys(current.applied).length>0;
   const columns=category==='patients' ? patientColumns : identityColumns;
-  const categoryLabel={ patients:'Patient Records', staff:'Staff Records', accounts:'User Accounts' }[category];
+  const categoryLabel=CATEGORIES.find(([key])=>key===category)[1];
   const rowAction=category==='patients'
     ? { heading:'Details', label:'Retrieve ticket', icon:'fas fa-ticket-alt', onClick:row=>inspect(row) }
     : { heading:'Details', label:'Activity', icon:'fas fa-history', onClick:row=>inspect(row) };
@@ -85,8 +92,8 @@ export default function RecordsPage() {
   if (loading || user?.role!=='superadmin') return <div role="status">Loading authorized records…</div>;
   return <SiteFrame>
     <div className="w-full min-w-0 max-w-7xl mx-auto px-3 space-y-4">
-      <nav aria-label="Records categories" className="flex flex-wrap gap-2">{[['patients','Patient Records'],['staff','Staff Records'],['accounts','User Accounts']].map(([key,label])=><button key={key} aria-current={category===key?'page':undefined} className={`px-4 py-2 rounded ${category===key?'brand-button':'bg-white border brand-border'}`} onClick={()=>router.push(`/records?category=${key}`)}>{label}</button>)}</nav>
-      <p className="text-sm brand-text-muted">{category==='patients' ? 'Each row is a stored visit and its ticket history. The current schema has no separate patient profile; this read-only view creates no duplicate identities or visits.' : 'Staff and user accounts share the existing account identity. Presence expires after 75 seconds; account status, authentication and counter availability are separate. Account disabling and account creation dates are not stored in the current schema.'}</p>
+      <nav aria-label="Records categories" className="flex flex-wrap gap-2">{CATEGORIES.map(([key,label])=><button key={key} aria-current={category===key?'page':undefined} className={`px-4 py-2 rounded ${category===key?'brand-button':'bg-white border brand-border'}`} onClick={()=>router.push(`/records?category=${key}`)}>{label}</button>)}</nav>
+      <p className="text-sm brand-text-muted">{category==='patients' ? 'Each row is a stored visit and its ticket history. The current schema has no separate patient profile; this read-only view creates no duplicate identities or visits.' : 'Each staff record is the staff member\'s existing user account. Presence expires after 75 seconds; account status, authentication and counter availability are separate. Account disabling and account creation dates are not stored in the current schema.'}</p>
       <RecordsFilters key={category} category={category} draft={draft} applied={current.applied}
         onChange={changeDraft} onApply={applyFilters} onReset={resetFilters} onRemove={removeFilter}/>
       <div className="bg-white rounded shadow p-3" aria-busy={busy}>

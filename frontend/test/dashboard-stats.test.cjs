@@ -33,12 +33,13 @@ const observedAt = "2026-10-15T02:00:00.000Z";
 const counter = (number, state = {}) => ({ id: number, id_num: `Doctor ${number}`,
   is_online: true, current_patient_id: null, ...state });
 const presence = (number, online = true) => ({ doctor_name: `Doctor ${number}`, online, last_seen_at: observedAt });
-const summary = (today = {}, yesterday = {}) => ({
+const summary = (today = {}, yesterday = {}, awaiting = 4) => ({
   observed_at: observedAt, time_zone: "Asia/Manila", today_date: "2026-10-15", yesterday_date: "2026-10-14",
   today: { total_tokens: 1234, served_tokens: 90, average_wait_minutes: 12.5, wait_samples: 100, walk_ins: 10, ...today },
-  yesterday: { total_tokens: 1000, served_tokens: 100, average_wait_minutes: 10, wait_samples: 110, walk_ins: 5, ...yesterday }
+  yesterday: { total_tokens: 1000, served_tokens: 100, average_wait_minutes: 10, wait_samples: 110, walk_ins: 5, ...yesterday },
+  awaiting_confirmation: awaiting
 });
-const titles = ["Total Tokens Today", "Served Tokens", "Average Waiting Time", "Active Counters", "No. of Walk-ins"];
+const titles = ["Total Queue Tickets Today", "Completed Visits Today", "Average Patient Wait Time", "Active Doctor Counters", "Waiting Patients"];
 
 async function harness(options = {}) {
   const hooks = [], dependencies = [], effects = [], cleanups = [], calls = [], intervals = new Map();
@@ -160,8 +161,8 @@ test("dashboard uses real metric values, signed comparisons, and a minutes unit"
   assert.match(cardByTitle(cards, titles[1]).comparison, /-10\.0%.*yesterday/i);
   assert.equal(cardByTitle(cards, titles[2]).value, "12.5 min");
   assert.match(cardByTitle(cards, titles[2]).comparison, /\+25\.0%.*yesterday/i);
-  assert.equal(cardByTitle(cards, titles[4]).value, "10");
-  assert.match(cardByTitle(cards, titles[4]).comparison, /\+100\.0%/);
+  assert.equal(cardByTitle(cards, titles[4]).value, "4");
+  assert.equal(cardByTitle(cards, titles[4]).comparison, "Awaiting Front Desk confirmation");
   h.dispose();
 });
 
@@ -174,7 +175,7 @@ test("zero baselines and absent waiting samples never invent an increase or a me
   const cards = buildDashboardCards(summary({ average_wait_minutes: null, wait_samples: 0 },
     { average_wait_minutes: null, wait_samples: 0 }), [], null, 1000);
   assert.equal(cardByTitle(cards, titles[2]).value, "—");
-  assert.match(cardByTitle(cards, titles[2]).comparison, /No calls yet/i);
+  assert.equal(cardByTitle(cards, titles[2]).comparison, "No patients called yet");
   const firstWait = buildDashboardCards(summary({}, { average_wait_minutes: null, wait_samples: 0 }), [], null, 1000);
   assert.match(cardByTitle(firstWait, titles[2]).comparison, /No prior baseline/i);
   for (const card of buildDashboardCards(null, null, null, 1000)) {
@@ -228,7 +229,7 @@ test("dashboard metrics refresh independently of the existing queue auto-refresh
   const h = await harness();
   assert.match(text(h.card(titles[0])), /1,234/);
   const queueReads = h.calls.filter(call => call.route === "/queue").length;
-  h.backend.summary = summary({ total_tokens: 1235, served_tokens: 91, average_wait_minutes: 14.2, walk_ins: 11 });
+  h.backend.summary = summary({ total_tokens: 1235, served_tokens: 91, average_wait_minutes: 14.2, walk_ins: 11 }, {}, 11);
   h.backend.counters[0].is_online = false;
   await h.poll();
   assert.match(text(h.card(titles[0])), /1,235/);
@@ -258,5 +259,50 @@ test("failed and malformed dashboard reads clear old metrics and recover on a fr
   h.backend.summary = summary({ total_tokens: 2000 });
   await h.poll();
   assert.match(text(h.card(titles[0])), /2,000/);
+  h.dispose();
+});
+
+test("Waiting Patients shows the pending Front Desk confirmation count without a day-over-day comparison", async () => {
+  const h = await harness();
+  const card = (data) => cardByTitle(h.helpers.buildDashboardCards(data, h.backend.counters, h.snapshot(), 1000), titles[4]);
+  const waiting = card(summary());
+  assert.equal(waiting.key, "awaiting");
+  assert.equal(waiting.tone, "teal", "keeps the light cyan card");
+  assert.match(waiting.icon, /fa-user-clock/);
+  assert.equal(waiting.value, "4");
+  assert.equal(waiting.comparison, "Awaiting Front Desk confirmation");
+  assert.match(waiting.description, /^Registered patients awaiting confirmation by the Front Desk\./);
+  assert.match(waiting.description, /visits/);
+  assert.doesNotMatch(waiting.comparison + waiting.description, /yesterday|Superadmin|Add Patient/i);
+  assert.equal(card(summary({}, {}, 0)).value, "0", "zero is a real count");
+  assert.equal(card(summary({}, {}, 1234)).value, "1,234");
+  assert.equal(card(summary({ walk_ins: 99 }, { walk_ins: 1 }, 2)).value, "2", "walk_ins no longer drives card 5");
+  assert.equal(card(summary({}, {}, null)).value, "—", "unavailable confirmation data is not shown as zero");
+  assert.equal(card(null).value, "—");
+  h.dispose();
+});
+
+test("Waiting Patients rises on registration and falls on confirmation across refreshes", async () => {
+  const h = await harness({ backend: { summary: summary({}, {}, 0) } });
+  assert.equal(text(h.card(titles[4])), "Waiting Patients0Awaiting Front Desk confirmation");
+  h.backend.summary = summary({}, {}, 1);
+  await h.poll();
+  assert.equal(text(h.card(titles[4])), "Waiting Patients1Awaiting Front Desk confirmation");
+  h.backend.summary = summary({}, {}, 0);
+  await h.poll();
+  assert.equal(text(h.card(titles[4])), "Waiting Patients0Awaiting Front Desk confirmation");
+  assert.ok(h.calls.every(call => call.method === "GET"), "monitoring must not mutate queue records");
+  h.dispose();
+});
+
+test("a malformed Waiting Patients count is rejected; an absent one leaves the other cards working", async () => {
+  for (const bad of [-1, 1.5, "3", Number.NaN]) {
+    const h = await harness({ request: backend => ({ success: true, data: { ...clone(backend.summary), awaiting_confirmation: bad } }) });
+    assert.match(text(h.card(titles[0])), /—/, "awaiting_confirmation " + String(bad) + " is refused");
+    h.dispose();
+  }
+  const h = await harness({ request: backend => { const data = clone(backend.summary); delete data.awaiting_confirmation; return { success: true, data }; } });
+  assert.match(text(h.card(titles[0])), /1,234/);
+  assert.match(text(h.card(titles[4])), /—/);
   h.dispose();
 });

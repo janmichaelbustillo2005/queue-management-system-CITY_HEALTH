@@ -20,13 +20,11 @@ export const NOT_RECORDED = "Not recorded";
 export const HISTORY_STATUS_OPTIONS = [
   { value: "", label: "All Statuses" },
   { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled by Doctor" },
-  { value: "no-show", label: "No-show" }
+  { value: "cancelled", label: "Cancelled by Doctor" }
 ];
 export const HISTORY_STATUS = {
   completed: { label: "Completed", icon: "fas fa-check-circle", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  cancelled: { label: "Cancelled by Doctor", icon: "fas fa-times-circle", className: "bg-red-50 text-red-700 border-red-200" },
-  "no-show": { label: "No-show", icon: "fas fa-user-slash", className: "bg-amber-50 text-amber-800 border-amber-200" }
+  cancelled: { label: "Cancelled by Doctor", icon: "fas fa-times-circle", className: "bg-red-50 text-red-700 border-red-200" }
 };
 
 export const PRIORITY_CATEGORY_LABELS = {

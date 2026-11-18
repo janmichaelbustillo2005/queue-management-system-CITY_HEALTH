@@ -49,7 +49,7 @@ export function isDailyTrendsData(data, filters) {
 
 export function statusColor(status, index = 0) {
   const known = { waiting: COLORS.orange, serving: COLORS.blue, completed: COLORS.green,
-    cancelled: COLORS.red, "no-show": "#e11d48" };
+    cancelled: COLORS.red };
   return known[status] || [COLORS.purple, "#06b6d4", "#64748b", "#d946ef"][index % 4];
 }
 
@@ -89,15 +89,95 @@ function baseOptions(unit = "patients") {
   };
 }
 
+// The clinic normally operates 8:00 AM – 5:00 PM (Asia/Manila).
+export const CLINIC_START_HOUR = 8;
+export const CLINIC_END_HOUR = 17;
+
+const manilaHour = (iso) => {
+  const time = Date.parse(iso);
+  return Number.isFinite(time) ? new Date(time + 8 * 3600000).getUTCHours() : null;
+};
+
+// An hour has activity when any measured series is non-zero, or when its waiting
+// snapshot could not be reconstructed (unknown is not the same as zero).
+function hasHourActivity(row) {
+  const positive = (value) => finiteMetric(value) !== null && value > 0;
+  return ["arrivals", "served", "waiting", "cancelled", "wait_samples", "service_samples"].some((field) => positive(row[field])) ||
+    (finiteMetric(row.arrivals) !== null && row.waiting === null);
+}
+
+// Full-day view shows clinic hours, widened to cover every hour with recorded
+// activity, so nothing legitimate is hidden. Only hours with no activity at all
+// outside 8:00–17:00 are left out. Custom shifts are always shown in full.
+export function visibleHours(data, mode = "clinic") {
+  const rows = data?.hourly || [];
+  if (mode !== "clinic" || data?.range?.view !== "day") return { rows, trimmed: false };
+  const hours = rows.map((row) => manilaHour(row.start_at));
+  if (hours.some((hour) => hour === null)) return { rows, trimmed: false };
+  let first = CLINIC_START_HOUR, last = CLINIC_END_HOUR - 1;
+  rows.forEach((row, index) => {
+    if (!hasHourActivity(row)) return;
+    first = Math.min(first, hours[index]);
+    last = Math.max(last, hours[index]);
+  });
+  const shown = rows.filter((_row, index) => hours[index] >= first && hours[index] <= last);
+  return { rows: shown, trimmed: shown.length < rows.length, first, last: last + 1 };
+}
+
+const hourLabel = (hour) => `${String(hour).padStart(2, "0")}:00`;
+export function windowLabel(window) {
+  return window?.trimmed ? `${hourLabel(window.first)}–${hourLabel(window.last)}` : "";
+}
+
+// Totals for the whole selected range, from the same hourly rows as the charts.
+// Averages are weighted by valid samples; no samples means unavailable, not zero.
+export function summarizeTrends(data) {
+  const rows = (data?.hourly || []).filter((row) => finiteMetric(row.arrivals) !== null);
+  if (!rows.length) return null;
+  const sum = (field) => rows.reduce((total, row) => total + (finiteMetric(row[field]) ?? 0), 0);
+  const weighted = (avgField, sampleField) => {
+    let minutes = 0, samples = 0;
+    for (const row of rows) {
+      const average = finiteMetric(row[avgField]), count = finiteMetric(row[sampleField]);
+      if (average === null || !count) continue;
+      minutes += average * count;
+      samples += count;
+    }
+    return { value: samples ? minutes / samples : null, samples };
+  };
+  return {
+    arrivals: sum("arrivals"), served: sum("served"), cancelled: sum("cancelled"),
+    wait: weighted("avg_wait_minutes", "wait_samples"), service: weighted("avg_service_minutes", "service_samples")
+  };
+}
+
+// Busiest hours first; tied hours share a rank (1, 1, 3) and keep clock order.
+export function rankPeakHours(rows, limit = 5) {
+  const peaks = (rows || []).filter((row) => finiteMetric(row.arrivals) !== null && row.arrivals > 0)
+    .slice().sort((a, b) => b.arrivals - a.arrivals || String(a.start_at || a.label).localeCompare(String(b.start_at || b.label)));
+  let rank = 0;
+  const ranked = peaks.map((row, index) => {
+    if (index === 0 || row.arrivals !== peaks[index - 1].arrivals) rank = index + 1;
+    return { ...row, rank };
+  });
+  return { rows: ranked.slice(0, limit), total: ranked.length, largest: ranked[0]?.arrivals ?? 0 };
+}
+
+// Missing values: a future hour has not happened yet; a past one could not be measured.
+function missingReason(row) {
+  if (!row) return "No data available";
+  return finiteMetric(row.arrivals) === null ? "No data available (hour not reached yet)" : "No data available (cannot be reconstructed)";
+}
+
 export function buildActivityChart(data) {
   const rows = data?.hourly || [];
   const bars = (label, field, color) => ({
     type: "bar", label, data: rows.map((row) => finiteMetric(row[field])),
-    backgroundColor: color, borderRadius: 3, maxBarThickness: 20, order: 2
+    backgroundColor: color, borderRadius: 3, maxBarThickness: 18, categoryPercentage: 0.72, barPercentage: 0.9, order: 2
   });
   const options = baseOptions();
   options.plugins.tooltip.callbacks = {
-    label: ({ dataset, raw }) => `${dataset.label}: ${finiteMetric(raw) === null ? "No data available" : raw}`
+    label: ({ dataset, raw, dataIndex }) => `${dataset.label}: ${finiteMetric(raw) === null ? missingReason(rows[dataIndex]) : raw}`
   };
   return {
     type: "bar",
@@ -109,9 +189,9 @@ export function buildActivityChart(data) {
         {
           type: "line", label: "Waiting patients", data: rows.map((row) => finiteMetric(row.waiting)),
           borderColor: COLORS.orange, backgroundColor: COLORS.orange,
-          borderWidth: 2.5, tension: 0.25, pointRadius: 2, pointHoverRadius: 5, spanGaps: false, order: 1
+          borderWidth: 2, tension: 0.25, pointRadius: 3, pointHoverRadius: 5, spanGaps: false, order: 1
         },
-        bars("Cancelled / no-show", "cancelled_no_show", COLORS.red)
+        bars("Cancelled", "cancelled", COLORS.red)
       ]
     },
     options
@@ -128,7 +208,10 @@ export function buildDurationChart(data, metric = "wait") {
   options.plugins.tooltip.callbacks = {
     label: ({ raw, dataIndex }) => {
       const value = finiteMetric(raw);
-      if (value === null) return "No data available";
+      if (value === null) {
+        const row = rows[dataIndex];
+        return row && finiteMetric(row.arrivals) === null ? missingReason(row) : `No data available${row ? " (no valid visits this hour)" : ""}`;
+      }
       const count = finiteMetric(rows[dataIndex]?.[samples]);
       return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} min${count === null ? "" : ` · ${count} valid ${count === 1 ? "visit" : "visits"}`}`;
     }
@@ -141,8 +224,9 @@ export function buildDurationChart(data, metric = "wait") {
         label: waiting ? "Average waiting time" : "Average service time",
         data: rows.map((row) => finiteMetric(row[field])),
         borderColor: color, backgroundColor: waiting ? "rgba(139, 92, 246, 0.11)" : "rgba(16, 185, 129, 0.11)",
-        fill: true, borderWidth: 2.5, tension: 0.3,
-        pointRadius: 2.5, pointHoverRadius: 5, spanGaps: false
+        // Points stay visible so an hour with a lone value is never lost between gaps.
+        fill: true, borderWidth: 2, tension: 0.3,
+        pointRadius: 3.5, pointHoverRadius: 6, spanGaps: false
       }]
     },
     options

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { serviceColor, serviceLabel, statusLabel } from "../lib/analyticsCharts";
 import {
-  DOCTOR_OUTCOMES, HEAT_COLORS, WAIT_ALL, arrivalBreakdown, arrivalTrendChart, demandChart, doctorPerformance, doctorPerformanceChart,
-  heatColor, waitBreakdown, waitTrendChart, weeklyHeatmap
+  DOCTOR_OUTCOMES, HEAT_COLORS, arrivalBreakdown, arrivalTrendChart, demandChart, doctorPerformance, doctorPerformanceChart,
+  heatColor, weeklyHeatmap
 } from "../lib/insightsCharts";
 
 // The additional charts of the Detailed Data tab in Analytics. Every figure comes from the backend's
@@ -123,108 +123,7 @@ const TREND_NOTE = {
   month: "One point per month because the selected period is longer than a year."
 };
 
-const minutes = (value) => (value == null ? dash : `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} min`);
 const patients = (count) => `${count} patient${count === 1 ? "" : "s"}`;
-const TOGGLE_BUTTON = "px-2 py-1 rounded-md border brand-border brand-text hover:bg-gray-50 disabled:opacity-40 disabled:cursor-default";
-
-// Average Wait Time Trend: the chart, then the services as a responsive, toggleable grid instead
-// of the canvas legend. The grid shows each service's average for the selected period, or for the
-// hovered point. Hiding lines (All services included) rescales the minutes axis to what is shown.
-function WaitTrendPanel({ trends, waitStats }) {
-  const [chart, setChart] = useState(null);
-  const [period, setPeriod] = useState(null);
-  const [hidden, setHidden] = useState(NO_SERVICES_HIDDEN);
-  const [focus, setFocus] = useState(null);
-  const breakdown = useMemo(() => waitBreakdown(trends, waitStats, period), [trends, waitStats, period]);
-
-  useEffect(() => { setPeriod(null); }, [trends]);
-
-  useEffect(() => {
-    if (!chart?.canvas) return;
-    chart.data.datasets.forEach((dataset, index) => {
-      chart.setDatasetVisibility(index, !hidden.includes(dataset.key));
-      if (!dataset.service) return;
-      const lit = !focus || dataset.service === focus;
-      dataset.borderColor = lit ? dataset.hue : `${dataset.hue}2e`;
-      dataset.borderWidth = dataset.service === focus ? 3 : SERVICE_LINE_WIDTH;
-    });
-    chart.update("none");
-  }, [chart, hidden, focus]);
-
-  const toggle = (key) => setHidden((list) => (list.includes(key) ? list.filter((item) => item !== key) : [...list, key]));
-  const services = breakdown.rows.map((row) => row.service);
-  const allOff = hidden.includes(WAIT_ALL);
-  const word = PERIOD_WORD[trends?.grouping] || "day";
-  const forest = readBrand().forest;
-
-  return (
-    <Card title="Average Wait Time Trend" icon="fas fa-chart-line"
-      note={`Average minutes from registration until the call (the Avg Wait card's rule). All services is the average over every patient called, not an average of the service averages. ${TREND_NOTE[trends?.grouping] || ""} Gaps are periods with no patient called.`}>
-      <div onMouseLeave={() => setPeriod(null)}>
-        <InsightChart title="Average Wait Time Trend" data={trends} build={waitTrendChart} height="" style={{ height: "clamp(260px, 42vw, 340px)" }}
-          onChart={setChart} onHoverIndex={setPeriod} />
-      </div>
-      {breakdown.samples > 0 || breakdown.period != null ? (
-        <div className="mt-3 border-t brand-border pt-3" aria-label="Average wait by service">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-2.5">
-            <button type="button" aria-pressed={!allOff} title={`${allOff ? "Show" : "Hide"} the All services line`}
-              className={`flex items-center gap-2 min-w-0 text-left rounded-md px-1 -mx-1 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-700 ${allOff ? "opacity-60" : ""}`}
-              onClick={() => toggle(WAIT_ALL)}>
-              <LineSwatch hue={forest} width={3.5} />
-              <span className="text-sm brand-text leading-tight">
-                <span className={`font-bold ${allOff ? "line-through" : ""}`}>All services</span>
-                <span className="brand-text-muted"> · {breakdown.title}</span>
-                {breakdown.period != null ? (
-                  <><span className="brand-text-muted"> · </span><span className="font-semibold tabular-nums">{breakdown.minutes == null ? "no patients called" : minutes(breakdown.minutes)}</span></>
-                ) : null}
-                <span className="block text-[11px] brand-text-muted mt-0.5">
-                  {patients(breakdown.samples)} called
-                  {breakdown.period == null ? ` · hover or tap the chart to see one ${word}` : ""}
-                </span>
-              </span>
-            </button>
-            {breakdown.toggleable ? (
-              <div className="flex flex-wrap items-center gap-1 text-xs">
-                <button type="button" className={TOGGLE_BUTTON} disabled={!hidden.length} onClick={() => setHidden(NO_SERVICES_HIDDEN)}>Show all</button>
-                <button type="button" className={TOGGLE_BUTTON} disabled={services.every((key) => hidden.includes(key))}
-                  onClick={() => setHidden((list) => [...list.filter((key) => key === WAIT_ALL), ...services])}>Hide all services</button>
-              </div>
-            ) : null}
-          </div>
-          {breakdown.toggleable ? (
-            <>
-              <ul className="m-0 p-0 list-none grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(10.5rem, 1fr))" }}>
-                {breakdown.rows.map((row) => {
-                  const off = hidden.includes(row.service);
-                  return (
-                    <li key={row.service} className="min-w-0">
-                      <button type="button" aria-pressed={!off} title={`${off ? "Show" : "Hide"} the ${row.label} line`}
-                        className={`w-full h-full flex items-center gap-2 rounded-md border brand-border px-2 py-1.5 text-left hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-700 ${off ? "opacity-60" : ""}`}
-                        onClick={() => toggle(row.service)} onMouseEnter={() => setFocus(off ? null : row.service)} onMouseLeave={() => setFocus(null)}
-                        onFocus={() => setFocus(off ? null : row.service)} onBlur={() => setFocus(null)}>
-                        <LineSwatch hue={row.hue} dash={row.dash} />
-                        <span className="flex-1 min-w-0">
-                          <span className={`block text-xs leading-tight break-words ${off ? "line-through brand-text-muted" : "brand-text"}`}>{row.label}</span>
-                          <span className="block text-[11px] leading-tight mt-0.5 tabular-nums">
-                            <span className={row.minutes == null ? "brand-text-muted" : "font-semibold brand-text"}>{minutes(row.minutes)}</span>
-                            <span className="brand-text-muted"> · {patients(row.samples)}</span>
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              <p className="text-[11px] brand-text-muted mt-2 mb-0">
-                Select a line to show or hide it; point at a service to highlight it. The minutes axis rescales to the lines shown, so hiding services with long waits makes shorter waits easier to read.
-              </p>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </Card>
-  );
-}
 
 // The Unassigned group: visits with no doctor recorded, shown beside the doctor bars with the same
 // outcome colours. Its counts are the payload's; nothing is reassigned or hidden.
@@ -318,9 +217,6 @@ function DoctorPerformancePanel({ volumes }) {
 function PerformanceSections({ insights }) {
   return (
     <>
-      <Section title="Customer Experience" description="How long patients wait to be called.">
-        <WaitTrendPanel trends={insights.trends} waitStats={insights.wait} />
-      </Section>
       <Section title="Staff and Operational Efficiency" description="Patients handled by each doctor.">
         <DoctorPerformancePanel volumes={insights.volumes} />
       </Section>

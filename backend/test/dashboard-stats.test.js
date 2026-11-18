@@ -25,13 +25,27 @@ function load(relative, imports, clock) {
 }
 
 function harness(patients = [], now = "2026-10-15T03:00:00.000Z") {
-  const clock = { now: Date.parse(now) }, calls = [];
-  let unavailable = false;
+  const clock = { now: Date.parse(now) }, calls = [], countQueries = [];
+  let unavailable = false, missingConfirmationColumns = false;
   const supabase = { from(table) {
     assert.equal(table, "patients");
-    const query = { filters: [], select() { return this; },
-      gte(column, value) { this.column = column; this.filters.push(row => Date.parse(row[column]) >= Date.parse(value)); return this; },
+    const query = { filters: [], conditions: [],
+      select(columns, options) { this.columns = columns; this.options = options; return this; },
+      gte(column, value) { this.column = column; this.conditions.push(["gte", column, value]); this.filters.push(row => Date.parse(row[column]) >= Date.parse(value)); return this; },
       lte(column, value) { this.filters.push(row => Date.parse(row[column]) <= Date.parse(value)); return this; },
+      lt(column, value) { this.conditions.push(["lt", column, value]); this.filters.push(row => Date.parse(row[column]) < Date.parse(value)); return this; },
+      eq(column, value) { this.conditions.push(["eq", column, value]); this.filters.push(row => row[column] === value); return this; },
+      is(column, value) { this.conditions.push(["is", column, value]); this.filters.push(row => (row[column] ?? null) === value); return this; },
+      // A head/count query (select(..., { count: "exact", head: true })) is awaited directly.
+      then(resolve, reject) {
+        if (!this.options?.head) return reject(new Error("Only head count queries are awaited directly"));
+        countQueries.push({ columns: this.columns, options: this.options, conditions: this.conditions });
+        if (unavailable) return resolve({ data: null, count: null, error: { message: "Database read failed" } });
+        if (missingConfirmationColumns && this.conditions.some(([, column]) => column === "confirmed_at")) {
+          return resolve({ data: null, count: null, error: { code: "42703", message: "column patients.confirmed_at does not exist" } });
+        }
+        return resolve({ data: null, count: patients.filter(row => this.filters.every(filter => filter(row))).length, error: null });
+      },
       order(column, options) { assert.equal(column, "id"); assert.equal(options.ascending, true); return this; },
       async range(start, end) {
         calls.push({ column: this.column, start, end });
@@ -48,7 +62,8 @@ function harness(patients = [], now = "2026-10-15T03:00:00.000Z") {
     "../config/env": { supabaseUrl: "https://isolated.test", supabaseServiceRoleKey: "isolated-test-key" },
     "node:crypto": crypto, bcryptjs: {}, "./notificationService": {}, "./settingsService": {}
   }, clock);
-  return { service, patients, calls, clock, setUnavailable() { unavailable = true; } };
+  return { service, patients, calls, countQueries, clock, setUnavailable() { unavailable = true; },
+    setMissingConfirmationColumns() { missingConfirmationColumns = true; } };
 }
 
 function patient(id, overrides = {}) {
@@ -185,4 +200,70 @@ test("dashboard endpoint requires authenticated Superadmin, disables cache and p
   assert.deepEqual((await request("/stats")).body, { success: true, data: { waiting: 7 } });
   h.setUnavailable();
   assert.equal((await request("/stats/dashboard", "superadmin")).statusCode, 503);
+});
+
+// Waiting Patients (Superadmin overview card 5): visits awaiting Front Desk confirmation.
+const pending = (id, overrides = {}) => patient(id, { source: "website", confirmed_at: null, ...overrides });
+const confirmed = { confirmed_at: "2026-10-15T00:30:00Z", confirmed_by: "frontdesk" };
+
+test("waiting patients count only today's waiting visits without a Front Desk confirmation", async () => {
+  const h = harness([]);
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 0, "no pending registrations");
+  h.patients.push(pending(1));
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 1, "a new registration starts pending");
+  h.patients.push(pending(2, { created_at: "2026-10-15T01:00:00Z" }), pending(3, { created_at: "2026-10-15T02:30:00Z", counter_id: "Doctor 2" }));
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 3, "multiple pending registrations");
+  Object.assign(h.patients[0], confirmed, { confirmed_for: "Doctor 1" });
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 2, "confirming one decreases the count");
+  Object.assign(h.patients[0], { status: "serving", called_at: "2026-10-15T01:10:00Z", counter_id: "Doctor 1" });
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 2, "a called patient is not counted");
+  Object.assign(h.patients[0], { consultation_started_at: "2026-10-15T01:11:00Z" });
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 2, "a patient in consultation is not counted");
+  Object.assign(h.patients[0], { status: "completed", completed_at: "2026-10-15T01:20:00Z" });
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 2, "a completed visit is not counted");
+  Object.assign(h.patients[1], { status: "cancelled", reason: "Left the clinic" });
+  assert.equal((await h.service.getDashboardStats()).awaiting_confirmation, 1, "cancelling a pending visit decreases the count");
+  const stats = clone(await h.service.getDashboardStats());
+  assert.deepEqual(stats.today, { total_tokens: 3, served_tokens: 1, average_wait_minutes: 70, wait_samples: 1, walk_ins: 0 },
+    "the other dashboard metrics are unchanged by the new count");
+});
+
+test("waiting patients exclude confirmed waiting, serving, completed, cancelled and earlier-day visits", async () => {
+  const h = harness([
+    pending(1),                                                                      // counted
+    pending(2, { counter_id: null }),                                                // awaiting reassignment: counted
+    pending(3, { ...confirmed, confirmed_for: "Doctor 1", counter_id: "Doctor 1" }), // confirmed, waiting for the doctor
+    pending(4, { ...confirmed, status: "serving", called_at: "2026-10-15T01:00:00Z" }),
+    pending(5, { ...confirmed, status: "completed", called_at: "2026-10-15T01:00:00Z", completed_at: "2026-10-15T01:05:00Z" }),
+    pending(6, { status: "cancelled" }),                                             // cancelled while pending
+    pending(7, { created_at: "2026-10-14T15:59:59.999Z" }),                         // yesterday (Manila): no longer confirmable
+    pending(8, { created_at: "2026-10-12T02:00:00Z" }),
+    pending(9, { created_at: "2026-10-14T16:00:00Z" }),                             // Manila midnight: today, counted
+    pending(10, { created_at: "2026-10-15T16:00:00Z" })                             // tomorrow (Manila): not today
+  ]);
+  const stats = await h.service.getDashboardStats();
+  assert.equal(stats.awaiting_confirmation, 3);
+  // One read-only count: no patient rows or identifying columns are transferred.
+  assert.equal(h.countQueries.length, 1);
+  assert.deepEqual(clone(h.countQueries[0].options), { count: "exact", head: true });
+  assert.equal(h.countQueries[0].columns, "id");
+  assert.deepEqual(clone(h.countQueries[0].conditions), [
+    ["eq", "status", "waiting"], ["is", "confirmed_at", null],
+    ["gte", "created_at", "2026-10-14T16:00:00.000Z"], ["lt", "created_at", "2026-10-15T16:00:00.000Z"]
+  ]);
+});
+
+test("waiting patients is null without the FC1 columns while the other metrics still load", async () => {
+  const h = harness([pending(1)]);
+  h.setMissingConfirmationColumns();
+  const stats = await h.service.getDashboardStats();
+  assert.equal(stats.awaiting_confirmation, null);
+  assert.equal(stats.today.total_tokens, 1);
+});
+
+test("a failed waiting patients count fails the dashboard closed like the other metrics", async () => {
+  const h = harness([pending(1)]);
+  h.setUnavailable();
+  await assert.rejects(h.service.getDashboardStats(), error => error.statusCode === 503);
+  assert.equal(h.countQueries.length, 1);
 });

@@ -22,9 +22,6 @@ import {
   isAwaitingConfirmation,
   isConfirmableNow,
   isConfirmedWaiting,
-  isNotPresent,
-  NOT_PRESENT_CLASS,
-  NOT_PRESENT_LABEL,
   isDoctorOnline,
   isUnassigned,
   matchesQueueSearch,
@@ -51,7 +48,7 @@ export const SHARED_DISPATCH = "shared";
 export const SHARED_ASSIGNMENT = "All services";
 const SHARED_LANE = "Shared queue";
 
-const STATUS_RANK = { serving: 0, waiting: 1, cancelled: 2, "no-show": 2, completed: 3 };
+const STATUS_RANK = { serving: 0, waiting: 1, cancelled: 2, completed: 3 };
 
 // Service-to-doctor routing, counters, badges, search and time formatting are shared with the
 // Superadmin Queue Management table (lib/queueView.js); the actions below are this page's own.
@@ -67,31 +64,18 @@ function compareQueue(a, b) {
     new Date(a.created_at) - new Date(b.created_at) || Number(a.id) - Number(b.id);
 }
 
-// Same rules as the Doctor "My Queue Management" list: waiting/serving patients plus
-// cancellations still inside the Undo window (hidden once the doctor calls the next patient).
+// Same rules as the Doctor "My Queue Management" list: waiting/serving patients. A cancellation
+// is permanent, so it leaves the active queue at once (see the Cancelled filter).
 function buildActiveQueue(queueRows, doctorName, shared = false) {
-  const queue = (queueRows ?? []).filter((row) => {
-    return ["waiting", "serving", "cancelled", "no-show"].includes(row.status) && belongsToDoctor(row, doctorName, shared);
-  });
-
-  const hasActiveServing = queue.some((row) => row.status === "serving");
-
-  const rows = queue.filter((row) => {
-    if (row.status === "cancelled") return !hasActiveServing;
-    return true;
-  });
-
-  return rows.slice().sort(compareQueue);
+  return (queueRows ?? [])
+    .filter((row) => ["waiting", "serving"].includes(row.status) && belongsToDoctor(row, doctorName, shared))
+    .sort(compareQueue);
 }
 
-// Unassigned waiting visits, plus cancellations/no-shows of visits nobody called, kept in view
-// until the next patient is called (the shared-lane equivalent of the doctor's active list).
+// Unassigned waiting visits (the shared-lane equivalent of the doctor's active list). A
+// cancellation is permanent, so it leaves the shared lane at once.
 function buildSharedQueue(queueRows) {
-  const rows = queueRows ?? [];
-  const lastCall = Math.max(0, ...rows.map((row) => Date.parse(row.called_at) || 0));
-  return rows.filter((row) => isUnassigned(row) && (row.status === "waiting" ||
-    (["cancelled", "no-show"].includes(row.status) && (Date.parse(row.completed_at) || 0) >= lastCall)))
-    .sort(compareQueue);
+  return (queueRows ?? []).filter((row) => isUnassigned(row) && row.status === "waiting").sort(compareQueue);
 }
 
 const COLUMN_WIDTHS = ["9%", "20%", "12%", "14%", "8%", "10%", "9%", "18%"];
@@ -225,18 +209,6 @@ export default function PatientQueueTable({
     }
   }
 
-  // OC1: the Not Present action was removed from this page (2026-11-13). A patient already set
-  // aside can still be returned; it rejoins at the original place and never interrupts a patient
-  // being served.
-  function handlePresent(row, doctorName) {
-    if (!canConfirm || !isNotPresent(row)) return;
-    onConfirm({
-      title: "Mark Present",
-      message: `${row.id_num} (${row.queue_number}) is back? The patient returns to the original place in the queue and can be confirmed when it is their turn.`,
-      onConfirm: () => postAction(laneName(doctorName), "/queue/present", { patient_id: row.id }, "Patient marked present")
-    });
-  }
-
   // A visit pending confirmation (for example, a patient who left) can be cancelled at any time.
   function handlePendingCancel(row, doctorName) {
     if (!isAwaitingConfirmation(row)) return;
@@ -253,28 +225,6 @@ export default function PatientQueueTable({
   function renderPendingActions(row, doctorName) {
     if (!canConfirm) {
       return <span className="text-[11px] brand-text-muted font-semibold italic px-1">{CONFIRMATION_AWAITING_LABEL}</span>;
-    }
-    if (isNotPresent(row)) {
-      return (
-        <>
-          <button
-            type="button"
-            onClick={() => handlePresent(row, doctorName)}
-            aria-label={`Mark patient ${row.queue_number} present`}
-            className="px-3 py-1.5 brand-button rounded-lg text-xs font-bold transition-colors shadow-sm"
-          >
-            <i className="fas fa-user-clock me-1" aria-hidden="true" />
-            Mark Present
-          </button>
-          <button
-            type="button"
-            onClick={() => handlePendingCancel(row, doctorName)}
-            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors shadow-sm"
-          >
-            Cancel
-          </button>
-        </>
-      );
     }
     return (
       <>
@@ -470,8 +420,7 @@ export default function PatientQueueTable({
                           <i className="fas fa-birthday-cake me-1" />
                           {formatQueueDate(row.birthdate)}
                         </span>
-                      )}
-                      {row.mobile_number && (
+                      )}                      {row.mobile_number && (
                         <span className="text-[10px] brand-text-muted">
                           <i className="fas fa-phone-alt me-1" /> {row.mobile_number}
                         </span>
@@ -525,14 +474,6 @@ export default function PatientQueueTable({
                       <div className="mt-1.5" data-confirmation={isAwaitingConfirmation(row) ? "pending" : "confirmed"}>
                         <span title={confirmationDetail(row)} className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isAwaitingConfirmation(row) ? CONFIRMATION_PENDING_CLASS : CONFIRMATION_CONFIRMED_CLASS}`}>
                           {isAwaitingConfirmation(row) ? CONFIRMATION_PENDING_LABEL : "Confirmed"}
-                        </span>
-                      </div>
-                    ) : null}
-                    {isNotPresent(row) && !row.isOptimistic ? (
-                      <div className="mt-1" data-presence="not-present">
-                        <span title={`Marked Not Present${row.not_present_by ? ` by ${row.not_present_by}` : ""} at ${formatQueueTime(row.not_present_at)}`}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${NOT_PRESENT_CLASS}`}>
-                          {NOT_PRESENT_LABEL}
                         </span>
                       </div>
                     ) : null}
